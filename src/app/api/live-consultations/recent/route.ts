@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { jsonError, parseJson, RequestValidationError } from "../../_shared";
+import { publicSnapshotsEnabled } from "@/lib/flags";
 
 const ProductSchema = z.object({
   id: z.string(),
@@ -28,6 +29,9 @@ const RecentSchema = z.object({
 });
 
 export async function GET(request: Request) {
+  if (!publicSnapshotsEnabled()) {
+    return NextResponse.json({ consultations: [], page: 1, limit: 10, hasMore: false, total: 0 });
+  }
   const url = new URL(request.url);
   const page = Math.max(1, Number(url.searchParams.get("page") ?? 1));
   const limit = 10;
@@ -61,6 +65,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (!publicSnapshotsEnabled()) {
+    return jsonError("Public consultation snapshots are disabled.", 404);
+  }
   try {
     const input = await parseJson(request, RecentSchema);
     const supabase = getSupabaseAdmin();

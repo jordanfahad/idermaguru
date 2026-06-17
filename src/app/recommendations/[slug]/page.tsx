@@ -7,6 +7,8 @@ import {
 } from "@/lib/recommendations";
 import { getProductById } from "@/lib/products";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { notFound } from "next/navigation";
+import { isSnapshotSlug, publicSnapshotsEnabled } from "@/lib/flags";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -14,6 +16,9 @@ type Props = {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
+  if (isSnapshotSlug(slug) && !publicSnapshotsEnabled()) {
+    return { title: "Consultation not available", robots: { index: false, follow: false } };
+  }
   const recommendation = await getRecommendation(slug);
 
   return {
@@ -24,11 +29,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description: recommendation.seoDescription,
       type: "article",
     },
+    ...(isSnapshotSlug(slug) ? { robots: { index: false, follow: false } } : {}),
   };
 }
 
 export default async function RecommendationPage({ params }: Props) {
   const { slug } = await params;
+  if (isSnapshotSlug(slug) && !publicSnapshotsEnabled()) notFound();
   const recommendation = await getRecommendation(slug);
 
   return (
