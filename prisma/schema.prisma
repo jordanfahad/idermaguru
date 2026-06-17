@@ -1,0 +1,293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum SafetyLevel {
+  LOW
+  CAUTION
+  REFER_CLINIC
+  URGENT
+}
+
+enum SessionStatus {
+  STARTED
+  INTAKE_IN_PROGRESS
+  RECOMMENDED
+  REFERRED
+  COMPLETED
+  DELETED
+}
+
+enum PregnancySafety {
+  UNKNOWN
+  AVOID
+  CAUTION
+  GENERALLY_ACCEPTED
+}
+
+enum EventType {
+  SESSION_STARTED
+  CONSENT_ACCEPTED
+  IMAGE_UPLOADED
+  INTAKE_COMPLETED
+  RED_FLAG_DETECTED
+  RECOMMENDATION_VIEWED
+  PRODUCT_IMPRESSION
+  PRODUCT_CLICK
+  ADD_TO_CART
+  CHECKOUT_STARTED
+  PURCHASE_COMPLETED
+}
+
+model Tenant {
+  id             String         @id @default(cuid())
+  slug           String         @unique
+  name           String
+  domain         String
+  disclosureText String
+  brandVoice     String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  plans          MerchantPlan[]
+  sessions       UserSession[]
+  products       Product[]
+  recommendations Recommendation[]
+  events         Event[]
+  conversions    Conversion[]
+
+  @@index([slug])
+}
+
+model MerchantPlan {
+  id               String   @id @default(cuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planName         String
+  monthlyPrice     Decimal  @db.Decimal(10, 2)
+  usageLimit       Int
+  cpcEnabled       Boolean  @default(false)
+  cpaEnabled       Boolean  @default(false)
+  sponsoredEnabled Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+model UserSession {
+  id              String               @id @default(cuid())
+  tenantId        String
+  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  anonymousUserId String
+  status          SessionStatus        @default(STARTED)
+  startedAt       DateTime             @default(now())
+  completedAt     DateTime?
+  locale          String?
+  country         String?
+  sourceUrl       String?
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  referrer        String?
+  consents        ConsentRecord[]
+  uploadedImages  UploadedImage[]
+  intakeProfile   IntakeProfile?
+  safetyResults   SafetyTriageResult[]
+  recommendations Recommendation[]
+  events          Event[]
+  conversions     Conversion[]
+
+  @@index([tenantId, startedAt])
+  @@index([anonymousUserId])
+}
+
+model ConsentRecord {
+  id          String          @id @default(cuid())
+  sessionId   String
+  session     UserSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  consentType String
+  consentText String
+  accepted    Boolean
+  acceptedAt  DateTime        @default(now())
+  ipHash      String?
+  userAgent   String?
+  images      UploadedImage[]
+
+  @@index([sessionId])
+}
+
+model UploadedImage {
+  id              String        @id @default(cuid())
+  sessionId       String
+  session         UserSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  storageKey      String
+  mimeType        String
+  sizeBytes       Int
+  consentRecordId String
+  consentRecord   ConsentRecord @relation(fields: [consentRecordId], references: [id], onDelete: Restrict)
+  deletedAt       DateTime?
+  createdAt       DateTime      @default(now())
+
+  @@index([sessionId])
+  @@index([deletedAt])
+}
+
+model IntakeProfile {
+  id                       String      @id @default(cuid())
+  sessionId                String      @unique
+  session                  UserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  ageRange                 String?
+  country                  String?
+  mainConcern              String
+  secondaryConcerns        Json        @default("[]")
+  skinType                 String?
+  sensitivity              String?
+  pregnantOrBreastfeeding  Boolean     @default(false)
+  allergies                Json        @default("[]")
+  currentProducts          Json        @default("[]")
+  currentActives           Json        @default("[]")
+  prescriptionUse          Boolean     @default(false)
+  severitySelfRated        Int?
+  duration                 String?
+  symptoms                 Json        @default("[]")
+  budgetMin                Decimal?    @db.Decimal(10, 2)
+  budgetMax                Decimal?    @db.Decimal(10, 2)
+  routinePreference        String?
+  fragrancePreference      String?
+  texturePreference        String?
+  sunscreenUse             String?
+  previousIrritationHistory String?
+  createdAt                DateTime    @default(now())
+}
+
+model Product {
+  id                    String               @id @default(cuid())
+  tenantId              String
+  tenant                Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sku                   String
+  name                  String
+  brand                 String
+  category              String
+  description           String
+  url                   String
+  imageUrl              String?
+  price                 Decimal              @db.Decimal(10, 2)
+  currency              String               @default("AED")
+  inStock               Boolean              @default(true)
+  ingredientsJson       Json                 @default("[]")
+  activeIngredientsJson Json                 @default("[]")
+  skinTypesJson         Json                 @default("[]")
+  concernsJson          Json                 @default("[]")
+  avoidIfJson           Json                 @default("[]")
+  pregnancySafety       PregnancySafety      @default(UNKNOWN)
+  fragranceFree         Boolean              @default(false)
+  nonComedogenic        Boolean              @default(false)
+  sensitiveSkinSuitable Boolean              @default(false)
+  claimsJson            Json                 @default("[]")
+  approvedClaimsJson    Json                 @default("[]")
+  merchantPriority      Int                  @default(0)
+  sponsoredBidCpc       Decimal              @default(0) @db.Decimal(10, 2)
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  recommendationItems   RecommendationItem[]
+  events                Event[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, inStock])
+}
+
+model SafetyTriageResult {
+  id                    String           @id @default(cuid())
+  sessionId             String
+  session               UserSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  level                 SafetyLevel
+  reasonsJson           Json             @default("[]")
+  recommendationAllowed Boolean
+  referralMessage       String?
+  createdAt             DateTime         @default(now())
+  recommendations       Recommendation[]
+
+  @@index([sessionId, createdAt])
+}
+
+model Recommendation {
+  id                   String               @id @default(cuid())
+  sessionId            String
+  session              UserSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tenantId             String
+  tenant               Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  safetyTriageResultId String
+  safetyTriageResult   SafetyTriageResult   @relation(fields: [safetyTriageResultId], references: [id], onDelete: Restrict)
+  summary              String
+  routineJson          Json                 @default("{}")
+  disclosureText       String
+  createdAt            DateTime             @default(now())
+  items                RecommendationItem[]
+  events               Event[]
+
+  @@index([tenantId, createdAt])
+  @@index([sessionId])
+}
+
+model RecommendationItem {
+  id               String         @id @default(cuid())
+  recommendationId String
+  recommendation   Recommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+  productId        String
+  product          Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  slot             String
+  score            Decimal        @db.Decimal(6, 4)
+  reason           String
+  cautionsJson     Json           @default("[]")
+  sponsored        Boolean        @default(false)
+  rank             Int
+  events           Event[]
+
+  @@index([recommendationId, rank])
+  @@index([productId])
+}
+
+model Event {
+  id                   String              @id @default(cuid())
+  tenantId             String
+  tenant               Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessionId            String?
+  session              UserSession?        @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  type                 EventType
+  productId            String?
+  product              Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+  recommendationId     String?
+  recommendation       Recommendation?     @relation(fields: [recommendationId], references: [id], onDelete: SetNull)
+  recommendationItemId String?
+  recommendationItem   RecommendationItem? @relation(fields: [recommendationItemId], references: [id], onDelete: SetNull)
+  metadataJson         Json                @default("{}")
+  createdAt            DateTime            @default(now())
+  conversions          Conversion[]        @relation("ClickEventConversions")
+
+  @@index([tenantId, type, createdAt])
+  @@index([sessionId])
+}
+
+model Conversion {
+  id           String       @id @default(cuid())
+  tenantId     String
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessionId    String?
+  session      UserSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  clickEventId String?
+  clickEvent   Event?       @relation("ClickEventConversions", fields: [clickEventId], references: [id], onDelete: SetNull)
+  orderId      String
+  revenue      Decimal      @db.Decimal(12, 2)
+  currency     String       @default("AED")
+  metadataJson Json         @default("{}")
+  createdAt    DateTime     @default(now())
+
+  @@unique([tenantId, orderId])
+  @@index([tenantId, createdAt])
+}
