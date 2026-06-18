@@ -126,18 +126,32 @@ The seed script creates:
 
 ## Widget Embed Target
 
-Future CDN embed target:
+The embeddable advisor ships as a native Web Component (`public/dermaguru-widget.js`). It mounts a
+`<dermaguru-widget>` custom element using **Shadow DOM**, so the host store's CSS cannot bleed into the
+widget and the widget's CSS cannot leak onto the store. Initial JS is ~7KB gzipped, it lazy-builds the
+panel on first open, uses fixed positioning (no layout shift), and supports full RTL/Arabic. Brand
+tokens are passed via `data-*` attributes and injected as CSS custom properties; the tenant name and
+safety disclaimer are fetched from `GET /api/widget/config`.
 
 ```html
 <script
-  src="https://your-domain.com/skin-advisor-widget.js"
+  async
+  src="https://your-domain.com/dermaguru-widget.js"
   data-tenant="ai-derma-guru"
-  data-theme="light"
+  data-position="bottom-right"
+  data-primary="#1f6f5c"
   data-locale="en"
 ></script>
 ```
 
-For local development, use `/widget-demo`.
+- RTL/Arabic: add `data-locale="ar"` (or `data-rtl="true"`).
+- Branding: `data-primary`, `data-on-primary`, `data-radius`, `data-font`, `data-title`.
+- Hostile CSP / no Shadow DOM: add `data-mode="iframe"` (the loader also auto-falls back to the
+  `/embed` iframe). The older `skin-advisor-widget.js` iframe loader remains for compatibility.
+
+The widget calls cross-origin endpoints (`/api/widget/config`, `/api/chat/*`, `/api/recommendations`,
+`/api/events/*`), which send permissive CORS headers via `proxy.ts`. For a local preview open
+`/dermaguru-widget-demo.html` (a mock store) or use `/widget-demo`.
 
 ## Safety Architecture
 
