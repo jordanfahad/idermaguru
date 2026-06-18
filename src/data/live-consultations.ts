@@ -40,7 +40,7 @@ export type LiveConsultationConfig = {
 export const liveConsultationOne: LiveConsultationConfig = {
   id: "1",
   slug: "live-consultation-1",
-  title: "Consult our in-house AI dermatologist for best skin care routine and skin care products.",
+  title: "Consult our AI skin advisor for your best OTC skincare routine and product matches.",
   subtitle:
     "A curated, merchant-controlled OTC skincare consultation page for routine bundles, slow-moving product pushes, and partner traffic routing.",
   primaryVendor: "Cicabelle",

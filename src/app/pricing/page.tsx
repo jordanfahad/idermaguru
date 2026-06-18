@@ -5,7 +5,7 @@ import { PLANS } from "@/lib/plans";
 import { SubscribeButton } from "@/components/subscribe-button";
 
 export const metadata: Metadata = {
-  title: "Pricing — Add the AI dermatologist widget to your store | AI Derma Guru",
+  title: "Pricing — Add the AI skin advisor widget to your store | AI Derma Guru",
   description:
     "Embed the AI skin consultation widget on Shopify and any store. Turn browsers into personalized routines and matched products. Simple monthly plans.",
 };
@@ -62,7 +62,7 @@ export default function PricingPage() {
           For brands, creators, clinics & agencies
         </span>
         <h1>
-          Put an <span className="prc-grad">AI dermatologist</span> on your store.
+          Put an <span className="prc-grad">AI skin advisor</span> on your store.
         </h1>
         <p className="prc-lead">
           Embed the AI skin consultation widget on Shopify or any site. Shoppers describe a concern and get a

@@ -57,7 +57,7 @@ export default async function BillingSuccessPage({
           )}
         </p>
         <p className="prc-success-next">
-          Next: we&rsquo;ll email you the embed snippet and onboarding steps to add the AI dermatologist widget to
+          Next: we&rsquo;ll email you the embed snippet and onboarding steps to add the AI skin advisor widget to
           your store. Want it faster? Reply to your receipt or contact{" "}
           <a href="mailto:hello@idermaguru.com">hello@idermaguru.com</a>.
         </p>

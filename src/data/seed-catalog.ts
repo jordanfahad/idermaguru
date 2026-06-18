@@ -7,7 +7,7 @@ import {
 export const seedTenant: TenantConfig = {
   id: "tenant_ai_derma_guru",
   slug: "ai-derma-guru",
-  name: "AI Cosmetologist / AI Derma Guru",
+  name: "AI Derma Guru",
   domain: "aiderma.guru",
   disclosureText: CUSTOMER_DISCLAIMER,
   brandVoice: "Friendly, premium, conservative, skincare-literate, and conversion-aware.",

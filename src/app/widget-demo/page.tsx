@@ -9,7 +9,7 @@ export default function WidgetDemoPage() {
       <section className="merchant-hero">
         <p className="eyebrow">Merchant storefront simulation</p>
         <h1>AI Derma Guru shop preview</h1>
-        <p>Shop gentle OTC routines with an embedded AI Cosmetologist widget.</p>
+        <p>Shop gentle OTC routines with an embedded AI skin advisor widget.</p>
       </section>
       <section className="merchant-grid">
         {showcase.map((product) => (

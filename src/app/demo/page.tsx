@@ -5,7 +5,7 @@ export default function DemoPage() {
   return (
     <main className="plain-page">
       <header>
-        <p className="eyebrow">AI Cosmetologist / AI Derma Guru demo</p>
+        <p className="eyebrow">AI Skin Advisor / AI Derma Guru demo</p>
         <h1>Scanner-style OTC skincare recommendations.</h1>
         <p className="lead">
           A multi-tenant SaaS widget for conservative skincare guidance, catalog-safe product discovery,

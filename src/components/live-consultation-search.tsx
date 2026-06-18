@@ -48,12 +48,12 @@ const defaultSearches = [
 const copy = {
   en: {
     livePill: "Live consultation 1",
-    title: "Consult our in-house AI dermatologist for best skin care routine and skin care products.",
+    title: "Consult our AI skin advisor for your best OTC skincare routine and product matches.",
     placeholder: "Tell us your skin goal, concern, budget, or product vibe...",
     start: "Start consultation",
     note: "OTC cosmetic guidance only. This does not diagnose, prescribe, or replace medical care.",
     recentSearches: "Recent searches",
-    formTitle: "AI Cosmetologist",
+    formTitle: "AI Skin Advisor",
     mainConcern: "Main concern",
     ageRange: "Age range",
     country: "Country",
@@ -94,7 +94,7 @@ const copy = {
     start: "ابدأ الاستشارة",
     note: "إرشادات تجميلية ومنتجات بدون وصفة فقط. لا يشخص أو يصف علاجاً ولا يستبدل الطبيب.",
     recentSearches: "عمليات بحث حديثة",
-    formTitle: "خبير تجميل ذكي",
+    formTitle: "مستشار البشرة الذكي",
     mainConcern: "المشكلة الرئيسية",
     ageRange: "الفئة العمرية",
     country: "الدولة",
@@ -132,9 +132,9 @@ const copy = {
 
 const marketing = {
   en: {
-    heroEyebrow: "AI Dermatologist · Live",
+    heroEyebrow: "AI Skin Advisor · Live",
     heroTitleA: "Meet your AI",
-    heroTitleB: "dermatologist.",
+    heroTitleB: "skin advisor.",
     heroLead:
       "Tell us one skin concern and get a personalized routine with products matched to your skin — in seconds.",
     examplePrefix: "Try:",
@@ -144,9 +144,9 @@ const marketing = {
     footerLinks: "Privacy · Terms · Cosmetic guidance only",
   },
   ar: {
-    heroEyebrow: "طبيب الجلدية الذكي · مباشر",
-    heroTitleA: "تعرّف على طبيب",
-    heroTitleB: "الجلدية الذكي.",
+    heroEyebrow: "مستشار البشرة الذكي · مباشر",
+    heroTitleA: "تعرّف على مستشار",
+    heroTitleB: "البشرة الذكي.",
     heroLead:
       "أخبرنا بمشكلة بشرتك واحصل على روتين مخصص مع منتجات مناسبة لبشرتك — خلال ثوانٍ.",
     examplePrefix: "مثال:",

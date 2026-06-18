@@ -11,7 +11,7 @@ export const locales = {
       privacy: "Privacy",
       terms: "Terms",
     },
-    brand: "AI Cosmetologist",
+    brand: "AI Skin Advisor",
     secondaryBrand: "AI Derma Guru",
     heroTitle: "AI-powered OTC skincare routines for safer product discovery.",
     heroText:

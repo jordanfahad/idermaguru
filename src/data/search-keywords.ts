@@ -100,7 +100,7 @@ export const acceptedSearchKeywordGroups = {
     "Best face wash for men",
     "Products for sensitive skin",
     "How to get glowing skin",
-    "Dermatologist recommended products",
+    "Fragrance-free routine for sensitive skin",
   ],
   arabicSearches: [
     "أفضل سيروم للحبوب",

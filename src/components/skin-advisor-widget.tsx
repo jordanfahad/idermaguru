@@ -119,7 +119,7 @@ export function SkinAdvisorWidget({ tenantSlug = "ai-derma-guru", mode = "embedd
       <div className="widget-header">
         <div>
           <p className="eyebrow">AI Derma Guru</p>
-          <h2>AI Cosmetologist</h2>
+          <h2>AI Skin Advisor</h2>
         </div>
         {mode === "embedded" ? (
           <button className="icon-only" type="button" onClick={() => setOpen(false)} aria-label="Close advisor">

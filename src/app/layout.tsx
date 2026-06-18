@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI Cosmetologist | AI Derma Guru",
+  title: "AI Skin Advisor | AI Derma Guru",
   description:
-    "A bilingual AI cosmetologist and OTC skincare product discovery platform with safety-first recommendations.",
+    "A bilingual AI skin advisor and OTC skincare product discovery platform with safety-first recommendations.",
 };
 
 export default function RootLayout({
