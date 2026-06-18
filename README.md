@@ -188,6 +188,26 @@ final_score =
 Commercial boost is capped, never overrides safety filters, and sponsored products are visibly
 disclosed.
 
+## Multi-tenant isolation & semantic search
+
+`supabase/migrations/002_tenant_rls_and_pgvector.sql` layers strict tenant isolation and pgvector
+search onto the Prisma-owned tables:
+
+- **Row-Level Security** on every tenant-scoped table (`Tenant`, `Product`, `UserSession`,
+  `Recommendation`, `Event`, `Conversion`, …) plus session/recommendation children. Policies key off
+  the per-request GUC `app.current_tenant_id`, so a connection that hasn't set it sees no tenant rows
+  (fail-closed). RLS is **enabled but not forced**, so the existing Prisma owner connection keeps
+  working; to enforce isolation, route tenant traffic through a non-owner role and wrap queries in
+  `withTenantContext()` (`src/lib/tenant-context.ts`). For a Supabase-JWT deployment, swap the GUC
+  comparison for `auth.jwt() ->> 'tenant_id'`.
+- **pgvector** embeddings on `Product` and a curated `kb_chunks` knowledge base (global rows +
+  optional per-tenant overrides), with `match_products` / `match_kb_chunks` RPCs for cosine
+  similarity retrieval. Dimension defaults to 1536 (OpenAI `text-embedding-3-small`).
+
+Apply Prisma migrations first, then this SQL migration (it intentionally manages the pgvector
+columns/tables outside the Prisma schema). The embedding columns stay empty until an ingestion job
+populates them; the deterministic engine remains the grounding source until then.
+
 ## Tests
 
 ```bash
