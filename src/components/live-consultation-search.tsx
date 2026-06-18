@@ -745,6 +745,25 @@ export function LiveConsultationSearch({
                         <div>
                           <strong>{translateSlot(product.routineSlot, language)}</strong>
                           <h3>{product.name}</h3>
+                          {isSponsoredPlacement(product) ? (
+                            <span
+                              className="sponsored-badge"
+                              style={{
+                                display: "inline-block",
+                                fontSize: "0.68rem",
+                                fontWeight: 700,
+                                textTransform: "uppercase",
+                                letterSpacing: "0.05em",
+                                padding: "2px 8px",
+                                borderRadius: "999px",
+                                background: "#efe9f6",
+                                color: "#6b4ea0",
+                                marginBottom: "6px",
+                              }}
+                            >
+                              {language === "ar" ? "مموَّل" : "Sponsored"}
+                            </span>
+                          ) : null}
                           {product.discoveryOnly ? (
                             <p className="lookup-only-note">{c.lookupOnly}</p>
                           ) : (
@@ -791,6 +810,13 @@ export function LiveConsultationSearch({
                         </div>
                       </article>
                     ))}
+                    {result.curatedProducts.some(isSponsoredPlacement) ? (
+                      <p className="sponsored-disclosure" style={{ fontSize: "0.8rem", color: "#777", marginTop: "8px" }}>
+                        {language === "ar"
+                          ? "بعض النتائج ممولة من شركاء. تخضع لنفس فلاتر السلامة ولا تتجاوزها."
+                          : "Some results are sponsored partner placements. They pass the same safety filters and never override them."}
+                      </p>
+                    ) : null}
                   </>
                 ) : (
                   <article className="live-referral-result">
@@ -1233,6 +1259,12 @@ function hasSelectedEquivalentForDiscoveryProduct(
               : /barrier|repair|cream|moistur|ceramide|balm|relief/;
 
   return selectedProducts.some((product) => !product.discoveryOnly && relatedPattern.test(productText(product)));
+}
+
+function isSponsoredPlacement(product: LiveConsultationProduct): boolean {
+  // Partner/affiliate placements (non-primary catalog) are paid placements and
+  // must be visibly disclosed per our Terms. They are marked with a "Partner price".
+  return typeof product.price === "string" && /partner/i.test(product.price);
 }
 
 function discoveryProduct(id: string, name: string, category: string, bundleTag: string): LiveConsultationProduct {
