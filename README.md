@@ -21,9 +21,8 @@ Customer disclaimer shown at widget start:
 
 - Next.js App Router + TypeScript
 - PostgreSQL + Prisma ORM
-- Deterministic safety triage and recommendation engine
-- Mock LLM provider by default
-- OpenAI-compatible LLM provider stub via environment variables
+- Deterministic safety triage and recommendation engine (pre-LLM input gate + post-LLM output gate)
+- AI provider routing: OpenAI first, Claude (Anthropic) fallback when OpenAI is out of tokens, offline mock last
 - Local upload storage abstraction under `.local-storage`
 - Stripe-ready plan model stub via `MerchantPlan`
 
@@ -94,12 +93,23 @@ PostgreSQL.
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 DATABASE_URL=postgresql://postgres.jqsgtbzjwpbqxinustgq:YOUR_PASSWORD@aws-1-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true
 DIRECT_URL=postgresql://postgres.jqsgtbzjwpbqxinustgq:YOUR_PASSWORD@aws-1-ap-south-1.pooler.supabase.com:5432/postgres
+# Leave LLM_PROVIDER unset in production for OpenAI -> Claude -> mock routing.
+# Set to "mock" locally to avoid spend; "openai-compatible" or "anthropic" force a single provider.
 LLM_PROVIDER=mock
 OPENAI_COMPATIBLE_BASE_URL=https://api.openai.com/v1/chat/completions
 OPENAI_COMPATIBLE_MODEL=gpt-4.1-mini
 OPENAI_COMPATIBLE_API_KEY=
+# Claude fallback (used when OpenAI is out of tokens/unavailable):
+ANTHROPIC_API_KEY=
+ANTHROPIC_SYNTHESIS_MODEL=claude-opus-4-8
+ANTHROPIC_CHAT_MODEL=claude-haiku-4-5
 IP_HASH_SALT=replace-me
 ```
+
+The AI layer never picks the safety status, invents products, or recommends outside the tenant
+catalog. Routine synthesis/explanations run on the quality-first synthesis model; simple chat turns and
+intake classification run on the faster chat model. If no provider key is set (or `LLM_PROVIDER=mock`),
+the deterministic offline mock serves every turn so the app stays fully testable without external calls.
 
 Optional existing Supabase compatibility variables can remain for older routes, but the SaaS MVP uses
 Prisma/PostgreSQL as the primary data layer.
@@ -141,6 +151,12 @@ The deterministic triage engine runs before recommendations and LLM explanation.
 `URGENT` and `REFER_CLINIC` block commercial recommendations. `CAUTION` allows conservative OTC
 recommendations with warnings. The LLM can explain recommendations but cannot choose safety status,
 invent products, recommend products outside the tenant catalog, or override hard filters.
+
+An **output gate** (`validateAssistantTextForSafety`) scans every model reply on both the
+`/api/recommendations` and `/api/chat/message` paths. It re-runs triage on the generated text and
+detects diagnostic conclusions, disease names asserted as fact, treat/cure/prevent claims, and
+guaranteed-result claims. Anything it flags is replaced with a safe referral/cosmetic-guidance
+template before it reaches the shopper.
 
 ## Recommendation Scoring
 

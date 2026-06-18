@@ -70,7 +70,8 @@ export async function POST(request: Request) {
       sponsoredEnabled: true,
     });
 
-    const explanation = await getLLMProvider().explainRecommendations(profile, recommendation, safety);
+    const provider = getLLMProvider();
+    const explanation = await provider.explainRecommendations(profile, recommendation, safety);
     const postSafety = validateAssistantTextForSafety(explanation, safety);
     if (!postSafety.recommendationAllowed) {
       recommendation.summary = postSafety.referralMessage ?? recommendation.summary;
@@ -100,7 +101,9 @@ export async function POST(request: Request) {
       items: saved?.items ?? recommendation.items,
       products: recommendation.items.map((item) => item.product),
       pageUrl: saved?.id ? `/recommendations/${saved.id}` : undefined,
-      source: process.env.LLM_PROVIDER === "openai-compatible" ? "ai" : "mock",
+      // "ai" when OpenAI or the Claude fallback actually served; "mock" otherwise.
+      source: (provider.lastUsedId ?? provider.id) === "mock" ? "mock" : "ai",
+      provider: provider.lastUsedId ?? provider.id,
     });
   } catch (error) {
     if (error instanceof RequestValidationError) return jsonError(error.message);

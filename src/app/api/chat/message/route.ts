@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { ESCALATION_MESSAGE } from "@/domain/skincare";
 import { seedTenant } from "@/data/seed-catalog";
 import { listTenantProducts } from "@/services/catalog";
 import { getLLMProvider } from "@/services/llm/provider";
-import { runSafetyTriage } from "@/services/safety-triage";
+import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safety-triage";
 import { jsonError, parseJson, RequestValidationError } from "../../_shared";
 
 const MessageSchema = z.object({
@@ -27,13 +28,24 @@ export async function POST(request: Request) {
       mainConcern: intake.mainConcern ?? input.messages.at(-1)?.content ?? "general routine building",
       ...intake,
     });
-    const message = await provider.generateAssistantMessage({
+    const draft = await provider.generateAssistantMessage({
       messages: input.messages,
       approvedProducts: products,
       safety,
     });
 
-    return NextResponse.json({ message, intake, safety });
+    // Output gate (spec §3.3): scan the model's reply for diagnostic phrasing,
+    // treat/cure/prevent claims, or a newly surfaced red flag. If detected, replace
+    // the draft with the safe template instead of returning it to the shopper.
+    const outputSafety = validateAssistantTextForSafety(draft, safety);
+    const message = outputSafety.recommendationAllowed ? draft : outputSafety.referralMessage ?? ESCALATION_MESSAGE;
+
+    return NextResponse.json({
+      message,
+      intake,
+      safety: outputSafety,
+      provider: provider.lastUsedId ?? provider.id,
+    });
   } catch (error) {
     if (error instanceof RequestValidationError) return jsonError(error.message);
     throw error;
