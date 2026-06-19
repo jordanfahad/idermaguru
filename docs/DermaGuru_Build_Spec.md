@@ -57,6 +57,41 @@ These are hard constraints. A change that violates any of these is a defect, reg
 
 ---
 
+## 2.1 Business model & product tiers
+
+Two products on one platform:
+
+- **Tier A — Private Widget (white-label SaaS subscription).** A merchant buys, curates and themes the
+  widget, then embeds it on their own store/app. It shows **only their catalog** — no cross-promotion unless
+  they opt in. Plans **Starter / Growth / Pro** via Stripe (TEST for now). Core B2B revenue.
+- **Tier B — Public Live-Consultation (free, hosted on `idermaguru.com`).** A free public advisor = the
+  **traffic magnet** + living demo. Defaults to the **Cicabelle** catalog and surfaces **sponsored** products
+  that private merchants pay to inject — a **sponsored marketplace**. Monetized by sponsorship placements
+  (CPM / CPC / CPA), always disclosed.
+
+**Sponsored-marketplace logic (always safety-first):** private owners buy sponsored slots in the public tool;
+bids/budgets/caps are managed in their dashboard; the platform takes a cut; Super Admin moderates. Sponsored
+items are **visibly disclosed**, **never** override safety filters or grounding, and are **suppressed for
+red-flag / referral sessions**.
+
+**Funnel:** SEO + blog + programmatic landing pages → free public Live-Consultation → shoppers convert to
+carts; merchants discover the product → sign up for a Private Widget and/or buy sponsorships.
+
+## 2.2 Sitemap & SEO engine
+
+- **Customer-facing:** Home · Pricing (two tiers) · **Live-Consultation** (public tool) · About · FAQ ·
+  Blog (index + post) · **programmatic SEO landing pages** · Privacy · Terms.
+- **App (merchant):** Sign up / Log in → **Dashboard** (overview · widget customizer/curator · catalog ·
+  analytics · sponsored campaigns · billing) → embed.
+- **Platform:** **Super-Admin "control room"** (tenants · sponsored marketplace + moderation · safety/abuse
+  review · catalog ingestion · platform analytics · billing/payouts).
+- **Programmatic SEO generator:** produces hundreds of pages from templates × data
+  (concern × skin-type × ingredient × season × locale, e.g. *"Best fragrance-free routine for dry skin in
+  summer (AED)"*). Each page = editorial intro + embedded live advisor + curated/sponsored products +
+  internal links + `schema.org` markup, EN/AR, fully safety-gated and catalog-grounded.
+
+---
+
 ## 3. Design system (the redesign)
 
 Replaces the **three competing visual identities** currently in `globals.css` (calm teal advisor + neon
