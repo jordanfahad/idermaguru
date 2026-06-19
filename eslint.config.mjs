@@ -1,16 +1,26 @@
-import { FlatCompat } from "@eslint/eslintrc";
-import { dirname } from "path";
-import { fileURLToPath } from "url";
+import tseslint from "typescript-eslint";
+import nextPlugin from "@next/eslint-plugin-next";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-});
-
-const eslintConfig = [
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
-];
+// Flat config for ESLint 9. The previous FlatCompat + eslint-config-next setup
+// crashed under ESLint 9 ("Converting circular structure to JSON"), so we wire
+// the TypeScript parser and the Next plugin's recommended + core-web-vitals
+// rules directly.
+const eslintConfig = tseslint.config(
+  {
+    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "public/**", "prisma/**"],
+  },
+  {
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: { ecmaFeatures: { jsx: true } },
+    },
+    plugins: { "@next/next": nextPlugin },
+    rules: {
+      ...nextPlugin.configs.recommended.rules,
+      ...nextPlugin.configs["core-web-vitals"].rules,
+    },
+  },
+);
 
 export default eslintConfig;
