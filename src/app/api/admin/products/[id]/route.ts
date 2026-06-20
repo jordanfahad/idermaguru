@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { seedTenant } from "@/data/seed-catalog";
 import { deleteProductForTenant, updateProductForTenant } from "@/services/catalog";
+import { requireSuperAdmin } from "@/lib/admin-guard";
 import { jsonError, parseJson, RequestValidationError } from "../../../_shared";
 
 const UpdateSchema = z.object({
@@ -19,6 +20,9 @@ const UpdateSchema = z.object({
 });
 
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {
+  const session = await requireSuperAdmin();
+  if (session instanceof NextResponse) return session;
+
   try {
     const { id } = await context.params;
     const input = await parseJson(request, UpdateSchema);
@@ -31,6 +35,9 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const session = await requireSuperAdmin();
+  if (session instanceof NextResponse) return session;
+
   const { id } = await context.params;
   const tenantSlug = new URL(request.url).searchParams.get("tenantSlug") ?? seedTenant.slug;
   const result = await deleteProductForTenant(id, tenantSlug);

@@ -1,5 +1,6 @@
 import {
   ESCALATION_MESSAGE,
+  OUTPUT_GATE_FALLBACK_MESSAGE,
   type IntakeProfileInput,
   type SafetyLevel,
   type SafetyTriage,
@@ -91,15 +92,43 @@ export function runSafetyTriage(profile: IntakeProfileInput): SafetyTriage {
   };
 }
 
+// Prohibited assistant-output claims (spec §3.3). Disease names asserted as a
+// conclusion ("you have rosacea") are already caught by re-running the triage on
+// the output; these patterns add the cases triage misses: cure claims, guaranteed
+// results, and treat/prevent/heal promises tied to a condition. They target claim
+// *constructions* — e.g. "\btreat(s|ing|ed)?\b" does not match the noun
+// "treatment", so a legitimate "evening treatment" routine line passes through.
+const prohibitedOutputClaimPatterns = [
+  /\bcure[sd]?\b|\bcuring\b/i,
+  /\bguarantee[sd]?\b|\bguaranteeing\b/i,
+  /\bwill\s+(treat|prevent|heal|reverse|eliminate|stop|clear up)\b\s+(your\s+)?(acne|breakouts?|eczema|psoriasis|rosacea|melasma|dermatitis|infection|disease|condition)\b/i,
+  /\b(treats?|treating|prevents?|preventing|heals?|healing|reverses?|eliminates?)\b\s+(your\s+)?(eczema|psoriasis|rosacea|melasma|dermatitis|fungal acne|infection|disease)\b/i,
+];
+
+export function outputContainsProhibitedClaim(text: string): boolean {
+  return prohibitedOutputClaimPatterns.some((pattern) => pattern.test(text));
+}
+
 export function validateAssistantTextForSafety(text: string, initial: SafetyTriage): SafetyTriage {
   const responseProfile: IntakeProfileInput = { mainConcern: text };
   const responseTriage = runSafetyTriage(responseProfile);
 
-  if (severityRank(responseTriage.level) > severityRank(initial.level)) {
-    return responseTriage;
+  const escalated = severityRank(responseTriage.level) > severityRank(initial.level) ? responseTriage : initial;
+
+  if (outputContainsProhibitedClaim(text)) {
+    const level: SafetyLevel = severityRank(escalated.level) >= severityRank("REFER_CLINIC") ? escalated.level : "REFER_CLINIC";
+    return {
+      level,
+      reasons: [
+        ...escalated.reasons,
+        "Output gate blocked a prohibited diagnose/treat/cure/guarantee claim; replaced with safe cosmetic guidance.",
+      ],
+      recommendationAllowed: false,
+      referralMessage: escalated.recommendationAllowed ? OUTPUT_GATE_FALLBACK_MESSAGE : escalated.referralMessage ?? OUTPUT_GATE_FALLBACK_MESSAGE,
+    };
   }
 
-  return initial;
+  return escalated;
 }
 
 function buildResult(level: SafetyLevel, reasons: string[], recommendationAllowed: boolean): SafetyTriage {

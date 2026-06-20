@@ -5,7 +5,6 @@ import {
   getAdminSessionCookieName,
   getAdminSessionMaxAge,
   isSuperAdminCredentials,
-  type AdminRole,
 } from "@/lib/admin-auth";
 import { jsonError, parseJson, RequestValidationError } from "../../../_shared";
 
@@ -18,17 +17,18 @@ const LoginSchema = z.object({
 export async function POST(request: Request) {
   try {
     const input = await parseJson(request, LoginSchema);
-    let role: AdminRole = "merchant";
 
-    if (input.role === "super_admin") {
-      if (!isSuperAdminCredentials(input.email, input.password)) {
-        return jsonError("Invalid super-admin credentials.", 401);
-      }
-      role = "super_admin";
+    // Merchant accounts are not yet provisioned (see docs/SECURITY-AUDIT.md):
+    // there is no credential store to verify a per-tenant merchant against, so
+    // the previous code minted a merchant session for anyone. Until a
+    // MerchantUser store exists, only the super-admin may authenticate and the
+    // admin data plane is super_admin-only. The error is intentionally generic.
+    if (input.role !== "super_admin" || !isSuperAdminCredentials(input.email, input.password)) {
+      return jsonError("Invalid credentials.", 401);
     }
 
-    const cookie = await createAdminSession(input.email, role);
-    const response = NextResponse.json({ ok: true, role });
+    const cookie = await createAdminSession(input.email, "super_admin");
+    const response = NextResponse.json({ ok: true, role: "super_admin" as const });
     response.cookies.set(getAdminSessionCookieName(), cookie, {
       httpOnly: true,
       sameSite: "lax",

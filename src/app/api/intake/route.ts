@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { seedTenant } from "@/data/seed-catalog";
 import { getTenantBySlug } from "@/services/catalog";
+import { getSessionTenantId } from "@/services/tenant-scope";
 import { trackEvent } from "@/services/analytics";
+import { withTenant } from "@/lib/tenant-context";
 import { runSafetyTriage } from "@/services/safety-triage";
 import { getPrisma } from "@/server/db";
 import { jsonError, parseJson, RequestValidationError } from "../_shared";
@@ -40,60 +42,69 @@ export async function POST(request: Request) {
     const tenant = await getTenantBySlug(input.tenantSlug);
     if (!tenant) return jsonError("Tenant not found.", 404);
 
-    const safety = runSafetyTriage(input);
     const prisma = getPrisma();
+    if (prisma && input.sessionId) {
+      const ownerTenantId = await getSessionTenantId(input.sessionId);
+      if (!ownerTenantId) return jsonError("Unknown session.", 404);
+      if (ownerTenantId !== tenant.id) return jsonError("Session does not belong to this tenant.", 403);
+    }
+
+    const safety = runSafetyTriage(input);
 
     if (prisma && input.sessionId) {
-      await prisma.intakeProfile.upsert({
-        where: { sessionId: input.sessionId },
-        update: {
-          ageRange: input.ageRange,
-          country: input.country,
-          mainConcern: input.mainConcern,
-          secondaryConcerns: input.secondaryConcerns,
-          skinType: input.skinType,
-          sensitivity: input.sensitivity,
-          pregnantOrBreastfeeding: input.pregnantOrBreastfeeding,
-          allergies: input.allergies,
-          currentProducts: input.currentProducts,
-          currentActives: input.currentActives,
-          prescriptionUse: input.prescriptionUse,
-          severitySelfRated: input.severitySelfRated,
-          duration: input.duration,
-          symptoms: input.symptoms,
-          budgetMin: input.budgetMin,
-          budgetMax: input.budgetMax,
-          routinePreference: input.routinePreference,
-          fragrancePreference: input.fragrancePreference,
-          texturePreference: input.texturePreference,
-          sunscreenUse: input.sunscreenUse,
-          previousIrritationHistory: input.previousIrritationHistory,
-        },
-        create: {
-          sessionId: input.sessionId,
-          ageRange: input.ageRange,
-          country: input.country,
-          mainConcern: input.mainConcern,
-          secondaryConcerns: input.secondaryConcerns,
-          skinType: input.skinType,
-          sensitivity: input.sensitivity,
-          pregnantOrBreastfeeding: input.pregnantOrBreastfeeding,
-          allergies: input.allergies,
-          currentProducts: input.currentProducts,
-          currentActives: input.currentActives,
-          prescriptionUse: input.prescriptionUse,
-          severitySelfRated: input.severitySelfRated,
-          duration: input.duration,
-          symptoms: input.symptoms,
-          budgetMin: input.budgetMin,
-          budgetMax: input.budgetMax,
-          routinePreference: input.routinePreference,
-          fragrancePreference: input.fragrancePreference,
-          texturePreference: input.texturePreference,
-          sunscreenUse: input.sunscreenUse,
-          previousIrritationHistory: input.previousIrritationHistory,
-        },
-      });
+      const sessionId = input.sessionId;
+      await withTenant(tenant.id, (tx) =>
+        tx.intakeProfile.upsert({
+          where: { sessionId },
+          update: {
+            ageRange: input.ageRange,
+            country: input.country,
+            mainConcern: input.mainConcern,
+            secondaryConcerns: input.secondaryConcerns,
+            skinType: input.skinType,
+            sensitivity: input.sensitivity,
+            pregnantOrBreastfeeding: input.pregnantOrBreastfeeding,
+            allergies: input.allergies,
+            currentProducts: input.currentProducts,
+            currentActives: input.currentActives,
+            prescriptionUse: input.prescriptionUse,
+            severitySelfRated: input.severitySelfRated,
+            duration: input.duration,
+            symptoms: input.symptoms,
+            budgetMin: input.budgetMin,
+            budgetMax: input.budgetMax,
+            routinePreference: input.routinePreference,
+            fragrancePreference: input.fragrancePreference,
+            texturePreference: input.texturePreference,
+            sunscreenUse: input.sunscreenUse,
+            previousIrritationHistory: input.previousIrritationHistory,
+          },
+          create: {
+            sessionId,
+            ageRange: input.ageRange,
+            country: input.country,
+            mainConcern: input.mainConcern,
+            secondaryConcerns: input.secondaryConcerns,
+            skinType: input.skinType,
+            sensitivity: input.sensitivity,
+            pregnantOrBreastfeeding: input.pregnantOrBreastfeeding,
+            allergies: input.allergies,
+            currentProducts: input.currentProducts,
+            currentActives: input.currentActives,
+            prescriptionUse: input.prescriptionUse,
+            severitySelfRated: input.severitySelfRated,
+            duration: input.duration,
+            symptoms: input.symptoms,
+            budgetMin: input.budgetMin,
+            budgetMax: input.budgetMax,
+            routinePreference: input.routinePreference,
+            fragrancePreference: input.fragrancePreference,
+            texturePreference: input.texturePreference,
+            sunscreenUse: input.sunscreenUse,
+            previousIrritationHistory: input.previousIrritationHistory,
+          },
+        }),
+      );
     }
 
     await trackEvent({

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { seedTenant } from "@/data/seed-catalog";
 import { createProductForTenant, listTenantProducts } from "@/services/catalog";
+import { requireSuperAdmin } from "@/lib/admin-guard";
 import { jsonError, parseJson, RequestValidationError } from "../../_shared";
 
 const ProductSchema = z.object({
@@ -32,12 +33,18 @@ const ProductSchema = z.object({
 });
 
 export async function GET(request: Request) {
+  const session = await requireSuperAdmin();
+  if (session instanceof NextResponse) return session;
+
   const tenantSlug = new URL(request.url).searchParams.get("tenantSlug") ?? seedTenant.slug;
   const products = await listTenantProducts(tenantSlug);
   return NextResponse.json({ products });
 }
 
 export async function POST(request: Request) {
+  const session = await requireSuperAdmin();
+  if (session instanceof NextResponse) return session;
+
   try {
     const input = await parseJson(request, ProductSchema);
     const { tenantSlug, ...productInput } = input;

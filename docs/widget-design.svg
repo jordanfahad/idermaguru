@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="780" viewBox="0 0 900 780" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="26" flood-color="#141110" flood-opacity="0.18"/>
+    </filter>
+    <filter id="soft2" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#141110" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+
+  <rect width="900" height="780" fill="#faf8f5"/>
+  <text x="40" y="52" font-size="26" font-weight="700" fill="#1c1a19" letter-spacing="-0.4">&lt;dermaguru-widget&gt; — Shadow-DOM design</text>
+  <text x="40" y="80" font-size="14" fill="#6b6660">Native Web Component · brand-tokened via CSS custom properties · full RTL/Arabic · ~7&#160;KB gzipped · zero host layout shift</text>
+
+  <!-- ============ EN / LTR panel (teal brand) ============ -->
+  <g>
+    <text x="60" y="118" font-size="13" font-weight="700" fill="#1f6f5c">LTR · brand #1f6f5c</text>
+    <rect x="60" y="130" width="360" height="560" rx="18" fill="#ffffff" stroke="#141110" stroke-opacity="0.08" filter="url(#soft)"/>
+
+    <!-- header -->
+    <rect x="80" y="150" width="34" height="34" rx="10" fill="#1f6f5c"/>
+    <text x="97" y="173" font-size="16" font-weight="750" fill="#fff" text-anchor="middle">C</text>
+    <text x="124" y="166" font-size="15" font-weight="700" fill="#1c1a19">Cicabelle</text>
+    <text x="124" y="181" font-size="10.5" fill="#7a746d">Educational beauty guidance — not medical advice.</text>
+    <text x="400" y="171" font-size="20" fill="#7a746d" text-anchor="end">&#215;</text>
+    <line x1="80" y1="198" x2="400" y2="198" stroke="#141110" stroke-opacity="0.07"/>
+
+    <!-- bot greeting -->
+    <rect x="80" y="212" width="250" height="50" rx="14" fill="#f4f2ee"/>
+    <text x="92" y="232" font-size="12.5" fill="#1c1a19">Hi! Tell me your main skin concern</text>
+    <text x="92" y="249" font-size="12.5" fill="#1c1a19">and I’ll suggest a routine from this store.</text>
+
+    <!-- user msg -->
+    <rect x="206" y="272" width="174" height="32" rx="14" fill="#e6f0ed"/>
+    <text x="368" y="292" font-size="12.5" fill="#1c1a19" text-anchor="end">dry skin and dullness</text>
+
+    <!-- chip -->
+    <rect x="80" y="316" width="132" height="30" rx="15" fill="#ffffff" stroke="#1f6f5c" stroke-opacity="0.4"/>
+    <text x="146" y="335" font-size="12.5" fill="#1f6f5c" text-anchor="middle">Build my routine</text>
+
+    <!-- product card 1 -->
+    <rect x="80" y="358" width="320" height="92" rx="14" fill="#ffffff" stroke="#141110" stroke-opacity="0.09"/>
+    <rect x="92" y="370" width="56" height="56" rx="10" fill="#f4f2ee"/>
+    <text x="160" y="386" font-size="13" font-weight="650" fill="#1c1a19">Gentle Gel Cleanser</text>
+    <text x="160" y="404" font-size="13" font-weight="700" fill="#1f6f5c">AED&#160;79.00</text>
+    <text x="160" y="420" font-size="11" fill="#6b6660">Fits your oily-skin concern.</text>
+    <rect x="160" y="426" width="92" height="20" rx="10" fill="#1f6f5c"/>
+    <text x="206" y="440" font-size="11" font-weight="650" fill="#fff" text-anchor="middle">Add to cart</text>
+
+    <!-- product card 2 (sponsored) -->
+    <rect x="80" y="458" width="320" height="92" rx="14" fill="#ffffff" stroke="#141110" stroke-opacity="0.09"/>
+    <rect x="92" y="470" width="56" height="56" rx="10" fill="#f4f2ee"/>
+    <text x="160" y="486" font-size="13" font-weight="650" fill="#1c1a19">Barrier Repair Moisturizer</text>
+    <rect x="160" y="494" width="74" height="15" rx="5" fill="#fbf1e3"/>
+    <text x="197" y="505" font-size="9" font-weight="700" fill="#9a6b2f" text-anchor="middle" letter-spacing="0.4">SPONSORED</text>
+    <text x="160" y="522" font-size="13" font-weight="700" fill="#1f6f5c">AED&#160;120.00</text>
+    <rect x="160" y="528" width="92" height="20" rx="10" fill="#1f6f5c"/>
+    <text x="206" y="542" font-size="11" font-weight="650" fill="#fff" text-anchor="middle">Add to cart</text>
+
+    <!-- footer -->
+    <line x1="80" y1="566" x2="400" y2="566" stroke="#141110" stroke-opacity="0.07"/>
+    <rect x="80" y="580" width="262" height="40" rx="11" fill="#fff" stroke="#141110" stroke-opacity="0.16"/>
+    <text x="94" y="605" font-size="13" fill="#9a948c">e.g. dry skin and dullness</text>
+    <rect x="350" y="580" width="40" height="40" rx="11" fill="#1f6f5c"/>
+    <text x="370" y="606" font-size="17" fill="#fff" text-anchor="middle">&#8593;</text>
+
+    <!-- launcher -->
+    <rect x="60" y="712" width="186" height="50" rx="25" fill="#1f6f5c" filter="url(#soft2)"/>
+    <circle cx="92" cy="737" r="5" fill="#fff" fill-opacity="0.9"/>
+    <text x="108" y="742" font-size="15" font-weight="650" fill="#fff">Skincare advisor</text>
+  </g>
+
+  <!-- ============ RTL / Arabic panel (rose brand) ============ -->
+  <g>
+    <text x="840" y="118" font-size="13" font-weight="700" fill="#b75d6e" text-anchor="end">RTL · Arabic · brand #b75d6e</text>
+    <rect x="480" y="130" width="360" height="560" rx="18" fill="#ffffff" stroke="#141110" stroke-opacity="0.08" filter="url(#soft)"/>
+
+    <!-- header mirrored -->
+    <rect x="806" y="150" width="34" height="34" rx="10" fill="#b75d6e"/>
+    <text x="823" y="173" font-size="16" font-weight="750" fill="#fff" text-anchor="middle">C</text>
+    <text x="796" y="166" font-size="15" font-weight="700" fill="#1c1a19" text-anchor="end">Cicabelle</text>
+    <text x="796" y="181" font-size="10.5" fill="#7a746d" text-anchor="end" direction="rtl">إرشادات تجميلية تثقيفية — ليست نصيحة طبية.</text>
+    <text x="496" y="171" font-size="20" fill="#7a746d">&#215;</text>
+    <line x1="500" y1="198" x2="820" y2="198" stroke="#141110" stroke-opacity="0.07"/>
+
+    <!-- bot greeting (right) -->
+    <rect x="570" y="212" width="250" height="50" rx="14" fill="#f4f2ee"/>
+    <text x="808" y="232" font-size="12.5" fill="#1c1a19" text-anchor="end" direction="rtl">مرحبًا! أخبرني بأهم ما يشغلك في بشرتك</text>
+    <text x="808" y="249" font-size="12.5" fill="#1c1a19" text-anchor="end" direction="rtl">وسأقترح روتينًا بسيطًا من هذا المتجر.</text>
+
+    <!-- user msg (left) -->
+    <rect x="500" y="272" width="174" height="32" rx="14" fill="#f3e7ea"/>
+    <text x="512" y="292" font-size="12.5" fill="#1c1a19" direction="rtl">جفاف وبهتان البشرة</text>
+
+    <!-- chip (right) -->
+    <rect x="688" y="316" width="132" height="30" rx="15" fill="#ffffff" stroke="#b75d6e" stroke-opacity="0.4"/>
+    <text x="754" y="335" font-size="12.5" fill="#b75d6e" text-anchor="middle" direction="rtl">اقترح روتيني</text>
+
+    <!-- product card (mirrored) -->
+    <rect x="480" y="358" width="320" height="92" rx="14" fill="#ffffff" stroke="#141110" stroke-opacity="0.09" transform="translate(80,0)"/>
+    <rect x="732" y="370" width="56" height="56" rx="10" fill="#f4f2ee"/>
+    <text x="720" y="386" font-size="13" font-weight="650" fill="#1c1a19" text-anchor="end" direction="rtl">غسول لطيف</text>
+    <text x="720" y="404" font-size="13" font-weight="700" fill="#b75d6e" text-anchor="end" direction="rtl">79.00&#160;د.إ</text>
+    <text x="720" y="420" font-size="11" fill="#6b6660" text-anchor="end" direction="rtl">مناسب للبشرة الدهنية.</text>
+    <rect x="628" y="426" width="92" height="20" rx="10" fill="#b75d6e"/>
+    <text x="674" y="440" font-size="11" font-weight="650" fill="#fff" text-anchor="middle" direction="rtl">أضِف إلى السلة</text>
+
+    <!-- safety referral bubble (shows the output-gate / red-flag styling) -->
+    <rect x="500" y="466" width="320" height="86" rx="14" fill="#fff7f3" stroke="#f3d6c6"/>
+    <rect x="500" y="466" width="3" height="86" rx="2" fill="#d2754b"/>
+    <text x="808" y="488" font-size="11.5" fill="#7a3f25" text-anchor="end" direction="rtl">قد يحتاج هذا إلى مراجعة طبيب.</text>
+    <text x="808" y="506" font-size="11.5" fill="#7a3f25" text-anchor="end" direction="rtl">يمكنني المساعدة في إرشادات عامة فقط،</text>
+    <text x="808" y="524" font-size="11.5" fill="#7a3f25" text-anchor="end" direction="rtl">يرجى مراجعة طبيب الجلدية.</text>
+    <text x="808" y="544" font-size="9.5" fill="#b08a76" text-anchor="end">↑ red-flag / output-gate referral state</text>
+
+    <!-- footer mirrored -->
+    <line x1="500" y1="566" x2="820" y2="566" stroke="#141110" stroke-opacity="0.07"/>
+    <rect x="538" y="580" width="262" height="40" rx="11" fill="#fff" stroke="#141110" stroke-opacity="0.16"/>
+    <text x="788" y="605" font-size="13" fill="#9a948c" text-anchor="end" direction="rtl">مثال: جفاف وبهتان البشرة</text>
+    <rect x="490" y="580" width="40" height="40" rx="11" fill="#b75d6e"/>
+    <text x="510" y="606" font-size="17" fill="#fff" text-anchor="middle">&#8593;</text>
+
+    <!-- launcher (left corner in RTL) -->
+    <rect x="654" y="712" width="186" height="50" rx="25" fill="#b75d6e" filter="url(#soft2)"/>
+    <text x="824" y="742" font-size="15" font-weight="650" fill="#fff" text-anchor="end" direction="rtl">مستشار العناية بالبشرة</text>
+    <circle cx="808" cy="737" r="5" fill="#fff" fill-opacity="0.9"/>
+  </g>
+</svg>

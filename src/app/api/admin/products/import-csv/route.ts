@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { seedTenant } from "@/data/seed-catalog";
 import { createProductForTenant } from "@/services/catalog";
+import { requireSuperAdmin } from "@/lib/admin-guard";
 import { csvSplit, jsonError } from "../../../_shared";
 
 const csvHeaders = [
@@ -28,6 +29,9 @@ const csvHeaders = [
 ];
 
 export async function POST(request: Request) {
+  const session = await requireSuperAdmin();
+  if (session instanceof NextResponse) return session;
+
   const form = await request.formData();
   const tenantSlug = String(form.get("tenantSlug") ?? seedTenant.slug);
   const file = form.get("file");

@@ -14,3 +14,6 @@ dist/
 *.tsbuildinfo
 
 .vercel
+
+# Generated prototype bundle (reproducible from docs/redesign/prototype/)
+docs/redesign/dermaguru-prototype.zip

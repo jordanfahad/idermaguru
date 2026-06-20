@@ -21,9 +21,8 @@ Customer disclaimer shown at widget start:
 
 - Next.js App Router + TypeScript
 - PostgreSQL + Prisma ORM
-- Deterministic safety triage and recommendation engine
-- Mock LLM provider by default
-- OpenAI-compatible LLM provider stub via environment variables
+- Deterministic safety triage and recommendation engine (pre-LLM input gate + post-LLM output gate)
+- AI provider routing: OpenAI first, Claude (Anthropic) fallback when OpenAI is out of tokens, offline mock last
 - Local upload storage abstraction under `.local-storage`
 - Stripe-ready plan model stub via `MerchantPlan`
 
@@ -94,12 +93,23 @@ PostgreSQL.
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 DATABASE_URL=postgresql://postgres.jqsgtbzjwpbqxinustgq:YOUR_PASSWORD@aws-1-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true
 DIRECT_URL=postgresql://postgres.jqsgtbzjwpbqxinustgq:YOUR_PASSWORD@aws-1-ap-south-1.pooler.supabase.com:5432/postgres
+# Leave LLM_PROVIDER unset in production for OpenAI -> Claude -> mock routing.
+# Set to "mock" locally to avoid spend; "openai-compatible" or "anthropic" force a single provider.
 LLM_PROVIDER=mock
 OPENAI_COMPATIBLE_BASE_URL=https://api.openai.com/v1/chat/completions
 OPENAI_COMPATIBLE_MODEL=gpt-4.1-mini
 OPENAI_COMPATIBLE_API_KEY=
+# Claude fallback (used when OpenAI is out of tokens/unavailable):
+ANTHROPIC_API_KEY=
+ANTHROPIC_SYNTHESIS_MODEL=claude-opus-4-8
+ANTHROPIC_CHAT_MODEL=claude-haiku-4-5
 IP_HASH_SALT=replace-me
 ```
+
+The AI layer never picks the safety status, invents products, or recommends outside the tenant
+catalog. Routine synthesis/explanations run on the quality-first synthesis model; simple chat turns and
+intake classification run on the faster chat model. If no provider key is set (or `LLM_PROVIDER=mock`),
+the deterministic offline mock serves every turn so the app stays fully testable without external calls.
 
 Optional existing Supabase compatibility variables can remain for older routes, but the SaaS MVP uses
 Prisma/PostgreSQL as the primary data layer.
@@ -116,18 +126,32 @@ The seed script creates:
 
 ## Widget Embed Target
 
-Future CDN embed target:
+The embeddable advisor ships as a native Web Component (`public/dermaguru-widget.js`). It mounts a
+`<dermaguru-widget>` custom element using **Shadow DOM**, so the host store's CSS cannot bleed into the
+widget and the widget's CSS cannot leak onto the store. Initial JS is ~7KB gzipped, it lazy-builds the
+panel on first open, uses fixed positioning (no layout shift), and supports full RTL/Arabic. Brand
+tokens are passed via `data-*` attributes and injected as CSS custom properties; the tenant name and
+safety disclaimer are fetched from `GET /api/widget/config`.
 
 ```html
 <script
-  src="https://your-domain.com/skin-advisor-widget.js"
+  async
+  src="https://your-domain.com/dermaguru-widget.js"
   data-tenant="ai-derma-guru"
-  data-theme="light"
+  data-position="bottom-right"
+  data-primary="#1f6f5c"
   data-locale="en"
 ></script>
 ```
 
-For local development, use `/widget-demo`.
+- RTL/Arabic: add `data-locale="ar"` (or `data-rtl="true"`).
+- Branding: `data-primary`, `data-on-primary`, `data-radius`, `data-font`, `data-title`.
+- Hostile CSP / no Shadow DOM: add `data-mode="iframe"` (the loader also auto-falls back to the
+  `/embed` iframe). The older `skin-advisor-widget.js` iframe loader remains for compatibility.
+
+The widget calls cross-origin endpoints (`/api/widget/config`, `/api/chat/*`, `/api/recommendations`,
+`/api/events/*`), which send permissive CORS headers via `proxy.ts`. For a local preview open
+`/dermaguru-widget-demo.html` (a mock store) or use `/widget-demo`.
 
 ## Safety Architecture
 
@@ -141,6 +165,12 @@ The deterministic triage engine runs before recommendations and LLM explanation.
 `URGENT` and `REFER_CLINIC` block commercial recommendations. `CAUTION` allows conservative OTC
 recommendations with warnings. The LLM can explain recommendations but cannot choose safety status,
 invent products, recommend products outside the tenant catalog, or override hard filters.
+
+An **output gate** (`validateAssistantTextForSafety`) scans every model reply on both the
+`/api/recommendations` and `/api/chat/message` paths. It re-runs triage on the generated text and
+detects diagnostic conclusions, disease names asserted as fact, treat/cure/prevent claims, and
+guaranteed-result claims. Anything it flags is replaced with a safe referral/cosmetic-guidance
+template before it reaches the shopper.
 
 ## Recommendation Scoring
 
@@ -157,6 +187,26 @@ final_score =
 
 Commercial boost is capped, never overrides safety filters, and sponsored products are visibly
 disclosed.
+
+## Multi-tenant isolation & semantic search
+
+`supabase/migrations/002_tenant_rls_and_pgvector.sql` layers strict tenant isolation and pgvector
+search onto the Prisma-owned tables:
+
+- **Row-Level Security** on every tenant-scoped table (`Tenant`, `Product`, `UserSession`,
+  `Recommendation`, `Event`, `Conversion`, …) plus session/recommendation children. Policies key off
+  the per-request GUC `app.current_tenant_id`, so a connection that hasn't set it sees no tenant rows
+  (fail-closed). RLS is **enabled but not forced**, so the existing Prisma owner connection keeps
+  working; to enforce isolation, route tenant traffic through a non-owner role and wrap queries in
+  `withTenantContext()` (`src/lib/tenant-context.ts`). For a Supabase-JWT deployment, swap the GUC
+  comparison for `auth.jwt() ->> 'tenant_id'`.
+- **pgvector** embeddings on `Product` and a curated `kb_chunks` knowledge base (global rows +
+  optional per-tenant overrides), with `match_products` / `match_kb_chunks` RPCs for cosine
+  similarity retrieval. Dimension defaults to 1536 (OpenAI `text-embedding-3-small`).
+
+Apply Prisma migrations first, then this SQL migration (it intentionally manages the pgvector
+columns/tables outside the Prisma schema). The embedding columns stay empty until an ingestion job
+populates them; the deterministic engine remains the grounding source until then.
 
 ## Tests
 
