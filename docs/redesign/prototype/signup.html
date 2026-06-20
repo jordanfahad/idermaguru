@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Create your store advisor — DermaGuru</title>
+<meta name="description" content="Add the bilingual AI skincare advisor to your store. Start free — no card. Catalog-grounded, Arabic & RTL, never medical advice.">
+<link rel="stylesheet" href="assets/dg.css">
+<style>
+  /* page-local layout for the split-screen auth — uses design-system tokens only */
+  .auth{display:grid;grid-template-columns:1.05fr 1fr;min-height:100vh}
+  .auth-aside{position:relative;display:flex}
+  .auth-main{display:flex;flex-direction:column;background:var(--ivory)}
+  .auth-bar{display:flex;align-items:center;justify-content:space-between;height:74px;
+    padding:0 clamp(20px,5vw,56px)}
+  .auth-card{flex:1;display:flex;align-items:center;justify-content:center;
+    padding:clamp(24px,4vw,48px) clamp(20px,5vw,56px)}
+  .auth-card .inner{width:100%;max-width:432px}
+  .auth-foot{padding:20px clamp(20px,5vw,56px) 28px;font-size:.82rem;color:var(--faint);
+    display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+  .field{display:block;margin-top:16px}
+  .field > span{display:block;font-size:.78rem;font-weight:600;letter-spacing:.04em;
+    color:var(--ink-2);margin-bottom:7px}
+  .field input,.field select{width:100%;height:50px;border:1px solid var(--line-2);
+    border-radius:var(--r-sm);background:var(--surface);padding:0 15px;font:inherit;color:var(--ink);outline:none;
+    transition:border-color .15s ease,box-shadow .15s ease}
+  .field input:focus,.field select:focus{border-color:var(--teal);box-shadow:0 0 0 3px var(--teal-tint)}
+  .field select{appearance:none;cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' fill='none' stroke='%23736A60' stroke-width='1.7'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 14px center}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:480px){.two{grid-template-columns:1fr}}
+  .seg-toggle{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--cream);
+    border:1px solid var(--line);border-radius:var(--pill);padding:4px;margin:22px 0 4px}
+  .seg-toggle button{border:0;background:transparent;cursor:pointer;font:inherit;font-weight:600;
+    font-size:.9rem;color:var(--muted);border-radius:var(--pill);height:40px;transition:.15s}
+  .seg-toggle button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--sh-sm)}
+  @media(max-width:900px){
+    .auth{grid-template-columns:1fr}
+    .auth-aside{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="auth">
+
+  <!-- ===== LEFT · photographic brand panel ===== -->
+  <aside class="auth-aside">
+    <div class="fullbleed tall" style="border-radius:0;width:100%;min-height:100vh;
+      align-items:stretch;flex-direction:column;justify-content:space-between;padding:clamp(32px,4vw,56px)">
+      <img src="https://images.unsplash.com/photo-1612817288484-6f916006741a?auto=format&fit=crop&w=1400&q=80"
+        alt="Editorial skincare still life">
+
+      <!-- brand mark -->
+      <a class="brand" href="index.html" style="color:#fff;position:relative;z-index:1">
+        <span class="mark">D</span>
+        <span>DermaGuru<small style="color:rgba(255,255,255,.6)">AI Skincare Advisor</small></span>
+      </a>
+
+      <!-- serif benefit + trust ticks -->
+      <div style="position:relative;z-index:1;max-width:460px">
+        <h2 class="serif" style="color:#fff;font-size:clamp(2rem,3.4vw,3rem);line-height:1.08;
+          letter-spacing:-.01em">
+          Turn skin concerns into confident routines.
+        </h2>
+        <p style="color:rgba(255,255,255,.82);font-size:1.02rem;line-height:1.6;margin-top:18px;max-width:400px">
+          An embeddable advisor that understands a shopper's skin in English or Arabic — and recommends
+          only the products you actually sell.
+        </p>
+        <div class="trust" style="margin-top:28px">
+          <span style="background:rgba(255,255,255,.14);color:#fff;backdrop-filter:blur(6px)">✦ Catalog-grounded</span>
+          <span style="background:rgba(255,255,255,.14);color:#fff;backdrop-filter:blur(6px)">✦ Arabic &amp; RTL</span>
+          <span style="background:rgba(255,255,255,.14);color:#fff;backdrop-filter:blur(6px)">✦ Not medical advice</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===== RIGHT · auth card ===== -->
+  <main class="auth-main">
+
+    <!-- top bar: brand only -->
+    <div class="auth-bar">
+      <a class="brand" href="index.html">
+        <span class="mark">D</span>
+        <span>DermaGuru<small>AI Skincare Advisor</small></span>
+      </a>
+      <a href="index.html" class="muted" style="font-size:.86rem">← Back to site</a>
+    </div>
+
+    <div class="auth-card">
+      <div class="inner reveal">
+        <span class="eyebrow">Get started</span>
+        <h1 class="serif" style="font-size:clamp(1.9rem,3.4vw,2.6rem);margin:12px 0 6px">
+          Create your store advisor
+        </h1>
+        <p class="muted" style="font-size:.96rem">
+          Launch the bilingual AI advisor on your store in minutes.
+        </p>
+
+        <!-- tab toggle -->
+        <div class="seg-toggle" role="tablist" aria-label="Sign up or log in">
+          <button type="button" role="tab" aria-selected="true">Sign up</button>
+          <button type="button" role="tab" aria-selected="false">Log in</button>
+        </div>
+
+        <!-- form -->
+        <form onsubmit="return false" style="margin-top:6px">
+          <div class="two">
+            <label class="field">
+              <span>Store name</span>
+              <input type="text" name="store" placeholder="Cicabelle" autocomplete="organization">
+            </label>
+            <label class="field">
+              <span>Website URL</span>
+              <input type="url" name="website" placeholder="cicabelle.com" autocomplete="url">
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Work email</span>
+            <input type="email" name="email" placeholder="you@yourbrand.com" autocomplete="email">
+          </label>
+
+          <label class="field">
+            <span>Password</span>
+            <input type="password" name="password" placeholder="At least 8 characters" autocomplete="new-password">
+          </label>
+
+          <label class="field">
+            <span>Plan</span>
+            <select name="plan">
+              <option value="starter">Starter — solo store, one advisor</option>
+              <option value="growth" selected>Growth — analytics &amp; add-to-cart</option>
+              <option value="pro">Pro — multi-store, priority support</option>
+            </select>
+          </label>
+
+          <button type="submit" class="btn btn-ink btn-block" style="margin-top:22px">
+            Start free — no card
+          </button>
+
+          <p class="muted" style="font-size:.78rem;margin-top:14px;display:flex;align-items:center;gap:8px;line-height:1.45">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:0 0 auto">
+              <rect x="4" y="9" width="16" height="11" rx="2"></rect><path d="M8 9V7a4 4 0 0 1 8 0v2"></path>
+            </svg>
+            Stripe billing runs in TEST mode during onboarding — you won't be charged.
+          </p>
+        </form>
+
+        <div class="hr" style="margin:24px 0"></div>
+
+        <p class="muted center" style="font-size:.9rem">
+          Already have an account?
+          <a href="signup.html" class="link-underline" style="font-weight:600">Log in</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- minimal footer -->
+    <div class="auth-foot">
+      <span>© 2026 DermaGuru</span>
+      <span>Educational beauty guidance — not medical advice.</span>
+    </div>
+  </main>
+
+</div>
+
+</body>
+</html>
