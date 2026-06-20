@@ -178,6 +178,7 @@
         history: [],
         tenantId: null,
         sessionId: null,
+        sessionToken: null,
         lastConcern: "",
         disclaimer: "",
       };
@@ -327,6 +328,7 @@
         .then((data) => {
           if (!data) return;
           this.state.sessionId = data.sessionId || null;
+          this.state.sessionToken = data.sessionToken || null;
           this.state.tenantId = data.tenant && data.tenant.id ? data.tenant.id : null;
           if (data.disclaimer) this.state.disclaimer = data.disclaimer;
         })

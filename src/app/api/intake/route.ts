@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { seedTenant } from "@/data/seed-catalog";
 import { getTenantBySlug } from "@/services/catalog";
+import { getSessionTenantId } from "@/services/tenant-scope";
 import { trackEvent } from "@/services/analytics";
 import { runSafetyTriage } from "@/services/safety-triage";
 import { getPrisma } from "@/server/db";
@@ -40,8 +41,14 @@ export async function POST(request: Request) {
     const tenant = await getTenantBySlug(input.tenantSlug);
     if (!tenant) return jsonError("Tenant not found.", 404);
 
-    const safety = runSafetyTriage(input);
     const prisma = getPrisma();
+    if (prisma && input.sessionId) {
+      const ownerTenantId = await getSessionTenantId(input.sessionId);
+      if (!ownerTenantId) return jsonError("Unknown session.", 404);
+      if (ownerTenantId !== tenant.id) return jsonError("Session does not belong to this tenant.", 403);
+    }
+
+    const safety = runSafetyTriage(input);
 
     if (prisma && input.sessionId) {
       await prisma.intakeProfile.upsert({

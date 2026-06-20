@@ -4,6 +4,7 @@ import { seedTenant } from "@/data/seed-catalog";
 import { type IntakeProfileInput } from "@/domain/skincare";
 import { trackEvent } from "@/services/analytics";
 import { getTenantBySlug, listTenantProducts } from "@/services/catalog";
+import { getSessionTenantId } from "@/services/tenant-scope";
 import { getLLMProvider } from "@/services/llm/provider";
 import { buildRecommendations } from "@/services/recommendation-engine";
 import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safety-triage";
@@ -50,6 +51,13 @@ export async function POST(request: Request) {
     const input = await parseJson(request, RecommendationSchema);
     const tenant = await getTenantBySlug(input.tenantSlug);
     if (!tenant) return jsonError("Tenant not found.", 404);
+
+    const prisma = getPrisma();
+    if (prisma && input.sessionId) {
+      const ownerTenantId = await getSessionTenantId(input.sessionId);
+      if (!ownerTenantId) return jsonError("Unknown session.", 404);
+      if (ownerTenantId !== tenant.id) return jsonError("Session does not belong to this tenant.", 403);
+    }
 
     const profile: IntakeProfileInput = input.intake ?? {
       sessionId: input.sessionId,

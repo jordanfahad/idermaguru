@@ -4,6 +4,7 @@ import { seedTenant } from "@/data/seed-catalog";
 import { CUSTOMER_DISCLAIMER } from "@/domain/skincare";
 import { getTenantBySlug } from "@/services/catalog";
 import { trackEvent } from "@/services/analytics";
+import { createSessionToken } from "@/lib/session-token";
 import { getPrisma } from "@/server/db";
 import { jsonError, parseJson, RequestValidationError } from "../../_shared";
 
@@ -45,8 +46,11 @@ export async function POST(request: Request) {
 
     await trackEvent({ tenantId: tenant.id, sessionId: session.id, type: "SESSION_STARTED" });
 
+    const sessionToken = await createSessionToken(session.id);
+
     return NextResponse.json({
       sessionId: session.id,
+      sessionToken,
       anonymousUserId,
       tenant,
       disclaimer: tenant.disclosureText || CUSTOMER_DISCLAIMER,
