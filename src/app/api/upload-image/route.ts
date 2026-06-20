@@ -5,6 +5,7 @@ import { getClientIp, hashIp } from "@/services/privacy";
 import { storeImageLocally } from "@/services/storage/local-storage";
 import { getSessionTenantId } from "@/services/tenant-scope";
 import { getPrisma } from "@/server/db";
+import { withTenant } from "@/lib/tenant-context";
 import { jsonError } from "../_shared";
 
 export async function POST(request: Request) {
@@ -34,27 +35,30 @@ export async function POST(request: Request) {
   let imageId = crypto.randomUUID();
 
   if (prisma) {
-    const consent = await prisma.consentRecord.create({
-      data: {
-        sessionId,
-        consentType: "IMAGE_UPLOAD",
-        consentText,
-        accepted,
-        ipHash: hashIp(getClientIp(request.headers)),
-        userAgent: request.headers.get("user-agent"),
-      },
-    });
+    const created = await withTenant(tenantId, async (tx) => {
+      const consent = await tx.consentRecord.create({
+        data: {
+          sessionId,
+          consentType: "IMAGE_UPLOAD",
+          consentText,
+          accepted,
+          ipHash: hashIp(getClientIp(request.headers)),
+          userAgent: request.headers.get("user-agent"),
+        },
+      });
 
-    const image = await prisma.uploadedImage.create({
-      data: {
-        sessionId,
-        storageKey: stored.storageKey,
-        mimeType: stored.mimeType,
-        sizeBytes: stored.sizeBytes,
-        consentRecordId: consent.id,
-      },
+      const image = await tx.uploadedImage.create({
+        data: {
+          sessionId,
+          storageKey: stored.storageKey,
+          mimeType: stored.mimeType,
+          sizeBytes: stored.sizeBytes,
+          consentRecordId: consent.id,
+        },
+      });
+      return image.id;
     });
-    imageId = image.id;
+    if (created) imageId = created;
   }
 
   await trackEvent({

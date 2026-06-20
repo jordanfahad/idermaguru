@@ -5,6 +5,7 @@ import { type IntakeProfileInput } from "@/domain/skincare";
 import { trackEvent } from "@/services/analytics";
 import { getTenantBySlug, listTenantProducts } from "@/services/catalog";
 import { getSessionTenantId } from "@/services/tenant-scope";
+import { withTenant } from "@/lib/tenant-context";
 import { getLLMProvider } from "@/services/llm/provider";
 import { buildRecommendations } from "@/services/recommendation-engine";
 import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safety-triage";
@@ -125,47 +126,49 @@ async function saveRecommendation(input: {
   recommendation: ReturnType<typeof buildRecommendations>;
   explanation: string;
 }) {
-  const prisma = getPrisma();
-  if (!prisma || !input.sessionId) return null;
+  if (!input.sessionId) return null;
+  const sessionId = input.sessionId;
 
-  const safety = await prisma.safetyTriageResult.create({
-    data: {
-      sessionId: input.sessionId,
-      level: input.recommendation.safety.level,
-      reasonsJson: asPrismaJson(input.recommendation.safety.reasons),
-      recommendationAllowed: input.recommendation.safety.recommendationAllowed,
-      referralMessage: input.recommendation.safety.referralMessage,
-    },
-  });
-
-  return prisma.recommendation.create({
-    data: {
-      tenantId: input.tenantId,
-      sessionId: input.sessionId,
-      safetyTriageResultId: safety.id,
-      summary: `${input.recommendation.summary}\n\n${input.explanation}`,
-      routineJson: asPrismaJson({
-        items: input.recommendation.items.map((item) => ({
-          productId: item.product.id,
-          slot: item.slot,
-          usageGuidance: item.usageGuidance,
-        })),
-      }),
-      disclosureText: input.recommendation.disclosureText,
-      items: {
-        create: input.recommendation.items.map((item, index) => ({
-          productId: item.product.id,
-          slot: item.slot,
-          score: item.score.finalScore,
-          reason: item.reason,
-          cautionsJson: asPrismaJson(item.cautions),
-          sponsored: item.sponsored,
-          rank: index + 1,
-        })),
+  return withTenant(input.tenantId, async (tx) => {
+    const safety = await tx.safetyTriageResult.create({
+      data: {
+        sessionId,
+        level: input.recommendation.safety.level,
+        reasonsJson: asPrismaJson(input.recommendation.safety.reasons),
+        recommendationAllowed: input.recommendation.safety.recommendationAllowed,
+        referralMessage: input.recommendation.safety.referralMessage,
       },
-    },
-    include: {
-      items: true,
-    },
+    });
+
+    return tx.recommendation.create({
+      data: {
+        tenantId: input.tenantId,
+        sessionId,
+        safetyTriageResultId: safety.id,
+        summary: `${input.recommendation.summary}\n\n${input.explanation}`,
+        routineJson: asPrismaJson({
+          items: input.recommendation.items.map((item) => ({
+            productId: item.product.id,
+            slot: item.slot,
+            usageGuidance: item.usageGuidance,
+          })),
+        }),
+        disclosureText: input.recommendation.disclosureText,
+        items: {
+          create: input.recommendation.items.map((item, index) => ({
+            productId: item.product.id,
+            slot: item.slot,
+            score: item.score.finalScore,
+            reason: item.reason,
+            cautionsJson: asPrismaJson(item.cautions),
+            sponsored: item.sponsored,
+            rank: index + 1,
+          })),
+        },
+      },
+      include: {
+        items: true,
+      },
+    });
   });
 }

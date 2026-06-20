@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { getTenantPrisma } from "@/server/db";
 
 /**
  * Run `fn` inside a transaction with the Postgres GUC `app.current_tenant_id`
@@ -25,4 +26,33 @@ export async function withTenantContext<T>(
     await tx.$executeRaw`select set_config('app.current_tenant_id', ${tenantId}, true)`;
     return fn(tx);
   });
+}
+
+/**
+ * Convenience wrapper used by the tenant-scoped data paths: grab the tenant
+ * Prisma client (getTenantPrisma) and run `fn` inside withTenantContext so the
+ * RLS GUC is set for the duration.
+ *
+ * Returns null when no database is configured (getTenantPrisma() is null) so
+ * callers can keep their existing no-DB stub behaviour. Only use this for
+ * queries that already know their tenantId — tenant *resolution* (slug -> id,
+ * sessionId -> tenantId) must stay on getPrisma(), since a role subject to RLS
+ * cannot see across tenants to resolve an id it does not yet know.
+ */
+export async function withTenant<T>(
+  tenantId: string,
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T | null> {
+  const prisma = getTenantPrisma();
+  if (!prisma) return null;
+
+  // While the tenant role is dormant (TENANT_DATABASE_URL unset) getTenantPrisma
+  // returns the owner client, which bypasses RLS — so opening a transaction just
+  // to set the GUC would add cost for no isolation benefit, and would change the
+  // prior non-transactional behaviour. Run directly until the role is activated;
+  // once it is, go through withTenantContext so RLS scopes every query.
+  if (!process.env.TENANT_DATABASE_URL) {
+    return fn(prisma);
+  }
+  return withTenantContext(prisma, tenantId, fn);
 }

@@ -48,28 +48,34 @@ So isolation rested entirely on application code, and that layer had holes
 Tests: `tests/session-token.test.ts`, `tests/tenant-isolation.test.ts`,
 `tests/admin-session.test.ts`.
 
-## Layer B — RLS activation (staged; foundation shipped)
+## Layer B — RLS activation (shipped; activation is the remaining manual step)
 
 Defense in depth so a future missed `WHERE tenantId` cannot leak across tenants.
 
-Shipped: `supabase/migrations/003_app_role_and_rls_activation.sql` creates the
-non-owner `dermaguru_app` role (subject to the 002 policies), and
-`getTenantPrisma()` (`src/server/db.ts`) connects as it when
-`TENANT_DATABASE_URL` is set — falling back to the owner client otherwise, so
-RLS stays dormant until activated.
+- `supabase/migrations/003_app_role_and_rls_activation.sql` creates the non-owner
+  `dermaguru_app` role (subject to the 002 policies).
+- `getTenantPrisma()` (`src/server/db.ts`) connects as that role when
+  `TENANT_DATABASE_URL` is set, else falls back to the owner client.
+- The query funnel is in place: tenant-**scoped** reads/writes go through
+  `withTenant(tenantId, …)` (`src/lib/tenant-context.ts`) — catalog products,
+  analytics/events, sessions, recommendations, intake, image uploads, and
+  conversions. While `TENANT_DATABASE_URL` is unset this runs directly on the
+  owner (no behaviour change); once set, each call runs in a transaction that
+  sets `app.current_tenant_id`, so RLS scopes it.
+- Tenant **resolution** stays on the owner client (`getTenantBySlug`,
+  `getSessionTenantId`, the conversion click lookup, the image-id lookup), and
+  the `/api/admin/*` super-admin plane stays on the owner by design — a role
+  subject to RLS cannot see across tenants to resolve an id it does not yet know.
 
-Remaining (next slice, its own review): funnel tenant-**scoped** queries through
-`getTenantPrisma()` + `withTenantContext(tenantId, …)`. Tenant **resolution**
-queries (`getTenantBySlug`, `getSessionTenantId`) must stay on the owner client —
-a role subject to RLS cannot see across tenants to resolve an id it does not yet
-know.
-
-Activation steps are documented in the migration header.
+Remaining manual step (out of band): activate the role — `alter role
+dermaguru_app with login password …`, set `TENANT_DATABASE_URL`, then verify
+cross-tenant denial against a live database. Steps are in the migration header.
 
 ## Residual / follow-ups
 
 - Per-merchant `MerchantUser` accounts bound to a tenant (admin is super_admin
   only until then).
-- Complete the `withTenantContext` funnel (Layer B remaining).
+- Activate the `dermaguru_app` role (password + `TENANT_DATABASE_URL`) and verify
+  cross-tenant denial against a live database.
 - `POST /api/billing/portal` trusts a client `customerId` (outside the Postgres
   isolation scope, but should bind to the authenticated merchant).
