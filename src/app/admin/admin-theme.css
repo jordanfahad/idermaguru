@@ -1,0 +1,123 @@
+/* ==========================================================================
+   Quiet-luxe theme for the admin console — SCOPED to `.dg-admin` (the wrapper in
+   src/app/admin/layout.tsx). It only re-skins the AESTHETIC (type, color, border,
+   radius, shadow) of the existing admin classes; globals.css keeps the layout.
+   No admin markup changes → no functionality risk. Confined to /admin so it can't
+   touch live-consultation / terms / privacy / demo, which share these classes.
+   ========================================================================== */
+
+.dg-admin {
+  /* quiet-luxe tokens (local copy — the design system tokens are scoped to .dg) */
+  --ink: #17130F; --ink-2: #3D362F; --muted: #736A60; --faint: #A89E92;
+  --ivory: #FBF9F5; --cream: #F4EFE7; --surface: #FFFFFF;
+  --line: rgba(23, 19, 15, .10); --line-2: rgba(23, 19, 15, .18);
+  --brass: #9A7B4F; --brass-2: #B9986A;
+  --teal: #1F6F5C; --teal-dk: #123F34; --teal-tint: #E7F1EE;
+  --gold: #9A6B2F; --gold-tint: #F4EBD9;
+  --safe: #0F7A55; --safe-tint: #E9F8EF; --warn-rule: #D2754B;
+  --r: 16px; --r-sm: 11px; --pill: 999px;
+  --sh-sm: 0 2px 12px rgba(23, 19, 15, .05);
+  --sh: 0 20px 50px rgba(23, 19, 15, .10);
+  --serif: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  background: var(--ivory);
+  color: var(--ink);
+  font-family: var(--sans);
+  min-height: 100vh;
+}
+
+/* headings → editorial serif */
+.dg-admin h1, .dg-admin h2, .dg-admin h3 {
+  font-family: var(--serif); font-weight: 500; letter-spacing: -.01em; color: var(--ink);
+}
+.dg-admin .plain-page > header h1 { font-size: clamp(1.9rem, 3.4vw, 2.8rem); line-height: 1.05; }
+.dg-admin .eyebrow {
+  color: var(--brass); font-weight: 600; letter-spacing: .18em; text-transform: uppercase; font-size: .72rem;
+}
+.dg-admin .lead { color: var(--ink-2); }
+.dg-admin .result-heading h2 { font-size: 1.4rem; }
+
+/* nav */
+.dg-admin .admin-nav {
+  background: color-mix(in srgb, var(--ivory) 82%, transparent);
+  border-bottom: 1px solid var(--line); border-radius: 0;
+}
+.dg-admin .admin-nav a {
+  color: var(--ink-2); font-weight: 500; border-radius: var(--pill); transition: color .15s ease, background .15s ease;
+}
+.dg-admin .admin-nav a:hover { color: var(--ink); background: var(--cream); }
+
+/* metric + panel cards */
+.dg-admin .metric,
+.dg-admin .dashboard-panel,
+.dg-admin .surface,
+.dg-admin .stat-card,
+.dg-admin .login-panel,
+.dg-admin .product-manager,
+.dg-admin .sponsored-editor,
+.dg-admin .sponsored-preview,
+.dg-admin .live-admin,
+.dg-admin .embed-box,
+.dg-admin .product-import-box,
+.dg-admin .product-catalog-manager {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--sh-sm);
+}
+.dg-admin .metric strong,
+.dg-admin .metric .val { font-family: var(--serif); font-weight: 500; color: var(--ink); }
+.dg-admin .metric span,
+.dg-admin .metric .lbl { color: var(--muted); }
+.dg-admin .embed-box code,
+.dg-admin code { background: var(--ink); color: #EDE7DD; border-radius: var(--r-sm); }
+
+/* tables */
+.dg-admin .table-like .table-row,
+.dg-admin table.table td { border-bottom: 1px solid var(--line); color: var(--ink-2); }
+.dg-admin table.table th {
+  color: var(--muted); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid var(--line);
+}
+.dg-admin .product-admin-row,
+.dg-admin .product-admin-header { border-bottom: 1px solid var(--line); }
+.dg-admin .product-admin-header { color: var(--muted); }
+
+/* buttons */
+.dg-admin .primary-button {
+  background: var(--ink); color: #fff; border: 0; border-radius: var(--pill);
+  font-weight: 600; box-shadow: none; transition: transform .15s ease, box-shadow .15s ease;
+}
+.dg-admin .primary-button:hover { transform: translateY(-1px); box-shadow: var(--sh); }
+.dg-admin .secondary-button {
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line-2); border-radius: var(--pill); font-weight: 600;
+}
+.dg-admin .secondary-button:hover { border-color: var(--ink); }
+.dg-admin .icon-only { border-radius: var(--r-sm); }
+
+/* inputs */
+.dg-admin input,
+.dg-admin select,
+.dg-admin textarea {
+  border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--surface); color: var(--ink);
+  outline: none; transition: border-color .15s ease, box-shadow .15s ease;
+}
+.dg-admin input:focus,
+.dg-admin select:focus,
+.dg-admin textarea:focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-tint); }
+
+/* role switcher (admin login) */
+.dg-admin .role-switcher { background: var(--cream); border: 1px solid var(--line); border-radius: var(--pill); }
+.dg-admin .role-switcher button { color: var(--muted); border-radius: var(--pill); }
+.dg-admin .role-switcher button.active { background: var(--surface); color: var(--ink); box-shadow: var(--sh-sm); }
+
+/* status / notes / pills */
+.dg-admin .safety-note,
+.dg-admin .privacy-note { color: var(--muted); }
+.dg-admin .error-text { color: var(--warn-rule); }
+.dg-admin .pillstat { border-radius: var(--pill); font-weight: 700; }
+.dg-admin .ps-live, .dg-admin .allocation-ok { background: var(--safe-tint); color: #0B5E43; }
+.dg-admin .ps-rev { background: var(--gold-tint); color: var(--gold); }
+.dg-admin .allocation-warning { color: var(--warn-rule); }
+.dg-admin .badge-safe { background: var(--safe-tint); color: #0B5E43; }
+
+/* accent links */
+.dg-admin .share-link { color: var(--brass); font-weight: 600; }
+.dg-admin .bar > i { background: linear-gradient(90deg, var(--teal), var(--brass-2)); }
