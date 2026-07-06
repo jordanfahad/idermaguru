@@ -95,3 +95,26 @@
   .dg .nav-cta .btn-ghost { display: none; }
   .dg .nav-cta .btn { white-space: nowrap; }
 }
+
+/* Auth split-screen (login) — photo brand panel + form card. */
+.dg .auth { display: grid; grid-template-columns: 1.05fr 1fr; min-height: 100vh; }
+.dg .auth-aside { position: relative; display: flex; }
+.dg .auth-main { display: flex; flex-direction: column; background: var(--ivory); }
+.dg .auth-bar { display: flex; align-items: center; justify-content: space-between; height: 74px; padding: 0 clamp(20px, 5vw, 56px); }
+.dg .auth-card { flex: 1; display: flex; align-items: center; justify-content: center; padding: clamp(24px, 4vw, 48px) clamp(20px, 5vw, 56px); }
+.dg .auth-card .inner { width: 100%; max-width: 432px; }
+.dg .auth-foot { padding: 20px clamp(20px, 5vw, 56px) 28px; font-size: .82rem; color: var(--faint); display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.dg .field { display: block; margin-top: 16px; }
+.dg .field > span { display: block; font-size: .78rem; font-weight: 600; letter-spacing: .04em; color: var(--ink-2); margin-bottom: 7px; }
+.dg .field input,
+.dg .field select {
+  width: 100%; height: 50px; border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  background: var(--surface); padding: 0 15px; font: inherit; color: var(--ink); outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.dg .field input:focus,
+.dg .field select:focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-tint); }
+@media (max-width: 900px) {
+  .dg .auth { grid-template-columns: 1fr; }
+  .dg .auth-aside { display: none; }
+}
