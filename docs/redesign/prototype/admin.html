@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Control room — DermaGuru Platform</title>
+<meta name="description" content="DermaGuru platform control room — operate tenants, the sponsored marketplace, safety governance, catalog ingestion, and billing. Internal super-admin console.">
+<link rel="stylesheet" href="assets/dg.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============================ SIDEBAR ============================ -->
+  <aside class="side">
+    <a class="brand" href="index.html" style="align-items:flex-start">
+      <span class="mark" style="background:linear-gradient(140deg,var(--brass-2),var(--brass))">D</span>
+      <span>DermaGuru
+        <small style="color:var(--brass-2);letter-spacing:.18em">Platform · Control room</small>
+      </span>
+    </a>
+    <span class="badge badge-gold" style="margin:0 8px 10px;align-self:flex-start">Platform</span>
+
+    <span class="seg">Control room</span>
+    <a href="admin.html" class="active" aria-current="page">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
+      Overview
+    </a>
+    <a href="#tenants">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/><path d="M3 12h18"/></svg>
+      Tenants
+    </a>
+    <a href="#marketplace">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16l-1.5 5H5.5z"/><path d="M5.5 9l1 9h11l1-9"/><path d="M9 13h6"/></svg>
+      Sponsored marketplace
+    </a>
+    <a href="#safety">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M12 8v4"/><path d="M12 15.5h.01"/></svg>
+      Safety review
+    </a>
+    <a href="#ingestion">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="M8 8l4-4 4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+      Catalog ingestion
+    </a>
+
+    <span class="seg">Insight</span>
+    <a href="#analytics">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-4"/><path d="M12 16V8"/><path d="M16 16v-7"/></svg>
+      Analytics
+    </a>
+    <a href="#billing">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M7 15h3"/></svg>
+      Billing &amp; payouts
+    </a>
+
+    <span class="seg">System</span>
+    <a href="#settings">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 7 2.6h.1A1.6 1.6 0 0 0 9 1.1V1a2 2 0 1 1 4 0v.1A1.6 1.6 0 0 0 17 2.6a1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H23a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+      Settings
+    </a>
+    <a href="#audit">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>
+      Audit log
+    </a>
+
+    <span class="spacer"></span>
+
+    <a href="#account" style="border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04)">
+      <span style="width:28px;height:28px;border-radius:9px;flex:0 0 auto;display:grid;place-items:center;color:#fff;font-family:var(--serif);font-size:.82rem;background:linear-gradient(140deg,var(--brass-2),var(--brass))">JF</span>
+      <span style="line-height:1.2">Jordan Fahad<br><small style="color:rgba(255,255,255,.45);font-size:.7rem;letter-spacing:.04em">Super admin</small></span>
+    </a>
+  </aside>
+
+  <!-- ============================ MAIN ============================ -->
+  <main class="main">
+
+    <!-- ---------------- TOPBAR ---------------- -->
+    <header class="topbar">
+      <h1>Control room</h1>
+      <label class="search" style="max-width:360px;flex:1">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <input type="search" aria-label="Search the platform" placeholder="Search tenants, sessions, SKUs…">
+      </label>
+      <div style="display:flex;align-items:center;gap:14px">
+        <span class="badge badge-safe">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
+          All systems green
+        </span>
+        <span title="Super admin" style="width:38px;height:38px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;color:#fff;font-family:var(--serif);font-size:.95rem;background:linear-gradient(140deg,var(--brass-2),var(--brass));box-shadow:var(--sh-sm)">JF</span>
+      </div>
+    </header>
+
+    <!-- ---------------- CONTENT ---------------- -->
+    <div class="content">
+
+      <!-- 1 · METRICS -->
+      <section class="metrics" aria-label="Platform health at a glance">
+        <div class="metric">
+          <div class="lbl">Active tenants</div>
+          <div class="val">38</div>
+          <div class="delta up">▲ 4 this month</div>
+        </div>
+        <div class="metric">
+          <div class="lbl">Public consultations · today</div>
+          <div class="val">12,840</div>
+          <div class="delta up">▲ 9% vs yesterday</div>
+        </div>
+        <div class="metric">
+          <div class="lbl">Sponsored revenue · MTD</div>
+          <div class="val">AED 41,250</div>
+          <div class="delta up">▲ 22% MoM</div>
+        </div>
+        <div class="metric" style="border-color:var(--warn-rule);background:linear-gradient(180deg,var(--warn-tint),var(--surface) 55%)">
+          <div class="lbl" style="color:var(--warn-ink)">Safety flags · 24h</div>
+          <div class="val" style="color:var(--warn-ink)">17</div>
+          <div class="delta down">4 awaiting review</div>
+        </div>
+      </section>
+
+      <!-- 2 · TENANTS -->
+      <section class="surface" id="tenants" style="margin-bottom:22px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px">
+          <div>
+            <h3>Tenants</h3>
+            <p class="muted" style="font-size:.86rem;margin-top:3px">Brands running the advisor as a private widget. DermaGuru is the platform; each brand is a tenant.</p>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Invite tenant
+          </button>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Tenant</th>
+                <th>Plan</th>
+                <th>Status</th>
+                <th style="text-align:right">MRR (AED)</th>
+                <th style="text-align:right">Consultations · 30d</th>
+                <th>Widget</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong style="color:var(--ink)">Cicabelle</strong><br><span class="muted" style="font-size:.78rem">cicabelle.com</span></td>
+                <td>Growth</td>
+                <td><span class="pillstat ps-live">Live</span></td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">2,400</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">48,210</td>
+                <td><span class="badge badge-teal">Embedded</span></td>
+              </tr>
+              <tr>
+                <td><strong style="color:var(--ink)">Maison Lumière</strong><br><span class="muted" style="font-size:.78rem">maisonlumiere.ae</span></td>
+                <td>Scale</td>
+                <td><span class="pillstat ps-live">Live</span></td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">5,900</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">71,640</td>
+                <td><span class="badge badge-teal">Embedded</span></td>
+              </tr>
+              <tr>
+                <td><strong style="color:var(--ink)">Aïsha Skincare</strong><br><span class="muted" style="font-size:.78rem">aisha.beauty</span></td>
+                <td>Growth</td>
+                <td><span class="pillstat ps-rev">Onboarding</span></td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">2,400</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">3,180</td>
+                <td><span class="badge badge-gold">Catalog sync</span></td>
+              </tr>
+              <tr>
+                <td><strong style="color:var(--ink)">Nadi Wellness</strong><br><span class="muted" style="font-size:.78rem">nadiwellness.com</span></td>
+                <td>Starter</td>
+                <td><span class="pillstat ps-live">Live</span></td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">900</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">12,070</td>
+                <td><span class="badge badge-teal">Embedded</span></td>
+              </tr>
+              <tr>
+                <td><strong style="color:var(--ink)">Bareen Beauty</strong><br><span class="muted" style="font-size:.78rem">bareen.shop</span></td>
+                <td>Starter</td>
+                <td><span class="pillstat ps-off">Paused</span></td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">0</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">410</td>
+                <td><span class="pillstat ps-off">Disabled</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 3 · TWO-COLUMN: MARKETPLACE QUEUE + SAFETY QUEUE -->
+      <section class="grid g-2" style="margin-bottom:22px;align-items:start">
+
+        <!-- LEFT · sponsored marketplace review queue -->
+        <div class="surface" id="marketplace">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px">
+            <h3>Sponsored marketplace · review queue</h3>
+            <span class="badge badge-gold">4 in review</span>
+          </div>
+          <p class="muted" style="font-size:.86rem;margin-bottom:16px">Paid placements for the public consultation. Each must carry the <strong>Sponsored</strong> disclosure and pass safety review before it can serve.</p>
+          <div style="overflow-x:auto">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Advertiser</th>
+                  <th>Product</th>
+                  <th style="text-align:right">Bid</th>
+                  <th>Placement</th>
+                  <th>Status</th>
+                  <th style="text-align:right">Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Lumière Labs</td>
+                  <td>Vitamin C Glow Serum</td>
+                  <td style="text-align:right;font-variant-numeric:tabular-nums">AED 1.80</td>
+                  <td><span class="muted">Dullness · AM</span></td>
+                  <td><span class="pillstat ps-rev">In review</span></td>
+                  <td style="text-align:right;white-space:nowrap">
+                    <a href="#approve" style="color:var(--safe);font-weight:600">Approve</a>
+                    <span class="muted"> / </span>
+                    <a href="#reject" style="color:#B23A48;font-weight:600">Reject</a>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Aïsha Skincare</td>
+                  <td>Ceramide Barrier Cream</td>
+                  <td style="text-align:right;font-variant-numeric:tabular-nums">AED 1.40</td>
+                  <td><span class="muted">Dryness · PM</span></td>
+                  <td><span class="pillstat ps-rev">In review</span></td>
+                  <td style="text-align:right;white-space:nowrap">
+                    <a href="#approve" style="color:var(--safe);font-weight:600">Approve</a>
+                    <span class="muted"> / </span>
+                    <a href="#reject" style="color:#B23A48;font-weight:600">Reject</a>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Nadi Wellness</td>
+                  <td>Niacinamide 10% Toner</td>
+                  <td style="text-align:right;font-variant-numeric:tabular-nums">AED 1.10</td>
+                  <td><span class="muted">Oiliness · AM</span></td>
+                  <td><span class="pillstat ps-rev">In review</span></td>
+                  <td style="text-align:right;white-space:nowrap">
+                    <a href="#approve" style="color:var(--safe);font-weight:600">Approve</a>
+                    <span class="muted"> / </span>
+                    <a href="#reject" style="color:#B23A48;font-weight:600">Reject</a>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Bareen Beauty</td>
+                  <td>Acne Spot Treatment</td>
+                  <td style="text-align:right;font-variant-numeric:tabular-nums">AED 2.05</td>
+                  <td><span class="muted">Breakouts · PM</span></td>
+                  <td><span class="pillstat ps-rev">In review</span></td>
+                  <td style="text-align:right;white-space:nowrap">
+                    <a href="#approve" style="color:var(--safe);font-weight:600">Approve</a>
+                    <span class="muted"> / </span>
+                    <a href="#reject" style="color:#B23A48;font-weight:600">Reject</a>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="muted" style="font-size:.78rem;line-height:1.5;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+            Rule · Sponsored results are labelled, ranked separately from organic, capped at one per routine, and <strong>never served on red-flag sessions</strong>.
+          </p>
+        </div>
+
+        <!-- RIGHT · safety review queue (first-class) -->
+        <div class="surface" id="safety" style="border-color:var(--warn-rule);box-shadow:0 0 0 1px var(--warn-rule)">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px">
+            <h3 style="display:inline-flex;align-items:center;gap:9px">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warn-rule)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M12 8v4"/><path d="M12 15.5h.01"/></svg>
+              Safety review queue
+            </h3>
+            <span class="badge" style="background:var(--warn-tint);color:var(--warn-ink)">Spine of the platform</span>
+          </div>
+          <p class="muted" style="font-size:.86rem;margin-bottom:16px">Sessions the safety gate held back. Red-flag sessions are blocked from all recommendations and sponsored placements — commerce is never shown.</p>
+
+          <!-- urgent referral item -->
+          <div class="referral" style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+              <span class="badge" style="background:var(--warn-rule);color:#fff">Urgent</span>
+              <span class="badge" style="background:#fff;color:var(--warn-ink)">REFER_CLINIC</span>
+              <span class="muted" style="font-size:.76rem;margin-left:auto">ar-AE · 3 min ago</span>
+            </div>
+            <strong>Session #SF-90213 · Cicabelle</strong><br>
+            Persistent painful inflammation reported — outside cosmetic guidance.
+            <span style="color:var(--warn-ink);font-weight:600;display:block;margin-top:6px">✓ Confirmed referral — no commerce shown.</span>
+          </div>
+
+          <!-- second referral item -->
+          <div class="referral" style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+              <span class="badge" style="background:var(--warn-rule);color:#fff">Urgent</span>
+              <span class="badge" style="background:#fff;color:var(--warn-ink)">REFER_CLINIC</span>
+              <span class="muted" style="font-size:.76rem;margin-left:auto">en-AE · 14 min ago</span>
+            </div>
+            <strong>Session #SF-90188 · Maison Lumière</strong><br>
+            Possible reaction with spreading rash — escalated to professional care.
+            <span style="color:var(--warn-ink);font-weight:600;display:block;margin-top:6px">✓ Confirmed referral — no commerce shown.</span>
+          </div>
+
+          <!-- review-needed item -->
+          <div class="referral" style="background:var(--gold-tint);border-color:#E7D7B4;border-left-color:var(--gold);color:var(--gold)">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+              <span class="pillstat ps-rev">Needs review</span>
+              <span class="badge" style="background:#fff;color:var(--gold)">REVIEW_CAUTION</span>
+              <span class="muted" style="font-size:.76rem;margin-left:auto">en-AE · 26 min ago</span>
+            </div>
+            <strong style="color:var(--gold)">Session #SF-90155 · Nadi Wellness</strong><br>
+            <span style="color:var(--ink-2)">Borderline irritation language — advisor paused commerce pending a reviewer call.</span>
+            <div style="margin-top:9px;white-space:nowrap">
+              <a href="#confirm" style="color:var(--warn-rule);font-weight:600">Confirm referral</a>
+              <span class="muted"> / </span>
+              <a href="#clear" style="color:var(--safe);font-weight:600">Clear &amp; resume</a>
+            </div>
+          </div>
+
+          <p class="muted" style="font-size:.78rem;line-height:1.5;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+            13 flags auto-resolved in the last 24h. Advisor — never medical advice; the safety gate runs before any recommendation.
+          </p>
+        </div>
+      </section>
+
+      <!-- 4 · PLATFORM ANALYTICS CHART -->
+      <section class="surface" id="analytics" style="margin-bottom:22px">
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap">
+          <div>
+            <h3>Platform analytics · public consultations</h3>
+            <p class="muted" style="font-size:.86rem;margin-top:3px">Daily completed sessions across all tenants · last 14 days</p>
+          </div>
+          <div style="text-align:right">
+            <div class="stat" style="font-size:2rem;color:var(--teal)">158,420</div>
+            <span class="muted" style="font-size:.8rem">total · 14 days</span>
+          </div>
+        </div>
+        <div class="chart" aria-hidden="true">
+          <div class="col" style="height:48%"></div>
+          <div class="col" style="height:55%"></div>
+          <div class="col" style="height:51%"></div>
+          <div class="col" style="height:63%"></div>
+          <div class="col" style="height:70%"></div>
+          <div class="col" style="height:58%"></div>
+          <div class="col" style="height:44%"></div>
+          <div class="col" style="height:67%"></div>
+          <div class="col" style="height:74%"></div>
+          <div class="col" style="height:79%"></div>
+          <div class="col" style="height:86%"></div>
+          <div class="col" style="height:72%"></div>
+          <div class="col" style="height:64%"></div>
+          <div class="col" style="height:92%"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:.72rem;color:var(--faint);letter-spacing:.04em">
+          <span>Jun 6</span><span>Jun 10</span><span>Jun 14</span><span>Jun 19</span>
+        </div>
+      </section>
+
+      <!-- 5 · BILLING & PAYOUTS -->
+      <section class="surface" id="billing">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px">
+          <div>
+            <h3>Billing &amp; payouts</h3>
+            <p class="muted" style="font-size:.86rem;margin-top:3px">Subscriptions, sponsored marketplace take, and payouts to tenants. Figures in AED.</p>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm">Export statement</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th style="text-align:right">Subscription revenue</th>
+                <th style="text-align:right">Sponsored revenue</th>
+                <th style="text-align:right">Payouts to tenants</th>
+                <th style="text-align:right">Net (AED)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong style="color:var(--ink)">June 2026</strong> <span class="muted" style="font-size:.76rem">· MTD</span></td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">88,400</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">41,250</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">29,180</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--safe);font-weight:700">100,470</td>
+              </tr>
+              <tr>
+                <td><strong style="color:var(--ink)">May 2026</strong></td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">84,100</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">33,820</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">24,640</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--safe);font-weight:700">93,280</td>
+              </tr>
+              <tr>
+                <td><strong style="color:var(--ink)">April 2026</strong></td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">79,600</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">28,910</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums">21,300</td>
+                <td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--safe);font-weight:700">87,210</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

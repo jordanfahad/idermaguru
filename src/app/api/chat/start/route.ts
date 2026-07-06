@@ -4,7 +4,8 @@ import { seedTenant } from "@/data/seed-catalog";
 import { CUSTOMER_DISCLAIMER } from "@/domain/skincare";
 import { getTenantBySlug } from "@/services/catalog";
 import { trackEvent } from "@/services/analytics";
-import { getPrisma } from "@/server/db";
+import { createSessionToken } from "@/lib/session-token";
+import { withTenant } from "@/lib/tenant-context";
 import { jsonError, parseJson, RequestValidationError } from "../../_shared";
 
 const StartSchema = z.object({
@@ -26,9 +27,9 @@ export async function POST(request: Request) {
     if (!tenant) return jsonError("Tenant not found.", 404);
 
     const anonymousUserId = input.anonymousUserId ?? crypto.randomUUID();
-    const prisma = getPrisma();
-    const session = prisma
-      ? await prisma.userSession.create({
+    const session =
+      (await withTenant(tenant.id, (tx) =>
+        tx.userSession.create({
           data: {
             tenantId: tenant.id,
             anonymousUserId,
@@ -40,13 +41,16 @@ export async function POST(request: Request) {
             utmCampaign: input.utmCampaign,
             referrer: input.referrer,
           },
-        })
-      : { id: crypto.randomUUID(), anonymousUserId };
+        }),
+      )) ?? { id: crypto.randomUUID(), anonymousUserId };
 
     await trackEvent({ tenantId: tenant.id, sessionId: session.id, type: "SESSION_STARTED" });
 
+    const sessionToken = await createSessionToken(session.id);
+
     return NextResponse.json({
       sessionId: session.id,
+      sessionToken,
       anonymousUserId,
       tenant,
       disclaimer: tenant.disclosureText || CUSTOMER_DISCLAIMER,

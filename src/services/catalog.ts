@@ -2,7 +2,10 @@ import type { Product } from "@prisma/client";
 import type { ProductCatalogItem } from "@/domain/skincare";
 import { seedProducts, seedTenant } from "@/data/seed-catalog";
 import { getPrisma } from "@/server/db";
+import { withTenant } from "@/lib/tenant-context";
 
+// Tenant resolution: must run on the owner client — a role subject to RLS cannot
+// look up a tenant by slug without already knowing its id.
 export async function getTenantBySlug(slug = seedTenant.slug) {
   const prisma = getPrisma();
   if (!prisma) return seedTenant;
@@ -14,19 +17,26 @@ export async function getTenantBySlug(slug = seedTenant.slug) {
   }
 }
 
+function seedFallback(tenantId: string): ProductCatalogItem[] {
+  return tenantId === seedTenant.id ? seedProducts.filter((product) => product.tenantId === seedTenant.id) : [];
+}
+
 export async function listTenantProducts(slug = seedTenant.slug): Promise<ProductCatalogItem[]> {
-  const prisma = getPrisma();
-  if (!prisma) return seedProducts.filter((product) => product.tenantId === seedTenant.id);
+  const tenant = await getTenantBySlug(slug);
+  if (!tenant) return slug === seedTenant.slug ? seedFallback(seedTenant.id) : [];
 
   try {
-    const tenant = await prisma.tenant.findUnique({
-      where: { slug },
-      include: { products: { orderBy: [{ merchantPriority: "desc" }, { name: "asc" }] } },
-    });
-    if (!tenant) return [];
-    return tenant.products.map(mapPrismaProduct);
+    // Tenant-scoped read: the GUC set by withTenant lets RLS filter to this tenant.
+    const products = await withTenant(tenant.id, (tx) =>
+      tx.product.findMany({
+        where: { tenantId: tenant.id },
+        orderBy: [{ merchantPriority: "desc" }, { name: "asc" }],
+      }),
+    );
+    if (!products) return seedFallback(tenant.id);
+    return products.map(mapPrismaProduct);
   } catch {
-    return slug === seedTenant.slug ? seedProducts.filter((product) => product.tenantId === seedTenant.id) : [];
+    return seedFallback(tenant.id);
   }
 }
 
@@ -36,74 +46,77 @@ export async function getProductByIdForTenant(productId: string, tenantSlug = se
 }
 
 export async function createProductForTenant(tenantSlug: string, input: Omit<ProductCatalogItem, "id" | "tenantId">) {
-  const prisma = getPrisma();
   const tenant = await getTenantBySlug(tenantSlug);
   if (!tenant) throw new Error("Tenant not found.");
-  if (!prisma) return { ...input, id: crypto.randomUUID(), tenantId: tenant.id };
 
-  const product = await prisma.product.create({
-    data: {
-      ...input,
-      tenantId: tenant.id,
-      price: input.price,
-      sponsoredBidCpc: input.sponsoredBidCpc,
-    },
-  });
+  const product = await withTenant(tenant.id, (tx) =>
+    tx.product.create({
+      data: {
+        ...input,
+        tenantId: tenant.id,
+        price: input.price,
+        sponsoredBidCpc: input.sponsoredBidCpc,
+      },
+    }),
+  );
 
+  if (!product) return { ...input, id: crypto.randomUUID(), tenantId: tenant.id };
   return mapPrismaProduct(product);
 }
 
 export async function updateProductForTenant(productId: string, tenantSlug: string, input: Partial<ProductCatalogItem>) {
-  const prisma = getPrisma();
   const tenant = await getTenantBySlug(tenantSlug);
   if (!tenant) throw new Error("Tenant not found.");
-  if (!prisma) return null;
 
-  const existing = await prisma.product.findFirst({
-    where: { id: productId, tenantId: tenant.id },
+  return withTenant(tenant.id, async (tx) => {
+    const existing = await tx.product.findFirst({
+      where: { id: productId, tenantId: tenant.id },
+    });
+    if (!existing) return null;
+
+    const product = await tx.product.update({
+      where: { id: productId },
+      data: {
+        name: input.name,
+        brand: input.brand,
+        category: input.category,
+        description: input.description,
+        url: input.url,
+        imageUrl: input.imageUrl,
+        inStock: input.inStock,
+        ingredientsJson: input.ingredientsJson,
+        activeIngredientsJson: input.activeIngredientsJson,
+        skinTypesJson: input.skinTypesJson,
+        concernsJson: input.concernsJson,
+        avoidIfJson: input.avoidIfJson,
+        pregnancySafety: input.pregnancySafety,
+        fragranceFree: input.fragranceFree,
+        nonComedogenic: input.nonComedogenic,
+        sensitiveSkinSuitable: input.sensitiveSkinSuitable,
+        claimsJson: input.claimsJson,
+        approvedClaimsJson: input.approvedClaimsJson,
+        merchantPriority: input.merchantPriority,
+        price: input.price,
+        sponsoredBidCpc: input.sponsoredBidCpc,
+      },
+    });
+
+    return mapPrismaProduct(product);
   });
-  if (!existing) return null;
-
-  const product = await prisma.product.update({
-    where: { id: productId },
-    data: {
-      name: input.name,
-      brand: input.brand,
-      category: input.category,
-      description: input.description,
-      url: input.url,
-      imageUrl: input.imageUrl,
-      inStock: input.inStock,
-      ingredientsJson: input.ingredientsJson,
-      activeIngredientsJson: input.activeIngredientsJson,
-      skinTypesJson: input.skinTypesJson,
-      concernsJson: input.concernsJson,
-      avoidIfJson: input.avoidIfJson,
-      pregnancySafety: input.pregnancySafety,
-      fragranceFree: input.fragranceFree,
-      nonComedogenic: input.nonComedogenic,
-      sensitiveSkinSuitable: input.sensitiveSkinSuitable,
-      claimsJson: input.claimsJson,
-      approvedClaimsJson: input.approvedClaimsJson,
-      merchantPriority: input.merchantPriority,
-      price: input.price,
-      sponsoredBidCpc: input.sponsoredBidCpc,
-    },
-  });
-
-  return mapPrismaProduct(product);
 }
 
 export async function deleteProductForTenant(productId: string, tenantSlug: string) {
-  const prisma = getPrisma();
   const tenant = await getTenantBySlug(tenantSlug);
   if (!tenant) throw new Error("Tenant not found.");
-  if (!prisma) return { deleted: true };
 
-  const existing = await prisma.product.findFirst({
-    where: { id: productId, tenantId: tenant.id },
+  await withTenant(tenant.id, async (tx) => {
+    const existing = await tx.product.findFirst({
+      where: { id: productId, tenantId: tenant.id },
+    });
+    if (existing) await tx.product.delete({ where: { id: productId } });
+    return true;
   });
-  if (existing) await prisma.product.delete({ where: { id: productId } });
+
   return { deleted: true };
 }
 

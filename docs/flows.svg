@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="1000" viewBox="0 0 940 1000" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#8a847c"/>
+    </marker>
+    <marker id="arrG" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#1f6f5c"/>
+    </marker>
+    <marker id="arrR" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#d2754b"/>
+    </marker>
+    <style>
+      .box{fill:#fff;stroke:#141110;stroke-opacity:.12;rx:10}
+      .lbl{font-size:12px;fill:#1c1a19}
+      .lbl2{font-size:10.5px;fill:#6b6660}
+      .sec{font-size:13px;font-weight:700;fill:#1c1a19}
+      .gate{fill:#eef5f2;stroke:#1f6f5c;stroke-opacity:.5}
+      .ref{fill:#fff7f3;stroke:#e0b9a4}
+      .ai{fill:#f4f2ee;stroke:#141110;stroke-opacity:.12}
+      .a{stroke:#8a847c;stroke-width:1.6;marker-end:url(#arr)}
+      .ag{stroke:#1f6f5c;stroke-width:1.6;marker-end:url(#arrG)}
+      .ar{stroke:#d2754b;stroke-width:1.6;stroke-dasharray:4 3;marker-end:url(#arrR)}
+    </style>
+  </defs>
+  <rect width="940" height="1000" fill="#faf8f5"/>
+  <text x="36" y="44" font-size="22" font-weight="700" fill="#1c1a19" letter-spacing="-0.3">DermaGuru — logic &amp; flow</text>
+
+  <!-- ============ A. Delivery architecture ============ -->
+  <text x="36" y="88" class="sec">A · Delivery architecture</text>
+  <g>
+    <rect x="36" y="100" width="120" height="50" rx="10" class="box"/>
+    <text x="96" y="123" class="lbl" text-anchor="middle">Shopper</text>
+    <text x="96" y="139" class="lbl2" text-anchor="middle">merchant store</text>
+
+    <rect x="206" y="100" width="150" height="50" rx="10" class="box"/>
+    <text x="281" y="122" class="lbl" text-anchor="middle">&lt;dermaguru-widget&gt;</text>
+    <text x="281" y="138" class="lbl2" text-anchor="middle">Shadow DOM · ~7KB</text>
+
+    <rect x="406" y="100" width="150" height="50" rx="10" class="box"/>
+    <text x="481" y="122" class="lbl" text-anchor="middle">proxy.ts</text>
+    <text x="481" y="138" class="lbl2" text-anchor="middle">CORS + OPTIONS</text>
+
+    <rect x="606" y="100" width="140" height="50" rx="10" class="box"/>
+    <text x="676" y="122" class="lbl" text-anchor="middle">Next.js API</text>
+    <text x="676" y="138" class="lbl2" text-anchor="middle">Vercel routes</text>
+
+    <rect x="796" y="100" width="120" height="50" rx="10" class="box"/>
+    <text x="856" y="122" class="lbl" text-anchor="middle">Postgres</text>
+    <text x="856" y="138" class="lbl2" text-anchor="middle">Prisma · RLS · pgvector</text>
+
+    <line x1="156" y1="125" x2="204" y2="125" class="a"/>
+    <line x1="356" y1="125" x2="404" y2="125" class="a"/>
+    <line x1="556" y1="125" x2="604" y2="125" class="a"/>
+    <line x1="746" y1="125" x2="794" y2="125" class="a"/>
+  </g>
+
+  <!-- ============ B. Safety pipeline ============ -->
+  <text x="36" y="208" class="sec">B · Safety pipeline (§3) — defense in depth</text>
+  <g>
+    <!-- main path -->
+    <rect x="36" y="222" width="120" height="48" rx="10" class="box"/>
+    <text x="96" y="250" class="lbl" text-anchor="middle">User message</text>
+
+    <rect x="196" y="222" width="150" height="48" rx="10" class="gate"/>
+    <text x="271" y="243" class="lbl" text-anchor="middle">Input gate</text>
+    <text x="271" y="259" class="lbl2" text-anchor="middle">runSafetyTriage</text>
+
+    <rect x="386" y="222" width="160" height="48" rx="10" class="ai"/>
+    <text x="466" y="243" class="lbl" text-anchor="middle">Provider router</text>
+    <text x="466" y="259" class="lbl2" text-anchor="middle">grounded · catalog-only</text>
+
+    <rect x="586" y="222" width="170" height="48" rx="10" class="gate"/>
+    <text x="671" y="243" class="lbl" text-anchor="middle">Output gate</text>
+    <text x="671" y="259" class="lbl2" text-anchor="middle">validateAssistantTextForSafety</text>
+
+    <rect x="796" y="222" width="120" height="48" rx="10" class="box"/>
+    <text x="856" y="243" class="lbl" text-anchor="middle">Deliver</text>
+    <text x="856" y="259" class="lbl2" text-anchor="middle">+ disclaimer</text>
+
+    <line x1="156" y1="246" x2="194" y2="246" class="a"/>
+    <line x1="346" y1="246" x2="384" y2="246" class="ag"/>
+    <line x1="546" y1="246" x2="584" y2="246" class="ag"/>
+    <line x1="756" y1="246" x2="794" y2="246" class="ag"/>
+
+    <!-- branch down from input gate -->
+    <line x1="271" y1="270" x2="271" y2="300" class="ar"/>
+    <rect x="176" y="300" width="190" height="42" rx="10" class="ref"/>
+    <text x="271" y="320" class="lbl" text-anchor="middle">Red flag → referral</text>
+    <text x="271" y="335" class="lbl2" text-anchor="middle">"see a professional" · no products</text>
+
+    <!-- branch down from output gate -->
+    <line x1="671" y1="270" x2="671" y2="300" class="ar"/>
+    <rect x="576" y="300" width="200" height="42" rx="10" class="ref"/>
+    <text x="676" y="320" class="lbl" text-anchor="middle">Diagnosis / cure claim</text>
+    <text x="676" y="335" class="lbl2" text-anchor="middle">→ replaced with safe template</text>
+  </g>
+
+  <!-- ============ C. Provider routing ============ -->
+  <text x="36" y="396" class="sec">C · AI provider routing (§6) — OpenAI first, Claude when tokens run out</text>
+  <g>
+    <rect x="36" y="410" width="200" height="56" rx="10" class="box"/>
+    <text x="136" y="433" class="lbl" text-anchor="middle">OpenAI (primary)</text>
+    <text x="136" y="451" class="lbl2" text-anchor="middle">OpenAICompatibleProvider</text>
+
+    <rect x="370" y="410" width="200" height="56" rx="10" class="ai"/>
+    <text x="470" y="433" class="lbl" text-anchor="middle">Claude (fallback)</text>
+    <text x="470" y="451" class="lbl2" text-anchor="middle">@anthropic-ai/sdk · Opus+Haiku</text>
+
+    <rect x="704" y="410" width="200" height="56" rx="10" class="box"/>
+    <text x="804" y="433" class="lbl" text-anchor="middle">Offline mock</text>
+    <text x="804" y="451" class="lbl2" text-anchor="middle">deterministic · tests/CI</text>
+
+    <line x1="236" y1="438" x2="368" y2="438" class="ar"/>
+    <text x="302" y="430" font-size="10" fill="#d2754b" text-anchor="middle">out of tokens / 429</text>
+    <line x1="570" y1="438" x2="702" y2="438" class="ar"/>
+    <text x="636" y="430" font-size="10" fill="#d2754b" text-anchor="middle">unavailable</text>
+
+    <text x="36" y="492" class="lbl2">ProviderUnavailableError (quota · rate-limit · auth · server · network) drives the fallback. Genuine request bugs propagate — never swallowed.</text>
+  </g>
+
+  <!-- ============ D. Widget interaction flow ============ -->
+  <text x="36" y="540" class="sec">D · Widget interaction flow (§4)</text>
+  <g>
+    <rect x="36" y="556" width="170" height="46" rx="10" class="box"/>
+    <text x="121" y="584" class="lbl" text-anchor="middle">Load &lt;script&gt; → launcher</text>
+
+    <rect x="256" y="556" width="180" height="46" rx="10" class="gate"/>
+    <text x="346" y="579" class="lbl" text-anchor="middle">First-use consent</text>
+    <text x="346" y="594" class="lbl2" text-anchor="middle">§3.4 · stored per tenant</text>
+
+    <rect x="486" y="556" width="170" height="46" rx="10" class="box"/>
+    <text x="571" y="579" class="lbl" text-anchor="middle">POST /api/chat/start</text>
+    <text x="571" y="594" class="lbl2" text-anchor="middle">anonymous session</text>
+
+    <rect x="706" y="556" width="200" height="46" rx="10" class="box"/>
+    <text x="806" y="579" class="lbl" text-anchor="middle">POST /api/chat/message</text>
+    <text x="806" y="594" class="lbl2" text-anchor="middle">chat + output gate</text>
+
+    <line x1="206" y1="579" x2="254" y2="579" class="a"/>
+    <line x1="436" y1="579" x2="484" y2="579" class="a"/>
+    <line x1="656" y1="579" x2="704" y2="579" class="a"/>
+
+    <!-- row 2 -->
+    <rect x="36" y="652" width="200" height="46" rx="10" class="box"/>
+    <text x="136" y="675" class="lbl" text-anchor="middle">POST /api/recommendations</text>
+    <text x="136" y="690" class="lbl2" text-anchor="middle">real SKUs · no hallucination</text>
+
+    <rect x="286" y="652" width="190" height="46" rx="10" class="box"/>
+    <text x="381" y="675" class="lbl" text-anchor="middle">Product cards</text>
+    <text x="381" y="690" class="lbl2" text-anchor="middle">image · AED price · why</text>
+
+    <rect x="526" y="652" width="200" height="46" rx="10" class="box"/>
+    <text x="626" y="675" class="lbl" text-anchor="middle">Add to cart</text>
+    <text x="626" y="690" class="lbl2" text-anchor="middle">deep link + events</text>
+
+    <!-- connector from row1 down to row2 -->
+    <path d="M806,602 L806,627 L136,627 L136,650" fill="none" class="a"/>
+    <line x1="236" y1="675" x2="284" y2="675" class="a"/>
+    <line x1="476" y1="675" x2="524" y2="675" class="a"/>
+  </g>
+
+  <text x="36" y="760" class="lbl2">Branches in red (dashed) are the safety/fallback exits. Green arrows are the grounded happy path.</text>
+</svg>

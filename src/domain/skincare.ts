@@ -124,3 +124,8 @@ export const SPONSORED_DISCLOSURE =
 
 export const ESCALATION_MESSAGE =
   "Based on what you shared, this may need a clinician's review. AI Derma Guru can help with general OTC skincare guidance, but it can't diagnose or treat this here. Please contact a dermatologist or doctor. If you have trouble breathing, swelling of the lips, tongue, or face, fever, rapidly spreading redness, severe pain, or eye involvement, seek urgent care.";
+
+// Replaces assistant output that slips a diagnostic conclusion, a treat/cure/prevent
+// claim, or a guaranteed-result claim through the model (output gate, spec §3.3).
+export const OUTPUT_GATE_FALLBACK_MESSAGE =
+  "Let me keep this to general cosmetic guidance: a gentle routine (cleanse, moisturize, and use sunscreen during the day), introduce one new product at a time, and always follow each product's label. AI Derma Guru can't diagnose or promise to treat, cure, or prevent any condition — for a medical concern, please see a dermatologist or doctor.";

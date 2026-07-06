@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { trackEvent } from "@/services/analytics";
-import { getPrisma } from "@/server/db";
+import { resolveConversionTenantId } from "@/services/tenant-scope";
+import { withTenant } from "@/lib/tenant-context";
 import { asPrismaJson } from "@/server/json";
 import { jsonError, parseJson, RequestValidationError } from "../../_shared";
 
@@ -18,11 +19,13 @@ const ConversionSchema = z.object({
 export async function POST(request: Request) {
   try {
     const input = await parseJson(request, ConversionSchema);
-    const prisma = getPrisma();
-    const conversion = prisma
-      ? await prisma.conversion.create({
+    const tenantId = await resolveConversionTenantId(input.sessionId, input.clickId, input.tenantId);
+    if (!tenantId) return jsonError("A valid sessionId or clickId is required.", 403);
+    const conversion =
+      (await withTenant(tenantId, (tx) =>
+        tx.conversion.create({
           data: {
-            tenantId: input.tenantId,
+            tenantId,
             sessionId: input.sessionId,
             clickEventId: input.clickId,
             orderId: input.orderId,
@@ -30,11 +33,11 @@ export async function POST(request: Request) {
             currency: input.currency,
             metadataJson: asPrismaJson(input.metadata ?? {}),
           },
-        })
-      : { id: crypto.randomUUID(), ...input };
+        }),
+      )) ?? { id: crypto.randomUUID(), ...input };
 
     await trackEvent({
-      tenantId: input.tenantId,
+      tenantId,
       sessionId: input.sessionId,
       type: "PURCHASE_COMPLETED",
       metadata: { orderId: input.orderId, revenue: input.revenue, currency: input.currency },

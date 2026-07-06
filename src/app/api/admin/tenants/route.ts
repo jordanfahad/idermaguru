@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { seedTenant } from "@/data/seed-catalog";
 import { getPrisma } from "@/server/db";
+import { requireSuperAdmin } from "@/lib/admin-guard";
 import { jsonError, parseJson, RequestValidationError } from "../../_shared";
 
 const TenantSchema = z.object({
@@ -13,12 +14,18 @@ const TenantSchema = z.object({
 });
 
 export async function GET() {
+  const session = await requireSuperAdmin();
+  if (session instanceof NextResponse) return session;
+
   const prisma = getPrisma();
   const tenants = prisma ? await prisma.tenant.findMany({ orderBy: { createdAt: "desc" } }) : [seedTenant];
   return NextResponse.json({ tenants });
 }
 
 export async function POST(request: Request) {
+  const session = await requireSuperAdmin();
+  if (session instanceof NextResponse) return session;
+
   try {
     const input = await parseJson(request, TenantSchema);
     const prisma = getPrisma();
