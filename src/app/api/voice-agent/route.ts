@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { seedTenant } from "@/data/seed-catalog";
+import type { IntakeProfileInput, ProductCatalogItem, SafetyTriage } from "@/domain/skincare";
 import { getTenantBySlug, listTenantProducts } from "@/services/catalog";
 import { getLLMProvider } from "@/services/llm/provider";
-import { buildRecommendations } from "@/services/recommendation-engine";
+import { buildRecommendations, passesHardFilters } from "@/services/recommendation-engine";
 import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safety-triage";
 import {
   agentCopy,
@@ -85,18 +86,6 @@ export async function POST(request: Request) {
       });
     }
 
-    // Hair and scalp concerns: this catalogue is skincare only, so recommending
-    // a face routine for dandruff would be worse than saying we can't help.
-    if (isHairConcern(slots.mainConcern ?? "")) {
-      return NextResponse.json({
-        reply: copy.noHairProducts,
-        phase: "referral",
-        slots,
-        products: [],
-        language: lang,
-      });
-    }
-
     // We have everything -> run the real safety + recommendation pipeline.
     const tenant = await getTenantBySlug(input.tenantSlug);
     if (!tenant) return jsonError("Tenant not found.", 404);
@@ -116,6 +105,22 @@ export async function POST(request: Request) {
     }
 
     const products = await listTenantProducts(input.tenantSlug);
+
+    // Hair and scalp concerns don't fit the face-routine slot model, so match
+    // them directly against the catalogue instead of building an AM/PM routine.
+    // If the merchant stocks nothing suitable we say so rather than selling a
+    // face routine for dandruff.
+    if (isHairConcern(slots.mainConcern ?? "")) {
+      const hairMatches = pickHairProducts(products, slots.mainConcern ?? "", profile, tenant.id, safety);
+      return NextResponse.json({
+        reply: hairMatches.length ? copy.result(hairMatches.length) : copy.noHairProducts,
+        phase: hairMatches.length ? "result" : "referral",
+        slots,
+        safetyLevel: safety.level,
+        language: lang,
+        products: hairMatches,
+      });
+    }
     const recommendation = buildRecommendations({
       tenantId: tenant.id,
       profile,
@@ -181,6 +186,60 @@ export async function POST(request: Request) {
     if (error instanceof RequestValidationError) return jsonError(error.message);
     throw error;
   }
+}
+
+/**
+ * Hair and scalp matching. Runs the same hard safety filters as the routine
+ * builder, so allergy/pregnancy exclusions still apply, then ranks by how well
+ * the product's own concern tags match what the shopper said.
+ */
+function pickHairProducts(
+  products: ProductCatalogItem[],
+  concern: string,
+  profile: IntakeProfileInput,
+  tenantId: string,
+  safety: SafetyTriage,
+) {
+  const text = concern.toLowerCase();
+  const wants = [
+    { term: "dandruff", match: /dandruff|flake|flaky/ },
+    { term: "hair fall", match: /fall|loss|shed|thinn|bald/ },
+    { term: "dry", match: /dry|frizz|damage|split/ },
+    { term: "oily", match: /oily|greasy/ },
+  ]
+    .filter((entry) => entry.match.test(text))
+    .map((entry) => entry.term);
+
+  return products
+    .filter((product) => passesHardFilters(product, profile, tenantId, safety))
+    .filter((product) => {
+      const tags = product.concernsJson.map((tag) => tag.toLowerCase());
+      const haystack = `${product.name} ${product.category}`.toLowerCase();
+      return tags.includes("hair") || tags.includes("dandruff") || tags.includes("hair fall") ||
+        /hair|scalp|shampoo|conditioner/.test(haystack);
+    })
+    .map((product) => {
+      const tags = product.concernsJson.map((tag) => tag.toLowerCase());
+      const haystack = `${product.name} ${product.category} ${product.description}`.toLowerCase();
+      const specific = wants.filter((want) => tags.includes(want) || haystack.includes(want)).length;
+      return { product, score: specific * 10 + product.merchantPriority / 100 };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4)
+    .map(({ product }) => ({
+      id: product.id,
+      name: product.name,
+      brand: product.brand,
+      category: product.category,
+      price: product.price,
+      currency: product.currency,
+      imageUrl: product.imageUrl ?? null,
+      url: product.url,
+      slot: "hair & scalp",
+      reason: `${product.name} matches what you described and passed the safety checks.`,
+      cautions: ["Patch test before first use.", "Follow the label directions."],
+      sponsored: false,
+    }));
 }
 
 function shorten(text: string, max = 90) {

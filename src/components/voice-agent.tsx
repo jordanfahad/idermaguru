@@ -108,6 +108,7 @@ export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
 
   const slotsRef = useRef<Record<string, unknown>>({});
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const shouldContinueRef = useRef(false);
   const t = UI[lang];
 
@@ -122,10 +123,12 @@ export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
       shouldContinueRef.current = false;
       recognitionRef.current?.abort();
       window.speechSynthesis?.cancel();
+      audioRef.current?.pause();
     };
   }, []);
 
-  const speak = useCallback(
+  /** Browser speech: always available, noticeably robotic. */
+  const speakWithBrowser = useCallback(
     (text: string, onDone: () => void) => {
       const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
       if (!synth) {
@@ -146,6 +149,50 @@ export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
       synth.speak(utterance);
     },
     [lang],
+  );
+
+  /**
+   * Prefer the natural OpenAI voice; fall back to the browser voice whenever it
+   * is unavailable (no API key, offline, upstream error) so the agent never
+   * goes silent.
+   */
+  const speak = useCallback(
+    async (text: string, onDone: () => void) => {
+      if (!text.trim()) {
+        onDone();
+        return;
+      }
+      window.speechSynthesis?.cancel();
+      audioRef.current?.pause();
+
+      try {
+        const response = await fetch("/api/voice-agent/speech", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text, language: lang }),
+        });
+        if (!response.ok) throw new Error("no natural voice");
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        const finish = () => {
+          URL.revokeObjectURL(url);
+          onDone();
+        };
+        audio.onended = finish;
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          speakWithBrowser(text, onDone);
+        };
+        setPhase("speaking");
+        await audio.play();
+      } catch {
+        speakWithBrowser(text, onDone);
+      }
+    },
+    [lang, speakWithBrowser],
   );
 
   const listen = useCallback(() => {
@@ -212,7 +259,7 @@ export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
         setTurns((current) => [...current, { role: "agent", text: reply }]);
 
         const keepGoing = payload.phase === "asking" && shouldContinueRef.current;
-        speak(reply, () => {
+        void speak(reply, () => {
           if (keepGoing) listen();
           else setPhase("idle");
         });
@@ -235,6 +282,7 @@ export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
     shouldContinueRef.current = false;
     recognitionRef.current?.abort();
     window.speechSynthesis?.cancel();
+    audioRef.current?.pause();
     setPhase("idle");
   }
 
