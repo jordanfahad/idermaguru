@@ -1,5 +1,6 @@
 import { LanguageHome } from "@/components/language-home";
 import { ClassicLanguageHome } from "@/components/language-home-classic";
+import { ConciergeHome } from "@/components/concierge-home";
 import { redirect } from "next/navigation";
 
 type HomeProps = {
@@ -14,5 +15,11 @@ export default async function Home({ searchParams }: HomeProps) {
     redirect(`/auth/callback?code=${encodeURIComponent(params.code)}&next=/dashboard`);
   }
 
-  return process.env.HOMEPAGE_VARIANT === "classic" ? <ClassicLanguageHome /> : <LanguageHome />;
+  // Default: the voice-first concierge homepage. Roll back instantly with an env var:
+  //   HOMEPAGE_VARIANT=retail   -> the previous retail homepage
+  //   HOMEPAGE_VARIANT=classic  -> the classic homepage
+  const variant = process.env.HOMEPAGE_VARIANT;
+  if (variant === "classic") return <ClassicLanguageHome />;
+  if (variant === "retail") return <LanguageHome />;
+  return <ConciergeHome />;
 }
