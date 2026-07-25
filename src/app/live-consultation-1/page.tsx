@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { LiveConsultationSearch } from "@/components/live-consultation-search";
+import { ConciergeConsultation } from "@/components/concierge-consultation";
 import { getLiveConsultationConfig } from "@/services/live-consultations";
 
 export const metadata: Metadata = {
-  title: "Live Consultation 1 | AI Derma Guru",
+  title: "Live skin consultation | AI Derma Guru",
   description:
-    "Start an AI skincare consultation for OTC skincare routines and curated product discovery.",
+    "Talk to the AI skin advisor by voice or chat and get a safety-checked OTC routine built from the store's own catalogue.",
 };
 
 export const dynamic = "force-dynamic";
@@ -16,5 +16,5 @@ export default async function LiveConsultationOnePage() {
     ...product,
     trust: "Selected from an approved retail catalog after suitability checks.",
   }));
-  return <LiveConsultationSearch curatedProducts={curatedProducts} vendorShares={config.vendors} />;
+  return <ConciergeConsultation curatedProducts={curatedProducts} vendorShares={config.vendors} />;
 }

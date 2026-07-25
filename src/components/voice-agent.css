@@ -197,6 +197,51 @@
   color: var(--va-ink);
 }
 .va-interim span { opacity: 0.45; }
+/* try-saying prompt */
+.va-try {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 6px;
+}
+.va-try > span {
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600; color: var(--va-soft);
+}
+.va-try-chip {
+  border: 1px solid var(--va-line); background: rgba(255, 255, 255, 0.8); border-radius: 999px;
+  padding: 9px 18px; font-size: 16px; font-weight: 500; cursor: pointer; color: var(--va-ink);
+  transition: all 160ms ease; animation: va-rise 320ms ease both;
+}
+.va-try-chip:hover { border-color: rgba(var(--va-live), 0.6); transform: translateY(-1px); }
+
+/* voice | chat toggle */
+.va-modes {
+  display: inline-flex; gap: 4px; margin-top: 18px; padding: 4px;
+  background: rgba(255, 255, 255, 0.75); border: 1px solid var(--va-line); border-radius: 999px;
+}
+.va-mode {
+  display: inline-flex; align-items: center; gap: 7px; border: none; background: transparent;
+  padding: 9px 20px; border-radius: 999px; font-size: 14px; font-weight: 600; cursor: pointer;
+  color: var(--va-soft); transition: all 160ms ease;
+}
+.va-mode:hover { color: var(--va-ink); }
+.va-mode-on { background: var(--va-ink); color: #fff; }
+.va-mode-on:hover { color: #fff; }
+
+/* chat composer */
+.va-composer {
+  display: flex; gap: 8px; margin-top: 14px; width: 100%; max-width: 560px;
+  background: #fff; border: 1px solid var(--va-line); border-radius: 16px; padding: 7px 7px 7px 16px;
+  box-shadow: 0 10px 30px rgba(27, 26, 23, 0.06);
+}
+.va-composer input {
+  flex: 1; border: none; outline: none; font: inherit; font-size: 15px; background: transparent;
+  min-width: 0; color: inherit;
+}
+.va-composer button {
+  display: inline-flex; align-items: center; gap: 7px; border: none; background: var(--va-ink);
+  color: #fff; border-radius: 12px; padding: 11px 18px; font-weight: 600; font-size: 14px;
+  cursor: pointer; white-space: nowrap;
+}
+.va-composer button:disabled { opacity: 0.45; cursor: default; }
+
 .va-notice { margin: 10px 0 0; font-size: 13px; color: #a3421f; text-align: center; max-width: 460px; }
 .va-notice a { color: inherit; text-decoration: underline; }
 

@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Heart, Loader2, Mic, ShoppingCart, Square } from "lucide-react";
+import { ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Square } from "lucide-react";
 import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
 import "./voice-agent.css";
 
 type Lang = "en" | "ar";
+type Mode = "voice" | "chat";
 type Phase = "idle" | "listening" | "thinking" | "speaking";
 
 type AgentProduct = {
@@ -45,8 +46,30 @@ const GREETING = {
   ar: "مرحباً — أنا مستشار البشرة. أخبرني ما الذي يزعج بشرتك أو شعرك.",
 };
 
+const PROMPTS = {
+  en: [
+    "I have dark spots and dull skin",
+    "acne-safe sunscreen and moisturiser",
+    "a simple glow routine under AED 200",
+    "barrier repair for sensitive skin",
+    "dandruff and an itchy scalp",
+  ],
+  ar: [
+    "عندي بقع داكنة وبشرة باهتة",
+    "واقي شمس مناسب لحب الشباب",
+    "روتين إشراق بسيط بأقل من ٢٠٠ درهم",
+    "إصلاح حاجز البشرة الحساسة",
+    "قشرة وحكة في فروة الرأس",
+  ],
+};
+
 const UI = {
   en: {
+    voiceMode: "Voice",
+    chatMode: "Chat",
+    trySaying: "Try saying",
+    typeHere: "Type your skin or hair concern…",
+    send: "Send",
     start: "Tap to speak",
     stop: "Stop",
     listening: "Listening",
@@ -66,6 +89,11 @@ const UI = {
     error: "Something went wrong. Tap the mic to try again.",
   },
   ar: {
+    voiceMode: "صوت",
+    chatMode: "محادثة",
+    trySaying: "جرّب أن تقول",
+    typeHere: "اكتب مشكلة بشرتك أو شعرك…",
+    send: "إرسال",
     start: "اضغط للتحدث",
     stop: "إيقاف",
     listening: "أستمع",
@@ -99,17 +127,28 @@ function pickVoice(synth: SpeechSynthesis, lang: Lang): SpeechSynthesisVoice | n
   return candidates.find((v) => !/compact/i.test(v.name)) ?? candidates[0];
 }
 
-export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
+export function VoiceAgent({
+  initialLang = "en",
+  variant = "full",
+}: {
+  initialLang?: Lang;
+  /** "full" is the shopper product; "compact" is the homepage demo. */
+  variant?: "full" | "compact";
+}) {
   const [lang, setLang] = useState<Lang>(initialLang);
+  const [mode, setMode] = useState<Mode>("voice");
   const [phase, setPhase] = useState<Phase>("idle");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [interim, setInterim] = useState("");
+  const [draft, setDraft] = useState("");
   const [products, setProducts] = useState<AgentProduct[]>([]);
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
+  const [promptIndex, setPromptIndex] = useState(0);
 
   const slotsRef = useRef<Record<string, unknown>>({});
+  const modeRef = useRef<Mode>("voice");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const orbRef = useRef<OrbAudio | null>(null);
@@ -131,6 +170,13 @@ export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
+
+  // Rotate the example prompts while the shopper hasn't started.
+  useEffect(() => {
+    if (started) return;
+    const id = window.setInterval(() => setPromptIndex((i) => (i + 1) % PROMPTS.en.length), 3200);
+    return () => window.clearInterval(id);
+  }, [started]);
 
   useEffect(() => {
     try {
@@ -236,6 +282,12 @@ export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
 
         const reply: string = payload.reply ?? "";
         setTurns((current) => [...current, { role: "agent", text: reply }]);
+
+        // Chat mode stays silent and never grabs the microphone.
+        if (modeRef.current === "chat") {
+          setPhase("idle");
+          return;
+        }
         const keepGoing = payload.phase === "asking" && continueRef.current;
         void speak(reply, () => (keepGoing ? listen() : setPhase("idle")));
       } catch {
@@ -298,6 +350,7 @@ export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
   }, [lang, send, t.noVoice, t.denied]);
 
   function begin() {
+    modeRef.current = "voice";
     // Must be created inside the tap gesture or browsers keep audio suspended.
     if (!orbRef.current) orbRef.current = createOrbAudio();
     orbRef.current.startHum();
@@ -309,6 +362,34 @@ export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
     const greeting = GREETING[lang];
     setTurns([{ role: "agent", text: greeting }]);
     void speak(greeting, () => listen());
+  }
+
+  /** Chat send, and the "Try saying" chips. Works with no microphone at all. */
+  function submitText(text: string) {
+    const clean = text.trim();
+    if (!clean) return;
+    modeRef.current = "chat";
+    setMode("chat");
+    setStarted(true);
+    setDraft("");
+    setNotice(null);
+    void send(clean);
+  }
+
+  function switchMode(next: Mode) {
+    modeRef.current = next;
+    setMode(next);
+    if (next === "chat") {
+      // Leaving voice: release the mic and silence playback.
+      continueRef.current = false;
+      recognitionRef.current?.abort();
+      window.speechSynthesis?.cancel();
+      audioElRef.current?.pause();
+      orbRef.current?.detachMic();
+      orbRef.current?.stopHum();
+      setInterim("");
+      setPhase("idle");
+    }
   }
 
   function stop() {
@@ -364,8 +445,62 @@ export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
         </button>
       </div>
 
-      <p className="va-status" aria-live="polite">{statusLabel}</p>
+      <p className="va-status" aria-live="polite">{mode === "voice" ? statusLabel : busy ? t.thinking : ""}</p>
       <p className="va-interim">{interim ? <span>{interim}</span> : null}</p>
+
+      {!started ? (
+        <div className="va-try">
+          <span>{t.trySaying}</span>
+          <button type="button" className="va-try-chip" onClick={() => submitText(PROMPTS[lang][promptIndex])}>
+            &ldquo;{PROMPTS[lang][promptIndex]}&rdquo;
+          </button>
+        </div>
+      ) : null}
+
+      <div className="va-modes" role="tablist" aria-label="Input mode">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === "voice"}
+          className={mode === "voice" ? "va-mode va-mode-on" : "va-mode"}
+          onClick={() => switchMode("voice")}
+        >
+          <Mic size={14} />
+          {t.voiceMode}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === "chat"}
+          className={mode === "chat" ? "va-mode va-mode-on" : "va-mode"}
+          onClick={() => switchMode("chat")}
+        >
+          <MessageSquare size={14} />
+          {t.chatMode}
+        </button>
+      </div>
+
+      {mode === "chat" ? (
+        <form
+          className="va-composer"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitText(draft);
+          }}
+        >
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder={t.typeHere}
+            aria-label={t.typeHere}
+            autoComplete="off"
+          />
+          <button type="submit" disabled={busy || !draft.trim()}>
+            {busy ? <Loader2 className="va-spin-icon" size={16} /> : <Send size={16} />}
+            {t.send}
+          </button>
+        </form>
+      ) : null}
 
       {notice ? (
         <p className="va-notice">

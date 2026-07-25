@@ -1,0 +1,101 @@
+/* Shopper-facing consultation shell. Scoped under .cc so it cannot collide with
+   the global stylesheet or the embedded form widget below it. */
+.cc {
+  --cc-ink: #1b1a17;
+  --cc-soft: #6f6a61;
+  --cc-line: rgba(27, 26, 23, 0.1);
+  --cc-cream: #f7f4ee;
+  min-height: 100vh;
+  background:
+    radial-gradient(90% 60% at 50% -10%, #ffffff 0%, rgba(255, 255, 255, 0) 60%),
+    var(--cc-cream);
+  color: var(--cc-ink);
+  font-family: var(--sans, ui-sans-serif, system-ui, sans-serif);
+  /* Contain the glows and the outboard trust pills without clipping them. */
+  overflow-x: hidden;
+}
+.cc-rtl { font-family: var(--arabic, var(--sans, sans-serif)); }
+.cc a { text-decoration: none; color: inherit; }
+
+/* top bar */
+.cc-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px 26px; border-bottom: 1px solid var(--cc-line);
+  background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(10px);
+  position: sticky; top: 0; z-index: 30;
+}
+.cc-brand { display: flex; align-items: center; gap: 11px; font-weight: 700; }
+.cc-brand small { display: block; font-size: 11px; font-weight: 500; color: var(--cc-soft); letter-spacing: 0.04em; }
+.cc-brand-mark {
+  width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+  background: #1f6f66; color: #fff; font-weight: 800;
+}
+.cc-bar-right { display: flex; align-items: center; gap: 10px; }
+.cc-lang, .cc-bar-cta {
+  border: 1px solid var(--cc-line); background: #fff; border-radius: 999px;
+  padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; color: inherit;
+}
+/* Needs the .cc prefix: ".cc a { color: inherit }" outranks a bare class here
+   and would render the label in ink on an ink pill. */
+.cc a.cc-bar-cta { background: var(--cc-ink); color: #fff; border-color: var(--cc-ink); }
+
+/* stage */
+.cc-stage {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  text-align: center; padding: 52px 22px 70px; max-width: 900px; margin: 0 auto;
+}
+.cc-glow { position: absolute; border-radius: 50%; filter: blur(90px); pointer-events: none; z-index: 0; }
+.cc-glow-1 { width: 460px; height: 460px; background: rgba(47, 143, 131, 0.13); top: -140px; right: -120px; }
+.cc-glow-2 { width: 380px; height: 380px; background: rgba(196, 149, 106, 0.13); bottom: -120px; left: -110px; }
+/* Lift only the flow content above the glows. Must not touch .cc-glow/.cc-float,
+   which are absolutely positioned - making them relative drops them back into
+   the layout and pushes the whole page down. */
+.cc-kicker, .cc-title, .cc-lead, .cc-disclaimer, .cc-stage > .va { position: relative; z-index: 1; }
+
+.cc-kicker {
+  display: inline-flex; align-items: center; gap: 8px; margin: 0;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #1f6f66;
+}
+.cc-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #1f6f66;
+  box-shadow: 0 0 0 0 rgba(31, 111, 102, 0.5); animation: cc-pulse 2.2s infinite;
+}
+@keyframes cc-pulse {
+  70% { box-shadow: 0 0 0 9px rgba(31, 111, 102, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(31, 111, 102, 0); }
+}
+.cc-title {
+  font-family: var(--serif, Georgia, serif);
+  font-size: clamp(2rem, 5.2vw, 3.4rem); line-height: 1.06; margin: 16px 0 12px; letter-spacing: -0.02em;
+}
+.cc-lead { color: var(--cc-soft); font-size: 17px; line-height: 1.55; max-width: 560px; margin: 0 0 26px; }
+.cc-disclaimer { margin-top: 30px; font-size: 12.5px; color: var(--cc-soft); max-width: 520px; }
+
+/* floating trust cards */
+.cc-float {
+  position: absolute; z-index: 1; display: inline-flex; align-items: center; gap: 7px;
+  background: #fff; border: 1px solid var(--cc-line); border-radius: 999px;
+  padding: 9px 15px; font-size: 12.5px; font-weight: 600; color: var(--cc-ink);
+  box-shadow: 0 12px 30px rgba(27, 26, 23, 0.08); animation: cc-drift 7s ease-in-out infinite;
+}
+.cc-float-tl { top: 120px; left: -150px; }
+.cc-float-bl { bottom: 150px; left: -120px; animation-delay: 1.4s; }
+.cc-float-tr { top: 170px; right: -170px; animation-delay: 0.7s; }
+.cc-float-br { bottom: 120px; right: -130px; animation-delay: 2.1s; }
+@keyframes cc-drift {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-9px); }
+}
+@media (max-width: 1180px) { .cc-float { display: none; } }
+@media (prefers-reduced-motion: reduce) { .cc-float, .cc-dot { animation: none; } }
+
+/* fallback form disclosure */
+.cc-alt { display: flex; justify-content: center; padding: 0 22px 40px; }
+.cc-alt-toggle {
+  display: inline-flex; align-items: center; gap: 9px; background: transparent;
+  border: 1px dashed rgba(27, 26, 23, 0.22); border-radius: 999px; padding: 12px 22px;
+  font-size: 13.5px; font-weight: 600; color: var(--cc-soft); cursor: pointer; transition: all 160ms ease;
+}
+.cc-alt-toggle:hover { color: var(--cc-ink); border-color: rgba(27, 26, 23, 0.4); }
+.cc-rot { transform: rotate(180deg); }
+.cc-form-host { border-top: 1px solid var(--cc-line); }
