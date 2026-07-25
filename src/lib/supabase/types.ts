@@ -79,6 +79,30 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["partner_domains"]["Insert"]>;
         Relationships: [];
       };
+      shopify_shops: {
+        Row: {
+          shop_domain: string;
+          tenant_id: string;
+          access_token: string;
+          scopes: string | null;
+          installed_at: string;
+          last_sync_at: string | null;
+          last_sync_count: number | null;
+          updated_at: string;
+        };
+        Insert: {
+          shop_domain: string;
+          tenant_id: string;
+          access_token: string;
+          scopes?: string | null;
+          installed_at?: string;
+          last_sync_at?: string | null;
+          last_sync_count?: number | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["shopify_shops"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
