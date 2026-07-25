@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { VoiceAgent } from "./voice-agent";
 import "./dg-home.css";
 import "./dg-home-extra.css";
 
@@ -89,8 +90,8 @@ export function QuietLuxeHome() {
               )}
             </p>
             <div className="hero-actions">
-              <Link href={ROUTES.pricing} className="btn btn-ink">{tr("Add to your store", "أضِفه إلى متجرك")}</Link>
-              <Link href={ROUTES.live} className="btn btn-ghost">{tr("Try the live demo →", "جرّب العرض المباشر →")}</Link>
+              <a href="#voice" className="btn btn-ink">{tr("Talk to the advisor", "تحدّث إلى المستشار")}</a>
+              <Link href={ROUTES.pricing} className="btn btn-ghost">{tr("Add to your store", "أضِفه إلى متجرك")}</Link>
             </div>
             <div className="trust">
               <span>✦ {tr("Catalog-grounded", "مبنيّ على الكتالوج")}</span>
@@ -131,6 +132,23 @@ export function QuietLuxeHome() {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ===== VOICE CONCIERGE ===== */}
+      <section id="voice" className="sec-cream">
+        <div className="wrap">
+          <div className="section-head">
+            <span className="eyebrow">{tr("Talk to it · live", "تحدّث إليه · مباشر")}</span>
+            <h2>{tr("Just say what's bothering your skin.", "فقط قل ما الذي يزعج بشرتك.")}</h2>
+            <p className="lead muted">
+              {tr(
+                "Tap the mic and speak. The advisor listens, asks the safety questions a good pharmacist would, then talks you through a routine built only from the store's catalog.",
+                "اضغط الميكروفون وتحدّث. يستمع المستشار، ويسأل أسئلة السلامة التي يسألها الصيدلي الجيد، ثم يشرح لك روتيناً مبنياً فقط على كتالوج المتجر.",
+              )}
+            </p>
+          </div>
+          <VoiceAgent key={locale} initialLang={isAr ? "ar" : "en"} />
         </div>
       </section>
 

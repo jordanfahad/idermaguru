@@ -20,7 +20,14 @@ const urgentPatterns = [
 ];
 
 const referPatterns = [
-  /changing mole|mole changed|bleeding mole|irregular mole|mole.*multiple colors|asymmetric mole/i,
+  // Moles: match conversational phrasing, not just adjacent words. People say
+  // "a mole that changed colour and is bleeding", which rigid pairs like
+  // "mole changed" miss entirely. Allow filler words on either side.
+  /\bmoles?\b[\s\S]{0,60}?(chang|bleed|grow|irregular|asymmetric|itch|scab|multiple colou?rs|new colou?r)/i,
+  /(chang|bleed|grow|irregular|asymmetric|suspicious)[\s\S]{0,60}?\bmoles?\b/i,
+  // Bleeding or non-healing skin is a referral regardless of the word order.
+  /\bbleed(?:s|ing)?\b/i,
+  /(won'?t|does ?n'?t|not)\s+heal|non[- ]healing|never heals/i,
   /rapidly growing.*(pigmented|spot|lesion|mole)/i,
   /pus|abscess|open wound/i,
   /painful cystic acne|painful cysts|nodular acne|severe acne/i,
