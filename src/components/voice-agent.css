@@ -1,9 +1,13 @@
-/* Voice concierge — scoped so it inherits the quiet-luxe page around it. */
+/* Voice concierge — audio-reactive orb, scoped so it inherits the page around it.
+   The component sets --level (0..1) every animation frame from real audio, and
+   every reactive property below is driven by it. */
 .va {
   --va-ink: #1b1a17;
   --va-soft: #6f6a61;
-  --va-line: rgba(27, 26, 23, 0.12);
-  --va-accent: #8a7b5f;
+  --va-line: rgba(27, 26, 23, 0.1);
+  --va-glow: 138, 123, 95;      /* brass */
+  --va-live: 47, 143, 131;      /* teal, while listening */
+  --level: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -13,76 +17,191 @@
 }
 .va-rtl { font-family: var(--arabic, var(--sans, sans-serif)); }
 
+/* ---------- stage ---------- */
 .va-stage {
   position: relative;
-  width: min(260px, 66vw);
-  height: min(260px, 66vw);
+  width: min(320px, 76vw);
+  height: min(320px, 76vw);
   display: grid;
   place-items: center;
+  isolation: isolate;
 }
-.va-orb {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(138, 123, 95, 0.18) 0%, rgba(138, 123, 95, 0) 64%);
-  transition: transform 0.4s ease, opacity 0.4s ease;
-}
-.va-orb::before {
-  content: "";
-  position: absolute;
-  inset: 8%;
-  border-radius: 50%;
-  background-image: radial-gradient(rgba(138, 123, 95, 0.45) 1.1px, transparent 1.2px);
-  background-size: 12px 12px;
-  -webkit-mask: radial-gradient(circle, #000 50%, transparent 72%);
-  mask: radial-gradient(circle, #000 50%, transparent 72%);
-  opacity: 0.5;
-  animation: va-spin 30s linear infinite;
-}
-.va-orb-listening { transform: scale(1.06); }
-.va-orb-listening::before { animation-duration: 8s; opacity: 0.85; }
-.va-orb-speaking::before { animation-duration: 14s; opacity: 0.7; }
-.va-orb-thinking::before { animation-duration: 4s; opacity: 0.6; }
-@keyframes va-spin { to { transform: rotate(360deg); } }
 
+/* outer bloom — swells with amplitude */
+.va-bloom {
+  position: absolute;
+  inset: -16%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(var(--va-live), calc(0.34 + var(--level) * 0.5)) 0%,
+    rgba(var(--va-live), calc(0.12 + var(--level) * 0.2)) 42%,
+    rgba(var(--va-live), 0) 68%
+  );
+  transform: scale(calc(0.94 + var(--level) * 0.28));
+  transition: background 240ms ease;
+  filter: blur(10px);
+  will-change: transform;
+}
+.va-listening .va-bloom {
+  background: radial-gradient(
+    circle,
+    rgba(var(--va-live), calc(0.5 + var(--level) * 0.44)) 0%,
+    rgba(var(--va-live), calc(0.18 + var(--level) * 0.24)) 44%,
+    rgba(var(--va-live), 0) 70%
+  );
+}
+.va-speaking .va-bloom {
+  background: radial-gradient(
+    circle,
+    rgba(var(--va-glow), calc(0.44 + var(--level) * 0.46)) 0%,
+    rgba(var(--va-glow), calc(0.16 + var(--level) * 0.22)) 44%,
+    rgba(var(--va-glow), 0) 70%
+  );
+}
+
+/* the sphere itself — a solid, visible body rather than a faint wash */
+.va-halo {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 38% 30%, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.5) 26%, rgba(255, 255, 255, 0) 52%),
+    radial-gradient(circle at 50% 50%, rgba(var(--va-live), 0.22) 0%, rgba(var(--va-live), 0.1) 55%, rgba(var(--va-live), 0.03) 78%);
+  box-shadow:
+    inset 0 0 60px rgba(var(--va-live), 0.18),
+    0 20px 60px rgba(27, 26, 23, 0.10);
+  animation: va-breathe 6.5s ease-in-out infinite;
+}
+
+/* rotating speckle field */
+.va-field {
+  position: absolute;
+  inset: 3%;
+  border-radius: 50%;
+  background-image: radial-gradient(rgba(var(--va-live), 0.95) 1.5px, transparent 1.6px);
+  background-size: 12px 12px;
+  -webkit-mask: radial-gradient(circle, #000 40%, rgba(0, 0, 0, 0.5) 62%, transparent 74%);
+  mask: radial-gradient(circle, #000 40%, rgba(0, 0, 0, 0.5) 62%, transparent 74%);
+  opacity: calc(0.68 + var(--level) * 0.32);
+  transform: rotate(0deg) scale(calc(1 + var(--level) * 0.05));
+  animation: va-spin 34s linear infinite;
+  will-change: transform;
+}
+.va-field-2 {
+  inset: 14%;
+  background-image: radial-gradient(rgba(var(--va-glow), 0.8) 1.3px, transparent 1.4px);
+  background-size: 9px 9px;
+  animation-duration: 52s;
+  animation-direction: reverse;
+  opacity: calc(0.5 + var(--level) * 0.4);
+}
+.va-listening .va-field { animation-duration: 12s; }
+.va-thinking .va-field { animation-duration: 5s; }
+.va-thinking .va-field-2 { animation-duration: 8s; }
+
+/* reactive rings */
+.va-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--va-live), calc(0.32 + var(--level) * 0.45));
+  inset: 8%;
+  transform: scale(calc(1 + var(--level) * 0.14));
+  will-change: transform;
+}
+.va-ring-2 {
+  inset: 22%;
+  border-color: rgba(var(--va-live), calc(0.2 + var(--level) * 0.4));
+  transform: scale(calc(1 + var(--level) * 0.24));
+}
+.va-listening .va-ring { border-color: rgba(var(--va-live), calc(0.2 + var(--level) * 0.5)); }
+.va-listening .va-ring-2 { border-color: rgba(var(--va-live), calc(0.12 + var(--level) * 0.4)); }
+
+/* ripple on state change */
+.va-ripple {
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--va-live), 0.5);
+  opacity: 0;
+  pointer-events: none;
+}
+.va-listening .va-ripple { animation: va-ripple 2.4s ease-out infinite; }
+
+/* core button */
 .va-mic {
   position: relative;
-  z-index: 2;
-  width: 86px;
-  height: 86px;
+  z-index: 3;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   border: none;
-  background: #fff;
-  color: var(--va-ink);
+  cursor: pointer;
   display: grid;
   place-items: center;
-  cursor: pointer;
-  box-shadow: 0 16px 40px rgba(27, 26, 23, 0.16);
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  color: var(--va-ink);
+  background: radial-gradient(circle at 50% 38%, #ffffff 0%, #f6f3ec 74%);
+  box-shadow:
+    0 0 calc(18px + var(--level) * 60px) rgba(var(--va-glow), calc(0.25 + var(--level) * 0.5)),
+    0 18px 44px rgba(27, 26, 23, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transform: scale(calc(1 + var(--level) * 0.07));
+  transition: color 200ms ease;
+  will-change: transform;
 }
-.va-mic:hover { transform: translateY(-2px); }
-.va-mic-listening { color: #b3452f; box-shadow: 0 0 0 8px rgba(179, 69, 47, 0.14), 0 16px 40px rgba(27, 26, 23, 0.16); }
-.va-mic-speaking { color: var(--va-accent); box-shadow: 0 0 0 8px rgba(138, 123, 95, 0.16), 0 16px 40px rgba(27, 26, 23, 0.16); }
-.va-spin { animation: va-rotate 1s linear infinite; }
-@keyframes va-rotate { to { transform: rotate(360deg); } }
+.va-mic:hover { color: #000; }
+.va-mic:focus-visible { outline: 2px solid rgba(var(--va-live), 0.9); outline-offset: 4px; }
+.va-listening .va-mic {
+  color: #1f6f66;
+  box-shadow:
+    0 0 calc(22px + var(--level) * 74px) rgba(var(--va-live), calc(0.3 + var(--level) * 0.55)),
+    0 18px 44px rgba(27, 26, 23, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.va-speaking .va-mic { color: #8a7b5f; }
+.va-spin-icon { animation: va-rotate 1s linear infinite; }
 
+@keyframes va-spin { to { transform: rotate(360deg); } }
+@keyframes va-rotate { to { transform: rotate(360deg); } }
+@keyframes va-breathe {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.04); }
+}
+@keyframes va-ripple {
+  0% { opacity: 0.55; transform: scale(0.9); }
+  100% { opacity: 0; transform: scale(1.5); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .va-field, .va-halo, .va-ripple { animation: none; }
+  .va-bloom, .va-mic, .va-ring, .va-ring-2 { transform: none; }
+}
+
+/* ---------- status + live transcript ---------- */
 .va-status {
-  margin: 6px 0 0;
-  font-size: 14px;
-  letter-spacing: 0.02em;
-  color: var(--va-soft);
-}
-.va-notice {
-  margin: 8px 0 0;
+  margin: 18px 0 0;
   font-size: 13px;
-  color: #a3421f;
-  text-align: center;
-  max-width: 460px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--va-soft);
+  min-height: 18px;
 }
+.va-interim {
+  margin: 10px 0 0;
+  font-size: 20px;
+  line-height: 1.4;
+  font-weight: 500;
+  text-align: center;
+  max-width: 560px;
+  min-height: 28px;
+  color: var(--va-ink);
+}
+.va-interim span { opacity: 0.45; }
+.va-notice { margin: 10px 0 0; font-size: 13px; color: #a3421f; text-align: center; max-width: 460px; }
 .va-notice a { color: inherit; text-decoration: underline; }
 
 .va-transcript {
-  margin-top: 18px;
+  margin-top: 20px;
   width: 100%;
   max-width: 560px;
   display: flex;
@@ -93,97 +212,66 @@
   margin: 0;
   font-size: 15px;
   line-height: 1.5;
-  padding: 10px 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.7);
+  padding: 11px 15px;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--va-line);
+  animation: va-rise 320ms ease both;
 }
 .va-turn span {
   display: block;
-  font-size: 11px;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   color: var(--va-soft);
   margin-bottom: 3px;
 }
-.va-turn-user { background: rgba(138, 123, 95, 0.09); }
+.va-turn-user { background: rgba(var(--va-glow), 0.1); }
+@keyframes va-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-.va-products {
-  margin-top: 22px;
-  width: 100%;
-  max-width: 720px;
-  display: grid;
-  gap: 12px;
-}
+/* ---------- products ---------- */
+.va-products { margin-top: 26px; width: 100%; max-width: 760px; display: grid; gap: 12px; }
 .va-card {
   display: flex;
   gap: 14px;
-  padding: 12px;
+  padding: 13px;
   border: 1px solid var(--va-line);
-  border-radius: 16px;
+  border-radius: 17px;
   background: #fff;
   text-align: start;
+  animation: va-rise 380ms ease both;
+  transition: box-shadow 200ms ease, transform 200ms ease;
 }
+.va-card:hover { box-shadow: 0 14px 34px rgba(27, 26, 23, 0.09); transform: translateY(-2px); }
 .va-card img, .va-card-noimg {
-  width: 76px;
-  height: 76px;
-  border-radius: 12px;
-  object-fit: cover;
-  flex: none;
-  background: #f1efe9;
+  width: 82px; height: 82px; border-radius: 13px; object-fit: cover; flex: none; background: #f1efe9;
 }
 .va-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.va-slot {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--va-soft);
-}
+.va-slot { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--va-soft); }
 .va-sponsored {
-  align-self: flex-start;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: #efe9f6;
-  color: #6b4ea0;
+  align-self: flex-start; font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; padding: 2px 7px; border-radius: 999px; background: #efe9f6; color: #6b4ea0;
 }
-.va-card-body strong { font-size: 15px; line-height: 1.3; }
+.va-card-body strong { font-size: 15px; line-height: 1.32; }
 .va-card-body p { margin: 0; font-size: 13px; color: var(--va-soft); line-height: 1.45; }
 .va-price { font-size: 14px; font-weight: 600; margin-top: 2px; }
-.va-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.va-actions { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
 .va-save, .va-view {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 7px 13px;
-  border-radius: 999px;
-  border: 1px solid var(--va-line);
-  background: #fff;
-  color: inherit;
-  cursor: pointer;
-  text-decoration: none;
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600;
+  padding: 7px 14px; border-radius: 999px; border: 1px solid var(--va-line);
+  background: #fff; color: inherit; cursor: pointer; text-decoration: none; transition: all 150ms ease;
 }
+.va-save:hover, .va-view:hover { border-color: rgba(var(--va-glow), 0.6); }
 .va-saved { background: #fdeef1; color: #b3395a; border-color: #f3d3da; }
 .va-cart-all {
-  justify-self: center;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 22px;
-  border-radius: 999px;
-  background: var(--va-ink);
-  color: #fff;
-  font-weight: 600;
-  text-decoration: none;
-  margin-top: 4px;
+  justify-self: center; display: inline-flex; align-items: center; gap: 8px; padding: 13px 24px;
+  border-radius: 999px; background: var(--va-ink); color: #fff; font-weight: 600;
+  text-decoration: none; margin-top: 6px;
 }
+.va-cart-all:hover { background: #000; }
 
 @media (max-width: 620px) {
   .va-card { flex-direction: column; }
-  .va-card img, .va-card-noimg { width: 100%; height: 140px; }
+  .va-card img, .va-card-noimg { width: 100%; height: 150px; }
+  .va-interim { font-size: 17px; }
 }

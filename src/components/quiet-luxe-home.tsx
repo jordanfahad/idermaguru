@@ -138,7 +138,7 @@ export function QuietLuxeHome() {
       {/* ===== VOICE CONCIERGE ===== */}
       <section id="voice" className="sec-cream">
         <div className="wrap">
-          <div className="section-head">
+          <div className="section-head" style={{ textAlign: "center", maxWidth: 680, margin: "0 auto" }}>
             <span className="eyebrow">{tr("Talk to it · live", "تحدّث إليه · مباشر")}</span>
             <h2>{tr("Just say what's bothering your skin.", "فقط قل ما الذي يزعج بشرتك.")}</h2>
             <p className="lead muted">
