@@ -7,6 +7,7 @@ import {
   nextQuestion,
   readPregnancyAnswer,
   readYesNo,
+  summariseSlots,
   updateSlots,
 } from "../src/services/voice-agent";
 
@@ -41,6 +42,70 @@ describe("red flags in natural speech", () => {
       const result = runSafetyTriage({ mainConcern: utterance });
       expect(result.recommendationAllowed).toBe(true);
     }
+  });
+});
+
+describe("conversational slot extraction", () => {
+  it("asks nothing when the shopper volunteers everything in one breath", () => {
+    const slots = updateSlots({}, "I have oily skin with dark spots, I'm 29, not pregnant, no allergies", "en");
+    expect(slots.skinType).toBe("oily");
+    expect(slots.pregnantOrBreastfeeding).toBe(false);
+    expect(slots.allergies).toEqual([]);
+    // every required slot filled -> straight to the routine
+    expect(nextQuestion(slots, "en")).toBeNull();
+  });
+
+  it("captures a named allergy stated up front", () => {
+    const slots = updateSlots({}, "dry sensitive skin, allergic to salicylic acid", "en");
+    expect(slots.skinType).toBe("sensitive");
+    expect(slots.allergies?.join(" ")).toMatch(/salicylic/i);
+  });
+
+  it("still asks for what was not volunteered", () => {
+    const slots = updateSlots({}, "I have dark spots and dull skin", "en");
+    expect(nextQuestion(slots, "en")?.question).toMatch(/skin/i);
+  });
+
+  it("does not infer a pregnancy answer from an unrelated sentence", () => {
+    const slots = updateSlots({}, "my oily skin breaks out before every holiday", "en");
+    expect(slots.pregnantOrBreastfeeding).toBeUndefined();
+    expect(nextQuestion(slots, "en")?.question).toMatch(/pregnant|breastfeeding/i);
+  });
+
+  it("reads a volunteered pregnancy as a caution, not a skip", () => {
+    const slots = updateSlots({}, "dry skin and I'm pregnant", "en");
+    expect(slots.pregnantOrBreastfeeding).toBe(true);
+  });
+
+  it("does not let an unrelated 'no' cancel a stated pregnancy", () => {
+    // "no allergies" used to supply the negative that flipped this to false,
+    // silently disabling the retinoid filter for a pregnant shopper.
+    for (const utterance of [
+      "I want retinol for wrinkles, dry skin, I am pregnant, no allergies",
+      "I'm breastfeeding and have no allergies",
+      "pregnant, no known allergies, oily skin",
+    ]) {
+      expect(updateSlots({}, utterance, "en").pregnantOrBreastfeeding).toBe(true);
+    }
+  });
+
+  it("still reads an explicit negative next to the word", () => {
+    for (const utterance of ["oily skin, not pregnant, no allergies", "I'm not breastfeeding"]) {
+      expect(updateSlots({}, utterance, "en").pregnantOrBreastfeeding).toBe(false);
+    }
+    expect(updateSlots({}, "بشرة دهنية ولست حامل", "ar").pregnantOrBreastfeeding).toBe(false);
+  });
+
+  it("summarises what it understood", () => {
+    const slots = updateSlots({}, "oily skin, not pregnant, no allergies", "en");
+    expect(summariseSlots(slots, "en")).toMatch(/oily skin/);
+    expect(summariseSlots(slots, "en")).toMatch(/no allergies/);
+  });
+
+  it("extracts inline slots in Arabic", () => {
+    const slots = updateSlots({}, "بشرتي دهنية ولا يوجد حساسية", "ar");
+    expect(slots.skinType).toBe("oily");
+    expect(slots.allergies).toEqual([]);
   });
 });
 

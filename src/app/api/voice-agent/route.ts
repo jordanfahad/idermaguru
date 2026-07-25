@@ -9,9 +9,11 @@ import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safe
 import {
   agentCopy,
   detectLang,
+  extractSkinType,
   isHairConcern,
   nextQuestion,
   slotsToProfile,
+  summariseSlots,
   updateSlots,
   type AgentLang,
   type AgentSlots,
@@ -66,6 +68,22 @@ export async function POST(request: Request) {
 
     const before = (input.slots ?? {}) as AgentSlots;
     let slots: AgentSlots = updateSlots(before, input.utterance, lang);
+
+    // When a real model is configured, let it read anything the deterministic
+    // patterns missed - but only for non-safety slots. Pregnancy and allergies
+    // stay with the explicit parser so a model can never assert them.
+    if (input.utterance.trim() && !slots.skinType) {
+      const provider = getLLMProvider();
+      if ((provider.lastUsedId ?? provider.id) !== "mock") {
+        try {
+          const intake = await provider.summarizeIntake([{ role: "user", content: input.utterance }]);
+          const guess = typeof intake?.skinType === "string" ? extractSkinType(intake.skinType) : undefined;
+          if (guess) slots = { ...slots, skinType: guess };
+        } catch {
+          // Understanding is a bonus; the scripted question still covers it.
+        }
+      }
+    }
     // Nothing new was understood from a non-empty answer -> we are about to ask
     // the same question again, so acknowledge the mishearing.
     const misheard =
@@ -143,7 +161,13 @@ export async function POST(request: Request) {
     // Let the model phrase the result, but re-run the safety gate over whatever
     // it produced and fall back to fixed copy if it drifts.
     const provider = getLLMProvider();
-    let spoken = copy.result(recommendation.items.length);
+    // If the shopper volunteered everything up front we never asked a question,
+    // so restate what was understood before recommending - otherwise jumping
+    // straight to products reads as if it ignored them.
+    const understood = summariseSlots(slots, lang);
+    const skippedAhead = !before.askedSkinType && !before.askedPregnancy && !before.askedAllergies;
+    const preface = skippedAhead && understood ? `${copy.understood(understood)} ` : "";
+    let spoken = `${preface}${copy.result(recommendation.items.length)}`;
     // The mock provider emits a fixed, ungrammatical string that splices the raw
     // concern ("For I have a dandruff, ..."), so only ask a real model to phrase
     // the result. English only for now: the models are not prompted in Arabic.
@@ -153,7 +177,7 @@ export async function POST(request: Request) {
         const explanation = await provider.explainRecommendations(profile, recommendation, safety);
         const postSafety = validateAssistantTextForSafety(explanation, safety);
         if (postSafety.recommendationAllowed && explanation.trim()) {
-          spoken = shorten(explanation, 420);
+          spoken = `${preface}${shorten(explanation, 420)}`;
         }
       } catch {
         // Provider unavailable: the deterministic summary above is already correct.
