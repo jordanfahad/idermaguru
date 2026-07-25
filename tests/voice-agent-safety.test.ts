@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { runSafetyTriage } from "../src/services/safety-triage";
-import { extractAllergies, extractSkinType, nextQuestion, readYesNo, updateSlots } from "../src/services/voice-agent";
+import {
+  extractAllergies,
+  extractSkinType,
+  isHairConcern,
+  nextQuestion,
+  readPregnancyAnswer,
+  readYesNo,
+  updateSlots,
+} from "../src/services/voice-agent";
 
 /**
  * Voice input is conversational, so red flags arrive in natural phrasing rather
@@ -73,6 +81,42 @@ describe("voice dialogue slot filling", () => {
     expect(readYesNo("لا")).toBe(false);
     expect(extractSkinType("بشرتي دهنية")).toBe("oily");
     expect(extractAllergies("no")).toEqual([]);
+  });
+
+  it("does not read 'I am a man' as a yes to the pregnancy question", () => {
+    // Speech-to-text renders this as "I am a mad"; the old parser matched the
+    // substring "i am" and recorded a pregnancy for a male shopper.
+    for (const utterance of ["I am a man", "I'm a man", "male"]) {
+      expect(readPregnancyAnswer(utterance)).toBe(false);
+    }
+    // The garbled transcript must stay unresolved so the question is re-asked,
+    // rather than being guessed either way.
+    expect(readPregnancyAnswer("I am a mad")).toBeUndefined();
+
+    const slots = updateSlots(
+      { mainConcern: "acne", skinType: "oily", askedPregnancy: true },
+      "I am a mad",
+      "en",
+    );
+    expect(slots.pregnantOrBreastfeeding).toBeUndefined();
+    // and the misheard words must not pollute the concern sent to the engine
+    expect(slots.mainConcern).toBe("acne");
+  });
+
+  it("still records a genuine pregnancy answer", () => {
+    expect(readPregnancyAnswer("yes")).toBe(true);
+    expect(readPregnancyAnswer("I'm pregnant")).toBe(true);
+    expect(readPregnancyAnswer("I am breastfeeding")).toBe(true);
+    expect(readPregnancyAnswer("no, not pregnant")).toBe(false);
+  });
+
+  it("recognises hair and scalp concerns, which this catalogue cannot serve", () => {
+    for (const utterance of ["I have dandruff", "my hair is falling out", "flaky itchy scalp", "قشرة في الشعر"]) {
+      expect(isHairConcern(utterance)).toBe(true);
+    }
+    for (const utterance of ["dark spots and dull skin", "oily skin with blackheads"]) {
+      expect(isHairConcern(utterance)).toBe(false);
+    }
   });
 
   it("does not guess a safety answer when the reply is ambiguous", () => {

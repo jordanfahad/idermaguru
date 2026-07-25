@@ -36,10 +36,17 @@ const SKIN_TYPES: { key: string; en: RegExp; ar: RegExp }[] = [
   { key: "normal", en: /\bnormal\b/i, ar: /عادي|عادية/ },
 ];
 
-const YES = /\b(yes|yeah|yep|yup|i am|correct|right|sure)\b/i;
+// "i am" is deliberately NOT an affirmative: "I am a man" was being read as a
+// yes to "are you pregnant?", which recorded the wrong safety answer.
+const YES = /\b(yes|yeah|yep|yup|correct|sure|i do|i have|affirmative)\b/i;
 const YES_AR = /نعم|أجل|ايوه|إيوه|صح/;
-const NO = /\b(no|nope|nah|not|none|neither|negative)\b/i;
-const NO_AR = /لا|كلا|ما في|مافي|ولا/;
+const NO = /\b(no|nope|nah|not|none|neither|negative|never|nothing)\b/i;
+const NO_AR = /لا|كلا|ما في|مافي|ولا|ما عندي/;
+// Statements that answer "are you pregnant/breastfeeding?" with an implicit no.
+const NOT_PREGNANT = /\b(man|male|guy|boy|father|husband|not pregnant)\b/i;
+const NOT_PREGNANT_AR = /رجل|ذكر|لست حامل/;
+const PREGNANT = /\b(pregnant|pregnancy|expecting|breastfeeding|nursing)\b/i;
+const PREGNANT_AR = /حامل|مرضع/;
 
 export function extractSkinType(text: string): string | undefined {
   for (const type of SKIN_TYPES) {
@@ -55,6 +62,28 @@ export function readYesNo(text: string): boolean | undefined {
   if (negative && !positive) return false;
   if (positive && !negative) return true;
   return undefined;
+}
+
+/**
+ * Reading of the pregnancy/breastfeeding question specifically. Speech is messy
+ * ("I'm a man" transcribes as "I am a mad"), so an unclear answer must stay
+ * undefined and be asked again rather than be guessed.
+ */
+export function readPregnancyAnswer(text: string): boolean | undefined {
+  if (PREGNANT.test(text) || PREGNANT_AR.test(text)) {
+    return !(NO.test(text) || NO_AR.test(text));
+  }
+  if (NOT_PREGNANT.test(text) || NOT_PREGNANT_AR.test(text)) return false;
+  return readYesNo(text);
+}
+
+const HAIR_CONCERN =
+  /\b(hair|scalp|dandruff|dandruf|flakes?|flaky scalp|hair ?fall|hair ?loss|shedding|balding|thinning hair|split ends|frizz|shampoo|conditioner)\b/i;
+const HAIR_CONCERN_AR = /شعر|فروة|قشرة|تساقط|شامبو|بلسم/;
+
+/** True when the shopper is asking about hair or scalp rather than skin. */
+export function isHairConcern(text: string): boolean {
+  return HAIR_CONCERN.test(text) || HAIR_CONCERN_AR.test(text);
 }
 
 /** Allergy list from a spoken answer. "no"/"none" yields an empty list. */
@@ -80,7 +109,9 @@ const COPY = {
     building: "Perfect, building your routine now.",
     noProducts:
       "I couldn't find products in this store that pass the safety checks for what you told me. It may be worth speaking to a pharmacist.",
-    heard: (concern: string) => `Okay — ${concern}.`,
+    noHairProducts:
+      "That's a hair and scalp concern, and this store's catalogue is skincare only — so I'd be guessing if I recommended anything. For dandruff or hair fall, an anti-dandruff shampoo from a pharmacy is the right place to start, and a pharmacist can point you to one.",
+    repeat: "Sorry, I didn't catch that.",
     result: (count: number) =>
       `Here's a simple routine with ${count} product${count === 1 ? "" : "s"} matched from the store. I've kept it conservative — patch test anything new, and use sunscreen every morning.`,
   },
@@ -93,7 +124,9 @@ const COPY = {
     building: "ممتاز، أبني روتينك الآن.",
     noProducts:
       "لم أجد منتجات في هذا المتجر تجتاز فحوصات السلامة بناءً على ما ذكرته. قد يكون من الأفضل استشارة صيدلي.",
-    heard: (concern: string) => `حسناً — ${concern}.`,
+    noHairProducts:
+      "هذه مشكلة تتعلق بالشعر وفروة الرأس، وكتالوج هذا المتجر للعناية بالبشرة فقط — لذلك سأكون مخطئاً إن اقترحت منتجاً. لعلاج القشرة أو تساقط الشعر، ابدأ بشامبو مخصص من الصيدلية، ويمكن للصيدلي إرشادك.",
+    repeat: "عذراً، لم أسمع ذلك بوضوح.",
     result: (count: number) =>
       `هذا روتين بسيط يضم ${count} منتج مطابق من المتجر. أبقيته متحفظاً — جرّب المنتج على مساحة صغيرة أولاً، واستخدم واقي الشمس كل صباح.`,
   },
@@ -121,11 +154,14 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
 
   // Answers are interpreted against the question we actually asked last.
   if (next.askedPregnancy && next.pregnantOrBreastfeeding === undefined) {
-    const answer = readYesNo(text);
+    const answer = readPregnancyAnswer(text);
     if (answer !== undefined) {
       next.pregnantOrBreastfeeding = answer;
       return next;
     }
+    // Unclear answer to a safety question: leave the slot empty so it is asked
+    // again, and do NOT fold the misheard words into the concern.
+    return next;
   }
 
   if (next.askedAllergies && next.allergies === undefined) {
@@ -134,6 +170,7 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
       next.allergies = allergies;
       return next;
     }
+    return next;
   }
 
   if (next.askedSkinType && !next.skinType) {

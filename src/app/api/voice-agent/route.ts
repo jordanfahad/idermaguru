@@ -8,6 +8,7 @@ import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safe
 import {
   agentCopy,
   detectLang,
+  isHairConcern,
   nextQuestion,
   slotsToProfile,
   updateSlots,
@@ -62,16 +63,34 @@ export async function POST(request: Request) {
       });
     }
 
-    let slots: AgentSlots = updateSlots((input.slots ?? {}) as AgentSlots, input.utterance, lang);
+    const before = (input.slots ?? {}) as AgentSlots;
+    let slots: AgentSlots = updateSlots(before, input.utterance, lang);
+    // Nothing new was understood from a non-empty answer -> we are about to ask
+    // the same question again, so acknowledge the mishearing.
+    const misheard =
+      Boolean(input.utterance.trim()) && JSON.stringify(before) === JSON.stringify(slots);
 
     // Still gathering the required intake -> ask the next question.
     const pending = nextQuestion(slots, lang);
     if (pending) {
       slots = pending.slots;
-      const prefix = slots.mainConcern && input.utterance.trim() ? `${copy.heard(shorten(input.utterance))} ` : "";
+      // Never repeat the transcript back: speech-to-text mistakes ("I'm a man"
+      // -> "I am a mad") turn a friendly echo into an insult.
       return NextResponse.json({
-        reply: `${prefix}${pending.question}`,
+        reply: misheard ? `${copy.repeat} ${pending.question}` : pending.question,
         phase: "asking",
+        slots,
+        products: [],
+        language: lang,
+      });
+    }
+
+    // Hair and scalp concerns: this catalogue is skincare only, so recommending
+    // a face routine for dandruff would be worse than saying we can't help.
+    if (isHairConcern(slots.mainConcern ?? "")) {
+      return NextResponse.json({
+        reply: copy.noHairProducts,
+        phase: "referral",
         slots,
         products: [],
         language: lang,
@@ -120,14 +139,20 @@ export async function POST(request: Request) {
     // it produced and fall back to fixed copy if it drifts.
     const provider = getLLMProvider();
     let spoken = copy.result(recommendation.items.length);
-    try {
-      const explanation = await provider.explainRecommendations(profile, recommendation, safety);
-      const postSafety = validateAssistantTextForSafety(explanation, safety);
-      if (postSafety.recommendationAllowed && explanation.trim()) {
-        spoken = lang === "ar" ? spoken : shorten(explanation, 420);
+    // The mock provider emits a fixed, ungrammatical string that splices the raw
+    // concern ("For I have a dandruff, ..."), so only ask a real model to phrase
+    // the result. English only for now: the models are not prompted in Arabic.
+    const usingRealModel = (provider.lastUsedId ?? provider.id) !== "mock";
+    if (usingRealModel && lang === "en") {
+      try {
+        const explanation = await provider.explainRecommendations(profile, recommendation, safety);
+        const postSafety = validateAssistantTextForSafety(explanation, safety);
+        if (postSafety.recommendationAllowed && explanation.trim()) {
+          spoken = shorten(explanation, 420);
+        }
+      } catch {
+        // Provider unavailable: the deterministic summary above is already correct.
       }
-    } catch {
-      // Provider unavailable: the deterministic summary above is already correct.
     }
 
     return NextResponse.json({

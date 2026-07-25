@@ -36,6 +36,26 @@ interface SpeechRecognitionLike {
 }
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 
+/**
+ * Browsers ship several voices and default to the flattest one. Prefer the
+ * neural/cloud voices (Google, Microsoft "Natural", Apple's premium set) so the
+ * advisor doesn't sound like a 1990s screen reader.
+ */
+function pickVoice(synth: SpeechSynthesis, lang: Lang): SpeechSynthesisVoice | null {
+  const voices = synth.getVoices();
+  if (!voices.length) return null;
+  const prefix = lang === "ar" ? "ar" : "en";
+  const candidates = voices.filter((voice) => voice.lang?.toLowerCase().startsWith(prefix));
+  if (!candidates.length) return null;
+
+  const preferred = [/natural/i, /neural/i, /google/i, /premium|enhanced/i, /samantha|serena|zira|aria/i];
+  for (const pattern of preferred) {
+    const match = candidates.find((voice) => pattern.test(voice.name));
+    if (match) return match;
+  }
+  return candidates.find((voice) => !/compact/i.test(voice.name)) ?? candidates[0];
+}
+
 const UI = {
   en: {
     start: "Tap to speak",
@@ -115,7 +135,11 @@ export function VoiceAgent({ initialLang = "en" }: { initialLang?: Lang }) {
       synth.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = lang === "ar" ? "ar-SA" : "en-US";
-      utterance.rate = 1.02;
+      const voice = pickVoice(synth, lang);
+      if (voice) utterance.voice = voice;
+      // Slightly under natural pace reads as considered rather than clipped.
+      utterance.rate = 0.97;
+      utterance.pitch = 1;
       utterance.onend = onDone;
       utterance.onerror = onDone;
       setPhase("speaking");
