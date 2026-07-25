@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, ExternalLink, Loader2, Mic, Search, Send, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles } from "lucide-react";
+import { Camera, ExternalLink, Heart, Loader2, Mic, Search, Send, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { IMAGE_CONSENT_TEXT, type RoutineRecommendation } from "@/domain/skincare";
@@ -170,6 +170,11 @@ export function LiveConsultationSearch({
   const [query, setQuery] = useState("");
   const [recentSearches, setRecentSearches] = useState(defaultSearches);
   const [recentConsultations, setRecentConsultations] = useState<RecentConsultation[]>([]);
+  // Voice/concierge handoff: when the homepage sends ?q=<spoken concern>, the
+  // consultation runs itself end-to-end without the shopper touching anything.
+  const [autoRun, setAutoRun] = useState(false);
+  const autoRanRef = useRef(false);
+  const [wishlist, setWishlist] = useState<string[]>([]);
   const [recentPage, setRecentPage] = useState(1);
   const [recentHasMore, setRecentHasMore] = useState(false);
   const [lastSuccessfulSearch, setLastSuccessfulSearch] = useState<string | null>(null);
@@ -210,11 +215,36 @@ export function LiveConsultationSearch({
       if (saved) setRecentSearches(JSON.parse(saved).slice(0, 100));
       const last = window.localStorage.getItem("ai-derma-last-successful-search");
       if (last) setLastSuccessfulSearch(last);
+      const savedWishlist = window.localStorage.getItem("ai-derma-wishlist");
+      if (savedWishlist) setWishlist(JSON.parse(savedWishlist));
     } catch {
       // localStorage is optional; the consultation still works without it.
     }
     void loadRecentConsultations(1, true);
+
+    // Concierge handoff from the voice-first homepage: /live-consultation-1?q=...
+    const params = new URLSearchParams(window.location.search);
+    const spoken = (params.get("q") ?? params.get("goal") ?? "").trim();
+    if (spoken && !autoRanRef.current) {
+      autoRanRef.current = true;
+      setQuery(spoken);
+      if (hasArabic(spoken)) setLanguage("ar");
+      setForm((current) => ({ ...current, mainConcern: spoken }));
+      setStarted(true);
+      setAutoRun(true);
+    }
   }, []);
+
+  // Fires once the spoken concern has landed in state, so the routine is built
+  // from the real query rather than a stale default.
+  useEffect(() => {
+    if (!autoRun || !started || !form.mainConcern) return;
+    setAutoRun(false);
+    window.requestAnimationFrame(() => {
+      intakeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    void getRoutine();
+  }, [autoRun, started, form.mainConcern]);
 
   useEffect(() => {
     return () => {
@@ -245,6 +275,20 @@ export function LiveConsultationSearch({
     setError(null);
     window.requestAnimationFrame(() => {
       intakeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function toggleWishlist(product: LiveConsultationProduct) {
+    setWishlist((current) => {
+      const next = current.includes(product.id)
+        ? current.filter((id) => id !== product.id)
+        : [...current, product.id];
+      try {
+        window.localStorage.setItem("ai-derma-wishlist", JSON.stringify(next));
+      } catch {
+        // localStorage is optional; the wishlist still works for this session.
+      }
+      return next;
     });
   }
 
@@ -788,6 +832,33 @@ export function LiveConsultationSearch({
                                 </div>
                               </dl>
                               <div className="product-card-actions">
+                                <button
+                                  type="button"
+                                  className="wishlist-toggle"
+                                  onClick={() => toggleWishlist(product)}
+                                  aria-pressed={wishlist.includes(product.id)}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    border: "1px solid rgba(16,35,59,0.14)",
+                                    background: wishlist.includes(product.id) ? "#ffeef2" : "#fff",
+                                    color: wishlist.includes(product.id) ? "#d43a5c" : "inherit",
+                                    borderRadius: "999px",
+                                    padding: "8px 14px",
+                                    fontWeight: 600,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <Heart size={14} fill={wishlist.includes(product.id) ? "#d43a5c" : "none"} />
+                                  {wishlist.includes(product.id)
+                                    ? language === "ar"
+                                      ? "في المفضلة"
+                                      : "Saved"
+                                    : language === "ar"
+                                      ? "أضف للمفضلة"
+                                      : "Save"}
+                                </button>
                                 <a href={product.url} target="_blank" rel="noreferrer" onClick={() => trackProductClick(product)}>
                                   {c.shop}
                                   <ExternalLink size={14} />
