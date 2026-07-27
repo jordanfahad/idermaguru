@@ -3,6 +3,7 @@
 import { Copy, Download, FileUp, Link2, Loader2, Plus, Save, Search, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PRODUCTION_SITE_URL } from "@/lib/site-url";
+import { productHandle, slugify } from "@/services/product-taxonomy";
 import type { LiveConsultationConfig, LiveConsultationProduct } from "@/data/live-consultations";
 
 const productCsvTemplate = [
@@ -109,7 +110,11 @@ export function LiveConsultationAdmin({ config }: { config: LiveConsultationConf
         if (!name || !url) return null;
         const category = row.category || "Curated product";
         return {
-          id: `csv-${Date.now()}-${index}`,
+          // Derived from the product page, never the clock. A wall-clock id gave
+          // every row of a re-imported CSV a brand new identity, so nothing
+          // could match it against what was already stored and the whole
+          // catalogue landed again — 964 rows for 461 real products.
+          id: `csv-${productHandle(url) || slugify(name)}`,
           vendor: row.vendor || primaryVendor,
           name,
           category,

@@ -179,3 +179,23 @@ export function derivedSkinTypes(
   if (/\bnormal\b/.test(text)) found.add("normal");
   return [...found];
 }
+
+/**
+ * The stable identity of a storefront product: the handle in its page URL.
+ *
+ * Returns "" when the URL is not a product page, so callers fall back to
+ * matching the whole string rather than treating an arbitrary path as a handle.
+ */
+export function productHandle(url: string): string {
+  const match = url.toLowerCase().match(/\/products\/([^/?#]+)/);
+  return match?.[1] ?? "";
+}
+
+/** Last-resort stable key when a row carries no product-page URL. */
+export function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}

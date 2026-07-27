@@ -10,6 +10,20 @@ that now guards it. An entry without a guarding test is a bug waiting to return.
 
 ---
 
+## 2026-07-27 — The catalogue carried 964 rows for 461 products
+
+### R-029 — Every re-import created a fresh copy of the whole catalogue
+- **Symptom:** 964 product rows for 461 real products. Shoppers could be shown the same item twice in one routine.
+- **Cause:** two of them. The CSV importer minted `csv-${Date.now()}-${index}` as the row identity, so re-importing the same file matched nothing and inserted everything again — one product reached four copies. Separately, the dedup that already existed matched on the whole URL, and the store is reachable on both `a1ce04.myshopify.com` and `cicabelle.com`, so a product carried on both kept a row for each.
+- **Fix (data):** deduplicated on the product handle — the segment after `/products/` — which collapses both domains and every re-import. 503 rows removed, 461 kept. The surviving row per product is chosen by: customer-facing domain over the raw myshopify one, in-stock over not, real price over a 0.00 "(Free Gift)" placeholder, then freshest import. No row without an image, no zero-price row, and no "(Free Gift)" row survived.
+- **Fix (code):** `productHandle()` is now the identity used by `importProductForTenant`, and the CSV importer derives its id from the handle instead of the clock, so a re-import updates in place.
+- **Integrity:** `RecommendationItem.productId` is RESTRICT — deleting a referenced product would have failed. All 503 removed rows were referenced by zero recommendation items and zero events; the 12 referenced products were all keepers. 168 recommendation items intact afterwards.
+- **Reversible:** all 964 original rows are in `Product_backup_20260727`.
+- **Not merged, deliberately:** two Effaclar Duo+ listings shared one name but are different formulations (the second is SPF30 with niacinamide) — the name was corrected instead. Two Huda setting-powder listings at 130 and 140 remain; both are live storefront products and picking one is a commercial call.
+- **Guarded by:** `tests/product-taxonomy.test.ts` — the exact URL pairs that duplicated in production.
+
+---
+
 ## 2026-07-27 — Nonsense was absorbed rather than questioned
 
 ### R-028 — The intake had no concept of "that made no sense"

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProductCatalogItem } from "../src/domain/skincare";
 import { seedProducts, seedTenant } from "../src/data/seed-catalog";
-import { productKind, routineStep } from "../src/services/product-taxonomy";
+import { productKind, routineStep , productHandle, slugify } from "../src/services/product-taxonomy";
 import { buildRecommendations } from "../src/services/recommendation-engine";
 import { runSafetyTriage } from "../src/services/safety-triage";
 
@@ -170,5 +170,36 @@ describe("routine integrity", () => {
       expect(recommendation.reason).not.toMatch(/passed the safety and suitability filters/);
       expect(recommendation.reason.length).toBeGreaterThan(10);
     }
+  });
+});
+
+/**
+ * The catalogue reached 964 rows for 461 real products because every re-import
+ * minted new identities. These are the exact URL pairs that were duplicated in
+ * production, kept as a guard.
+ */
+describe("product identity", () => {
+  it("collapses the same product across the raw and custom storefront domain", () => {
+    const raw = productHandle("https://a1ce04.myshopify.com/products/acretin-cream-0-05-30ml");
+    const custom = productHandle("https://cicabelle.com/products/acretin-cream-0-05-30ml");
+    expect(raw).toBe("acretin-cream-0-05-30ml");
+    expect(custom).toBe(raw);
+  });
+
+  it("ignores query strings, fragments and casing", () => {
+    const base = productHandle("https://cicabelle.com/products/cerave-acne-control-gel-40-ml");
+    expect(productHandle("https://cicabelle.com/products/CeraVe-Acne-Control-Gel-40-ML?variant=42")).toBe(base);
+    expect(productHandle("https://cicabelle.com/products/cerave-acne-control-gel-40-ml#reviews")).toBe(base);
+  });
+
+  it("returns nothing for a URL that is not a product page, so the caller falls back", () => {
+    expect(productHandle("https://cicabelle.com/collections/sunscreen")).toBe("");
+    expect(productHandle("not a url")).toBe("");
+  });
+
+  it("derives a stable key from a name when there is no product URL", () => {
+    expect(slugify("CeraVe PM Facial Moisturizing Lotion 52ml")).toBe("cerave-pm-facial-moisturizing-lotion-52ml");
+    // Same name, same key — that is the whole point.
+    expect(slugify("ANUA - Heartleaf 77% Soothing Toner")).toBe(slugify("ANUA  Heartleaf 77%  Soothing Toner"));
   });
 });

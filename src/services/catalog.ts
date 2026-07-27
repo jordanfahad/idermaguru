@@ -3,6 +3,7 @@ import type { ProductCatalogItem } from "@/domain/skincare";
 import { seedProducts, seedTenant } from "@/data/seed-catalog";
 import { getPrisma } from "@/server/db";
 import { withTenant } from "@/lib/tenant-context";
+import { productHandle } from "@/services/product-taxonomy";
 
 // Tenant resolution: must run on the owner client — a role subject to RLS cannot
 // look up a tenant by slug without already knowing its id.
@@ -84,8 +85,18 @@ export async function importProductForTenant(
   const url = input.url?.trim();
   if (!url) return createProductForTenant(tenantSlug, input);
 
+  // Match on the product handle, not the whole URL. The same store is reachable
+  // on both its raw myshopify domain and its custom one, and the two exports
+  // wrote different URLs for the same product — so matching the full string
+  // still left a pair of rows for every product carried on both.
+  const handle = productHandle(url);
+
   const product = await withTenant(tenant.id, async (tx) => {
-    const existing = await tx.product.findFirst({ where: { tenantId: tenant.id, url } });
+    const existing = handle
+      ? await tx.product.findFirst({
+          where: { tenantId: tenant.id, url: { endsWith: `/products/${handle}`, mode: "insensitive" } },
+        })
+      : await tx.product.findFirst({ where: { tenantId: tenant.id, url } });
     if (!existing) {
       return tx.product.create({ data: { ...input, url, tenantId: tenant.id } });
     }
