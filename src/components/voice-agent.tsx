@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Square } from "lucide-react";
 import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
+import { speechLocale } from "@/services/language";
 import "./voice-agent.css";
 
 type Lang = "en" | "ar";
@@ -115,10 +116,11 @@ const UI = {
 };
 
 /** Browsers default to their flattest voice; prefer the neural/cloud ones. */
-function pickVoice(synth: SpeechSynthesis, lang: Lang): SpeechSynthesisVoice | null {
+function pickVoice(synth: SpeechSynthesis, code: string): SpeechSynthesisVoice | null {
   const voices = synth.getVoices();
   if (!voices.length) return null;
-  const candidates = voices.filter((v) => v.lang?.toLowerCase().startsWith(lang === "ar" ? "ar" : "en"));
+  const prefix = code.slice(0, 2).toLowerCase();
+  const candidates = voices.filter((v) => v.lang?.toLowerCase().startsWith(prefix));
   if (!candidates.length) return null;
   for (const pattern of [/natural/i, /neural/i, /google/i, /premium|enhanced/i, /samantha|serena|aria/i]) {
     const match = candidates.find((v) => pattern.test(v.name));
@@ -149,6 +151,9 @@ export function VoiceAgent({
 
   const slotsRef = useRef<Record<string, unknown>>({});
   const modeRef = useRef<Mode>("voice");
+  // The language actually spoken (may be neither English nor Arabic); the UI
+  // chrome stays EN/AR while speech + recognition follow the shopper.
+  const spokenLangRef = useRef<string>(initialLang);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const orbRef = useRef<OrbAudio | null>(null);
@@ -203,8 +208,8 @@ export function VoiceAgent({
       }
       synth.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = lang === "ar" ? "ar-SA" : "en-US";
-      const voice = pickVoice(synth, lang);
+      utterance.lang = speechLocale(spokenLangRef.current);
+      const voice = pickVoice(synth, spokenLangRef.current);
       if (voice) utterance.voice = voice;
       utterance.rate = 0.97;
       utterance.onend = onDone;
@@ -230,7 +235,7 @@ export function VoiceAgent({
         const response = await fetch("/api/voice-agent/speech", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text, language: lang }),
+          body: JSON.stringify({ text, language: spokenLangRef.current }),
         });
         if (!response.ok) throw new Error("no natural voice");
 
@@ -271,13 +276,17 @@ export function VoiceAgent({
         const response = await fetch("/api/voice-agent", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ utterance, slots: slotsRef.current, language: lang }),
+          body: JSON.stringify({ utterance, slots: slotsRef.current, language: spokenLangRef.current }),
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload?.error ?? "agent error");
 
         slotsRef.current = payload.slots ?? slotsRef.current;
-        if (payload.language && payload.language !== lang) setLang(payload.language as Lang);
+        if (typeof payload.language === "string" && payload.language) {
+          spokenLangRef.current = payload.language;
+          // Only the two authored locales drive the interface copy.
+          if (payload.language === "ar" || payload.language === "en") setLang(payload.language);
+        }
         if (Array.isArray(payload.products) && payload.products.length) setProducts(payload.products);
 
         const reply: string = payload.reply ?? "";
@@ -312,7 +321,7 @@ export function VoiceAgent({
     }
 
     const recognition = new Ctor();
-    recognition.lang = lang === "ar" ? "ar-AE" : "en-US";
+    recognition.lang = speechLocale(spokenLangRef.current);
     recognition.interimResults = true; // live words as the shopper speaks
     recognition.continuous = false;
 

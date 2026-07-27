@@ -18,6 +18,7 @@ import {
   type AgentLang,
   type AgentSlots,
 } from "@/services/voice-agent";
+import { detectLanguage, isRtl, localise, type LanguageCode } from "@/services/language";
 import { jsonError, parseJson, RequestValidationError } from "../_shared";
 
 export const runtime = "nodejs";
@@ -36,7 +37,8 @@ const AgentSchema = z.object({
   tenantSlug: z.string().default(seedTenant.slug),
   sessionId: z.string().optional(),
   utterance: z.string().default(""),
-  language: z.enum(["en", "ar"]).optional(),
+  // Any BCP-47-ish code; the client echoes back whatever we last detected.
+  language: z.string().max(12).optional(),
   slots: SlotsSchema.optional(),
 });
 
@@ -52,17 +54,25 @@ const AgentSchema = z.object({
 export async function POST(request: Request) {
   try {
     const input = await parseJson(request, AgentSchema);
-    const lang: AgentLang = input.language ?? detectLang(input.utterance, "en");
+    // Detect from what was actually said; the shopper may switch mid-session.
+    const spoken: LanguageCode = input.utterance.trim()
+      ? detectLanguage(input.utterance)
+      : (input.language ?? "en");
+    // English and Arabic have authored copy; everything else is translated from
+    // the English line, so the dialogue and its safety rules stay single-source.
+    const lang: AgentLang = spoken === "ar" ? "ar" : "en";
     const copy = agentCopy(lang);
+    const say = (text: string) => localise(text, spoken, getLLMProvider());
 
     // Opening turn: greet and ask for the concern.
     if (!input.utterance.trim() && !input.slots?.mainConcern) {
       return NextResponse.json({
-        reply: copy.greeting,
+        reply: await say(copy.greeting),
         phase: "asking",
         slots: {},
         products: [],
-        language: lang,
+        language: spoken,
+        rtl: isRtl(spoken),
       });
     }
 
@@ -96,11 +106,12 @@ export async function POST(request: Request) {
       // Never repeat the transcript back: speech-to-text mistakes ("I'm a man"
       // -> "I am a mad") turn a friendly echo into an insult.
       return NextResponse.json({
-        reply: misheard ? `${copy.repeat} ${pending.question}` : pending.question,
+        reply: await say(misheard ? `${copy.repeat} ${pending.question}` : pending.question),
         phase: "asking",
         slots,
         products: [],
-        language: lang,
+        language: spoken,
+        rtl: isRtl(spoken),
       });
     }
 
@@ -113,12 +124,13 @@ export async function POST(request: Request) {
 
     if (!safety.recommendationAllowed) {
       return NextResponse.json({
-        reply: safety.referralMessage ?? copy.noProducts,
+        reply: await say(safety.referralMessage ?? copy.noProducts),
         phase: "referral",
         slots,
         products: [],
         safetyLevel: safety.level,
-        language: lang,
+        language: spoken,
+        rtl: isRtl(spoken),
       });
     }
 
@@ -131,11 +143,12 @@ export async function POST(request: Request) {
     if (isHairConcern(slots.mainConcern ?? "")) {
       const hairMatches = pickHairProducts(products, slots.mainConcern ?? "", profile, tenant.id, safety);
       return NextResponse.json({
-        reply: hairMatches.length ? copy.result(hairMatches.length) : copy.noHairProducts,
+        reply: await say(hairMatches.length ? copy.result(hairMatches.length) : copy.noHairProducts),
         phase: hairMatches.length ? "result" : "referral",
         slots,
         safetyLevel: safety.level,
-        language: lang,
+        language: spoken,
+        rtl: isRtl(spoken),
         products: hairMatches,
       });
     }
@@ -149,12 +162,13 @@ export async function POST(request: Request) {
 
     if (!recommendation.items.length) {
       return NextResponse.json({
-        reply: copy.noProducts,
+        reply: await say(copy.noProducts),
         phase: "result",
         slots,
         products: [],
         safetyLevel: safety.level,
-        language: lang,
+        language: spoken,
+        rtl: isRtl(spoken),
       });
     }
 
@@ -167,7 +181,7 @@ export async function POST(request: Request) {
     const understood = summariseSlots(slots, lang);
     const skippedAhead = !before.askedSkinType && !before.askedPregnancy && !before.askedAllergies;
     const preface = skippedAhead && understood ? `${copy.understood(understood)} ` : "";
-    let spoken = `${preface}${copy.result(recommendation.items.length)}`;
+    let spokenReply = `${preface}${copy.result(recommendation.items.length)}`;
     // The mock provider emits a fixed, ungrammatical string that splices the raw
     // concern ("For I have a dandruff, ..."), so only ask a real model to phrase
     // the result. English only for now: the models are not prompted in Arabic.
@@ -177,7 +191,7 @@ export async function POST(request: Request) {
         const explanation = await provider.explainRecommendations(profile, recommendation, safety);
         const postSafety = validateAssistantTextForSafety(explanation, safety);
         if (postSafety.recommendationAllowed && explanation.trim()) {
-          spoken = `${preface}${shorten(explanation, 420)}`;
+          spokenReply = `${preface}${shorten(explanation, 420)}`;
         }
       } catch {
         // Provider unavailable: the deterministic summary above is already correct.
@@ -185,11 +199,12 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
-      reply: spoken,
+      reply: await say(spokenReply),
       phase: "result",
       slots,
       safetyLevel: safety.level,
-      language: lang,
+      language: spoken,
+        rtl: isRtl(spoken),
       products: recommendation.items.map((item) => ({
         id: item.product.id,
         name: item.product.name,
