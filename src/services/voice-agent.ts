@@ -18,7 +18,18 @@ export type AgentSlots = {
   askedPregnancy?: boolean;
   askedAllergies?: boolean;
   askedSkinType?: boolean;
+  /** Set once the shopper says they DO have allergies but hasn't named them. */
+  askedAllergyNames?: boolean;
+  /** How many times we have failed to understand the current question. */
+  misses?: number;
 };
+
+/**
+ * A question is asked at most twice. Voice transcription is imperfect and a
+ * shopper who cannot be understood must never be trapped in a loop, so the
+ * third time we take the safest available answer and move on.
+ */
+const MAX_MISSES = 2;
 
 export type AgentPhase = "asking" | "result" | "referral";
 
@@ -191,6 +202,7 @@ const COPY = {
     askSkinType: "Got it. How would you describe your skin — oily, dry, combination, or sensitive?",
     askPregnancy: "Thanks. Before I suggest anything: are you pregnant or breastfeeding?",
     askAllergies: "And do you have any product or ingredient allergies? Say no if none.",
+    askAllergyNames: "Which ingredients or products are you allergic to?",
     building: "Perfect, building your routine now.",
     noProducts:
       "I couldn't find products in this store that pass the safety checks for what you told me. It may be worth speaking to a pharmacist.",
@@ -207,6 +219,7 @@ const COPY = {
     askSkinType: "تمام. كيف تصف بشرتك — دهنية أم جافة أم مختلطة أم حساسة؟",
     askPregnancy: "شكراً. قبل أن أقترح أي شيء: هل أنتِ حامل أو مرضعة؟",
     askAllergies: "وهل لديك أي حساسية من منتجات أو مكونات؟ قل لا إذا لم يكن هناك.",
+    askAllergyNames: "ما المكونات أو المنتجات التي لديك حساسية منها؟",
     building: "ممتاز، أبني روتينك الآن.",
     noProducts:
       "لم أجد منتجات في هذا المتجر تجتاز فحوصات السلامة بناءً على ما ذكرته. قد يكون من الأفضل استشارة صيدلي.",
@@ -243,18 +256,69 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
     const answer = readPregnancyAnswer(text);
     if (answer !== undefined) {
       next.pregnantOrBreastfeeding = answer;
+      next.misses = 0;
       return next;
     }
-    // Unclear answer to a safety question: leave the slot empty so it is asked
-    // again, and do NOT fold the misheard words into the concern.
+    // Unclear answer to a safety question: ask again, and do NOT fold the
+    // misheard words into the concern. After the cap, assume the answer that
+    // filters the most (pregnant) rather than looping or guessing "no".
+    next.misses = (next.misses ?? 0) + 1;
+    if (next.misses > MAX_MISSES) {
+      next.pregnantOrBreastfeeding = true;
+      next.misses = 0;
+    }
     return next;
   }
 
-  if (next.askedAllergies && next.allergies === undefined) {
+  // "Yes I do" to the allergy question: they have allergies but haven't named
+  // one. Ask which, rather than treating it as unintelligible.
+  if (next.askedAllergies && next.allergies === undefined && !next.askedAllergyNames) {
     const allergies = extractAllergies(text);
     if (allergies !== undefined) {
       next.allergies = allergies;
+      next.misses = 0;
       return next;
+    }
+    if (readYesNo(text) === true) {
+      next.askedAllergyNames = true;
+      next.misses = 0;
+      return next;
+    }
+    next.misses = (next.misses ?? 0) + 1;
+    if (next.misses > MAX_MISSES) {
+      // Can't understand them: ask which, which is easier to answer than a
+      // yes/no they keep failing.
+      next.askedAllergyNames = true;
+      next.misses = 0;
+    }
+    return next;
+  }
+
+  // Follow-up: whatever they say now IS the allergen list.
+  if (next.askedAllergyNames && next.allergies === undefined) {
+    const named = extractAllergies(text);
+    if (named && named.length) {
+      next.allergies = named;
+      next.misses = 0;
+      return next;
+    }
+    if (readYesNo(text) === false) {
+      next.allergies = [];
+      next.misses = 0;
+      return next;
+    }
+    // Keep their exact words: the engine matches allergy terms against
+    // ingredient text, so raw input is more useful than dropping it.
+    const raw = text.trim();
+    if (raw.length > 2) {
+      next.allergies = [raw.toLowerCase().slice(0, 60)];
+      next.misses = 0;
+      return next;
+    }
+    next.misses = (next.misses ?? 0) + 1;
+    if (next.misses > MAX_MISSES) {
+      next.allergies = [];
+      next.misses = 0;
     }
     return next;
   }
@@ -263,10 +327,12 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
     const skinType = extractSkinType(text);
     if (skinType) {
       next.skinType = skinType;
+      next.misses = 0;
       return next;
     }
     // Unrecognised description still moves the flow on rather than looping.
     next.skinType = "combination";
+    next.misses = 0;
     return next;
   }
 
@@ -300,6 +366,9 @@ export function nextQuestion(slots: AgentSlots, lang: AgentLang): { question: st
   }
 
   if (next.allergies === undefined) {
+    if (next.askedAllergyNames) {
+      return { question: copy.askAllergyNames, slots: next };
+    }
     next.askedAllergies = true;
     return { question: copy.askAllergies, slots: next };
   }

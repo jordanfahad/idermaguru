@@ -4,6 +4,13 @@ import { jsonError, parseJson, RequestValidationError } from "../../_shared";
 
 export const runtime = "nodejs";
 
+/**
+ * Per-instance cache of synthesised lines. The interview asks the same handful
+ * of questions in every session, so after the first shopper they play back
+ * without a round trip to the speech API.
+ */
+const speechCache = new Map<string, ArrayBuffer>();
+
 const SpeechSchema = z.object({
   text: z.string().min(1).max(1200),
   language: z.enum(["en", "ar"]).optional(),
@@ -39,6 +46,17 @@ export async function POST(request: Request) {
   const model = process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts";
   const voice = process.env.OPENAI_TTS_VOICE ?? "shimmer";
 
+  // The scripted questions repeat in every single session, so synthesising them
+  // again each time is the main source of the pause before the agent speaks.
+  const cacheKey = `${model}:${voice}:${input.text}`;
+  const cached = speechCache.get(cacheKey);
+  if (cached) {
+    return new NextResponse(cached.slice(0), {
+      status: 200,
+      headers: { "content-type": "audio/mpeg", "cache-control": "no-store", "x-cache": "hit" },
+    });
+  }
+
   try {
     const response = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
@@ -64,11 +82,18 @@ export async function POST(request: Request) {
     }
 
     const audio = await response.arrayBuffer();
-    return new NextResponse(audio, {
+    // Cache the fixed lines only. Personalised results are said once, so
+    // keeping them would grow the map without ever being reused.
+    if (input.text.length <= 200) {
+      if (speechCache.size >= 64) speechCache.delete(speechCache.keys().next().value as string);
+      speechCache.set(cacheKey, audio);
+    }
+    return new NextResponse(audio.slice(0), {
       status: 200,
       headers: {
         "content-type": "audio/mpeg",
         "cache-control": "no-store",
+        "x-cache": "miss",
       },
     });
   } catch (error) {

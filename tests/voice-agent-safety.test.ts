@@ -109,6 +109,53 @@ describe("conversational slot extraction", () => {
   });
 });
 
+describe("the agent can never trap a shopper in a loop", () => {
+  const asked = { mainConcern: "acne", skinType: "oily", pregnantOrBreastfeeding: false, askedAllergies: true };
+
+  it("asks WHICH allergies when the shopper says yes without naming one", () => {
+    // "Yes I do" previously parsed to nothing and re-asked the same question
+    // forever, because stripping the filler words left no allergen behind.
+    const slots = updateSlots(asked, "Yes I do", "en");
+    expect(slots.askedAllergyNames).toBe(true);
+    expect(nextQuestion(slots, "en")?.question).toMatch(/which/i);
+  });
+
+  it("takes the follow-up answer as the allergen list", () => {
+    const afterYes = updateSlots(asked, "Yes I do", "en");
+    const named = updateSlots(afterYes, "penicillin and fragrance", "en");
+    expect(named.allergies?.join(" ")).toMatch(/penicillin/i);
+    expect(nextQuestion(named, "en")).toBeNull();
+  });
+
+  it("keeps unrecognised words as the allergen rather than looping", () => {
+    const afterYes = updateSlots(asked, "yes", "en");
+    const named = updateSlots(afterYes, "octinoxate", "en");
+    expect(named.allergies).toEqual(["octinoxate"]);
+  });
+
+  it("gives up on an unintelligible pregnancy answer the safe way", () => {
+    let slots: ReturnType<typeof updateSlots> = {
+      mainConcern: "acne",
+      skinType: "oily",
+      askedPregnancy: true,
+    };
+    for (let attempt = 0; attempt < 4; attempt += 1) slots = updateSlots(slots, "mmm hmm what", "en");
+    // Assumes pregnant, which filters the most, instead of asking forever.
+    expect(slots.pregnantOrBreastfeeding).toBe(true);
+  });
+
+  it("always terminates: no question survives repeated nonsense", () => {
+    let slots: ReturnType<typeof updateSlots> = {};
+    slots = updateSlots(slots, "my skin is bad", "en");
+    for (let turn = 0; turn < 12; turn += 1) {
+      const pending = nextQuestion(slots, "en");
+      if (!pending) break;
+      slots = updateSlots(pending.slots, "zzz", "en");
+    }
+    expect(nextQuestion(slots, "en")).toBeNull();
+  });
+});
+
 describe("voice dialogue slot filling", () => {
   it("asks skin type, pregnancy and allergies before recommending", () => {
     let slots = updateSlots({}, "I have dark spots and dull skin", "en");

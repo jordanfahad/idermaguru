@@ -31,6 +31,8 @@ const SlotsSchema = z.object({
   askedPregnancy: z.boolean().optional(),
   askedAllergies: z.boolean().optional(),
   askedSkinType: z.boolean().optional(),
+  askedAllergyNames: z.boolean().optional(),
+  misses: z.number().optional(),
 });
 
 const AgentSchema = z.object({
@@ -82,7 +84,12 @@ export async function POST(request: Request) {
     // When a real model is configured, let it read anything the deterministic
     // patterns missed - but only for non-safety slots. Pregnancy and allergies
     // stay with the explicit parser so a model can never assert them.
-    if (input.utterance.trim() && !slots.skinType) {
+    //
+    // Only on the opening description. Later turns are short answers ("yes",
+    // "oily") that the patterns already handle, and calling the model on every
+    // one of them added a round trip per turn for nothing.
+    const firstDescription = !before.mainConcern && Boolean(slots.mainConcern);
+    if (firstDescription && !slots.skinType) {
       const provider = getLLMProvider();
       if ((provider.lastUsedId ?? provider.id) !== "mock") {
         try {
