@@ -34,6 +34,7 @@ type AgentProduct = {
   currency: string;
   imageUrl: string | null;
   url: string;
+  step?: string;
   slot: string;
   reason: string;
   cautions?: string[];
@@ -46,11 +47,24 @@ type Turn = { role: "user" | "agent"; text: string };
 const ROUTINE_ORDER = ["am", "daily", "pm", "optional"] as const;
 type RoutineBucket = (typeof ROUTINE_ORDER)[number];
 
-function bucketFor(slot: string): RoutineBucket {
-  const name = slot.toLowerCase();
-  if (name.startsWith("optional")) return "optional";
+/**
+ * When a shopper uses each step. Keyed on the routine step rather than its
+ * label, so rewording a label cannot silently drop a product out of the panel.
+ */
+const STEP_BUCKETS: Record<string, RoutineBucket> = {
+  sunscreen: "am",
+  treatment: "pm",
+  eye: "pm",
+  exfoliant: "optional",
+  mask: "optional",
+};
+
+function bucketFor(item: Pick<AgentProduct, "step" | "slot">): RoutineBucket {
+  if (item.step) return STEP_BUCKETS[item.step] ?? "daily";
+  const name = item.slot.toLowerCase();
+  if (name.startsWith("optional") || name.includes("exfoliant") || name.includes("mask")) return "optional";
   if (name.startsWith("morning") || name.includes("sunscreen")) return "am";
-  if (name.startsWith("evening")) return "pm";
+  if (name.startsWith("evening") || name.includes("treatment")) return "pm";
   return "daily";
 }
 
@@ -58,7 +72,7 @@ function bucketFor(slot: string): RoutineBucket {
 function groupRoutine(items: AgentProduct[]) {
   return ROUTINE_ORDER.map((bucket) => ({
     bucket,
-    items: items.filter((item) => bucketFor(item.slot) === bucket),
+    items: items.filter((item) => bucketFor(item) === bucket),
   })).filter((group) => group.items.length > 0);
 }
 

@@ -98,6 +98,8 @@ export type ScoreBreakdown = {
 
 export type RecommendationCandidate = {
   product: ProductCatalogItem;
+  /** Machine-readable routine position; `slot` is its shopper-facing label. */
+  step: string;
   slot: string;
   score: ScoreBreakdown;
   reason: string;

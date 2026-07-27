@@ -9,18 +9,33 @@ import {
   type ScoreBreakdown,
 } from "@/domain/skincare";
 import { expandSearchText } from "@/data/search-keywords";
+import {
+  derivedConcerns,
+  derivedSkinTypes,
+  productKind,
+  routineStep,
+  type RoutineStep,
+} from "./product-taxonomy";
 
-const routineSlots = [
-  "morning cleanser",
-  "morning serum/treatment",
-  "moisturizer",
-  "sunscreen",
-  "evening cleanser",
-  "evening treatment",
-  "evening moisturizer",
-  "optional spot treatment",
-  "optional exfoliant",
+/**
+ * A face routine, in the order it is used. Every step is optional: a routine
+ * that skips a step the catalogue cannot fill is honest, whereas one padded to
+ * a fixed length with whatever scored highest is how eau de parfum ended up
+ * being recommended for dark spots.
+ */
+const FACE_ROUTINE: { step: RoutineStep; label: string; optional?: boolean }[] = [
+  { step: "cleanser", label: "cleanser" },
+  { step: "toner", label: "toner", optional: true },
+  { step: "treatment", label: "treatment" },
+  { step: "eye", label: "eye care", optional: true },
+  { step: "moisturizer", label: "moisturiser" },
+  { step: "sunscreen", label: "sunscreen" },
+  { step: "exfoliant", label: "weekly exfoliant", optional: true },
 ];
+
+const SIMPLE_ROUTINE: RoutineStep[] = ["cleanser", "treatment", "moisturizer", "sunscreen"];
+
+const MAX_ROUTINE_ITEMS = 6;
 
 export function buildRecommendations(input: {
   tenantId: string;
@@ -38,8 +53,12 @@ export function buildRecommendations(input: {
     };
   }
 
-  const safeProducts = input.products.filter((product) =>
-    passesHardFilters(product, input.profile, input.tenantId, input.safety),
+  const safeProducts = input.products.filter(
+    (product) =>
+      // A face routine is built from face products only. Nothing else is a
+      // near miss worth ranking — a shampoo is not a weaker serum.
+      productKind(product) === "face" &&
+      passesHardFilters(product, input.profile, input.tenantId, input.safety),
   );
 
   const candidates = safeProducts
@@ -115,12 +134,14 @@ function createCandidate(
 ): RecommendationCandidate {
   const score = scoreProduct(product, profile, safety, sponsoredEnabled);
   const sponsored = sponsoredEnabled && product.sponsoredBidCpc > 0 && score.commercialBoost > 0;
+  const step = routineStep(product);
 
   return {
     product,
-    slot: inferSlot(product, profile),
+    step,
+    slot: slotLabel(step),
     score,
-    reason: reasonFor(product, profile),
+    reason: reasonFor(product, profile, step),
     usageGuidance: usageFor(product),
     cautions: cautionsFor(product, profile, safety),
     sponsored,
@@ -135,13 +156,24 @@ function scoreProduct(
 ): ScoreBreakdown {
   const text = profileText(profile);
   const concernTokens = tokenize(text);
-  const concernMatch = matchScore(product.concernsJson, concernTokens);
+  // On a real merchant catalogue of 876 products, 63% carry no active
+  // ingredient and 64% no skin type, so scoring on tags alone left the terms
+  // that encode relevance — 70% of the weight — flat across most of the shelf
+  // and the order close to arbitrary. Falling back to what the merchant's own
+  // category implies restores a real ordering.
+  const concerns = product.concernsJson.length ? product.concernsJson : derivedConcerns(product);
+  const skinTypes = product.skinTypesJson.length ? product.skinTypesJson : derivedSkinTypes(product);
+
+  const concernMatch = matchScore(concerns, concernTokens);
   const ingredientEvidence = matchScore(product.activeIngredientsJson, concernTokens) || baselineEvidence(product);
-  const skinTypeFit = profile.skinType
-    ? product.skinTypesJson.map(normalize).includes(normalize(profile.skinType))
+  // Three outcomes, not two: a product that names no skin type is unknown, not
+  // unsuitable. Scoring unknown as a mismatch buried every untagged product
+  // beneath worse-matched but better-labelled ones.
+  const skinTypeFit = !profile.skinType || !skinTypes.length
+    ? 0.5
+    : skinTypes.map(normalize).includes(normalize(profile.skinType))
       ? 1
-      : 0.25
-    : 0.5;
+      : 0.25;
   const sensitivityFit =
     normalize(profile.sensitivity).includes("high") || normalize(profile.skinType).includes("sensitive")
       ? product.sensitiveSkinSuitable
@@ -176,54 +208,83 @@ function scoreProduct(
   };
 }
 
+/**
+ * Picks the best product for each step of the routine, and nothing else.
+ *
+ * There is deliberately no padding pass. The previous version topped the list
+ * up to six with whatever scored highest regardless of step, which is what put
+ * a second cleanser — or a bottle of perfume — into a routine that already had
+ * one. A four-step routine the shopper can actually follow beats six items.
+ */
 function chooseRoutine(candidates: RecommendationCandidate[], profile: IntakeProfileInput) {
-  const chosen: RecommendationCandidate[] = [];
-  const required = ["morning cleanser", "moisturizer", "sunscreen"];
-  const wantedSlots = profile.routinePreference === "simple" ? required : routineSlots;
+  const simple = profile.routinePreference === "simple";
+  const wanted = simple
+    ? FACE_ROUTINE.filter((entry) => SIMPLE_ROUTINE.includes(entry.step))
+    : FACE_ROUTINE;
 
-  for (const slot of wantedSlots) {
+  const chosen: RecommendationCandidate[] = [];
+  for (const entry of wanted) {
     const candidate = candidates.find(
-      (item) => item.slot === slot && !chosen.some((chosenItem) => chosenItem.product.id === item.product.id),
+      (item) => item.step === entry.step && !chosen.some((picked) => picked.product.id === item.product.id),
     );
     if (candidate) chosen.push(candidate);
-    if (profile.routinePreference === "simple" && chosen.length >= 4) break;
   }
 
-  for (const candidate of candidates) {
-    if (chosen.length >= 6) break;
-    if (!chosen.some((item) => item.product.id === candidate.product.id)) chosen.push(candidate);
-  }
-
-  const sponsoredCount = chosen.filter((item) => item.sponsored).length;
-  if (chosen.length > 1 && sponsoredCount === chosen.length) {
+  // A routine where every single item is paid-for reads as an advert. Swap the
+  // last one for the best organic product *for that same step* — swapping in
+  // whatever ranked next regardless of step is how a routine ended up with two
+  // cleansers and no sunscreen.
+  if (chosen.length > 1 && chosen.every((item) => item.sponsored)) {
+    const last = chosen[chosen.length - 1];
     const organic = candidates.find(
-      (item) => !item.sponsored && !chosen.some((chosenItem) => chosenItem.product.id === item.product.id),
+      (item) =>
+        !item.sponsored &&
+        item.step === last.step &&
+        !chosen.some((picked) => picked.product.id === item.product.id),
     );
     if (organic) chosen[chosen.length - 1] = organic;
   }
 
-  return chosen.slice(0, 6);
-}
-
-function inferSlot(product: ProductCatalogItem, profile: IntakeProfileInput) {
-  const category = normalize(product.category);
-  const activeText = product.activeIngredientsJson.join(" ").toLowerCase();
-
-  if (category.includes("sunscreen")) return "sunscreen";
-  if (category.includes("cleanser")) return product.concernsJson.includes("oily skin") ? "evening cleanser" : "morning cleanser";
-  if (category.includes("moisturizer")) return profile.skinType === "dry" ? "evening moisturizer" : "moisturizer";
-  if (category.includes("spot")) return "optional spot treatment";
-  if (category.includes("exfoliant") || /acid|aha|bha/.test(activeText)) return "optional exfoliant";
-  if (category.includes("serum")) return "morning serum/treatment";
-  return "evening treatment";
-}
-
-function reasonFor(product: ProductCatalogItem, profile: IntakeProfileInput) {
-  const matching = product.concernsJson.filter((concern) => profileText(profile).includes(normalize(concern)));
-  if (matching.length > 0) {
-    return `${product.name} fits your ${matching.slice(0, 2).join(" and ")} concern based on approved catalog tags.`;
+  // Trim to a routine a shopper will actually keep up with, dropping the steps
+  // marked optional before any of the ones that carry the result.
+  const optional = new Set<string>(FACE_ROUTINE.filter((entry) => entry.optional).map((entry) => entry.step));
+  while (chosen.length > MAX_ROUTINE_ITEMS) {
+    const cut = chosen.map((item, index) => ({ item, index })).reverse().find(({ item }) => optional.has(item.step));
+    chosen.splice(cut ? cut.index : chosen.length - 1, 1);
   }
-  return `${product.name} fits this routine slot and passed the safety and suitability filters.`;
+
+  return chosen;
+}
+
+/** The shopper-facing label for a step. */
+function slotLabel(step: RoutineStep) {
+  return FACE_ROUTINE.find((entry) => entry.step === step)?.label ?? step;
+}
+
+/**
+ * Why this product, in a sentence a shopper would accept from a person.
+ *
+ * The old fallback — "fits this routine slot and passed the safety and
+ * suitability filters" — appeared on most cards, because most products match no
+ * concern tag. It reads like a machine apologising. Name the ingredient doing
+ * the work, or the concern it targets, or say plainly what the step is for.
+ */
+function reasonFor(product: ProductCatalogItem, profile: IntakeProfileInput, step: RoutineStep) {
+  const text = profileText(profile);
+  const concerns = [...product.concernsJson, ...derivedConcerns(product)];
+  const matching = [...new Set(concerns.filter((concern) => text.includes(normalize(concern))))];
+  const actives = product.activeIngredientsJson.slice(0, 2);
+
+  if (matching.length && actives.length) {
+    return `${actives.join(" and ")} — that's what's working on your ${matching.slice(0, 2).join(" and ")}.`;
+  }
+  if (matching.length) {
+    return `Chosen for your ${matching.slice(0, 2).join(" and ")}.`;
+  }
+  if (actives.length) {
+    return `Your ${slotLabel(step)} step, built around ${actives.join(" and ")}.`;
+  }
+  return `Your ${slotLabel(step)} step${profile.skinType ? `, suited to ${normalize(profile.skinType)} skin` : ""}.`;
 }
 
 function usageFor(product: ProductCatalogItem) {

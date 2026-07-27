@@ -19,6 +19,7 @@ import {
   type AgentLang,
   type AgentSlots,
 } from "@/services/voice-agent";
+import { productKind, routineStep } from "@/services/product-taxonomy";
 import { detectLanguage, isRtl, localise, type LanguageCode } from "@/services/language";
 import { jsonError, parseJson, RequestValidationError } from "../_shared";
 
@@ -292,6 +293,7 @@ export async function POST(request: Request) {
         currency: item.product.currency,
         imageUrl: item.product.imageUrl ?? null,
         url: item.product.url,
+        step: item.step,
         slot: item.slot,
         reason: item.reason,
         cautions: item.cautions,
@@ -346,6 +348,12 @@ function speakable(spoken: LanguageCode, leadIn: string, question?: string): str
   return prefix ? [prefix, question] : [question];
 }
 
+const HAIR_LABELS: Record<string, string> = {
+  shampoo: "shampoo",
+  conditioner: "conditioner",
+  scalp: "scalp treatment",
+};
+
 /**
  * Hair and scalp matching. Runs the same hard safety filters as the routine
  * builder, so allergy/pregnancy exclusions still apply, then ranks by how well
@@ -370,12 +378,10 @@ function pickHairProducts(
 
   return products
     .filter((product) => passesHardFilters(product, profile, tenantId, safety))
-    .filter((product) => {
-      const tags = product.concernsJson.map((tag) => tag.toLowerCase());
-      const haystack = `${product.name} ${product.category}`.toLowerCase();
-      return tags.includes("hair") || tags.includes("dandruff") || tags.includes("hair fall") ||
-        /hair|scalp|shampoo|conditioner/.test(haystack);
-    })
+    // Same hard gate as the face routine, in the other direction: a hair answer
+    // is built from hair products, never from a face serum that happens to
+    // mention shine.
+    .filter((product) => productKind(product) === "hair")
     .map((product) => {
       const tags = product.concernsJson.map((tag) => tag.toLowerCase());
       const haystack = `${product.name} ${product.category} ${product.description}`.toLowerCase();
@@ -393,8 +399,11 @@ function pickHairProducts(
       currency: product.currency,
       imageUrl: product.imageUrl ?? null,
       url: product.url,
-      slot: "hair & scalp",
-      reason: `${product.name} matches what you described and passed the safety checks.`,
+      step: routineStep(product),
+      slot: HAIR_LABELS[routineStep(product)] ?? "hair & scalp",
+      reason: wants.length
+        ? `Chosen for the ${wants.slice(0, 2).join(" and ")} you described.`
+        : `A ${HAIR_LABELS[routineStep(product)] ?? "hair"} step for what you described.`,
       cautions: ["Patch test before first use.", "Follow the label directions."],
       sponsored: false,
     }));
