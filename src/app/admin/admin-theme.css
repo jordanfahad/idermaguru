@@ -121,3 +121,31 @@
 /* accent links */
 .dg-admin .share-link { color: var(--brass); font-weight: 600; }
 .dg-admin .bar > i { background: linear-gradient(90deg, var(--teal), var(--brass-2)); }
+
+/* Shopify connect panel */
+.dg-admin .shopify-connect {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px 0 10px;
+}
+.dg-admin .shopify-connect input {
+  flex: 1;
+  min-width: 240px;
+}
+.dg-admin .shopify-message {
+  margin: 6px 0 12px;
+  font-size: 0.9rem;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(47, 143, 131, 0.1);
+}
+.dg-admin .shopify-connect .primary-button,
+.dg-admin .table-like .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.dg-admin .spin { animation: dg-admin-spin 1s linear infinite; }
+@keyframes dg-admin-spin { to { transform: rotate(360deg); } }

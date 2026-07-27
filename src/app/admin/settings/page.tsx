@@ -1,4 +1,5 @@
 import { AdminNav } from "@/components/admin-nav";
+import { ShopifyPanel } from "@/components/shopify-panel";
 import { CUSTOMER_DISCLAIMER, SPONSORED_DISCLOSURE } from "@/domain/skincare";
 import { seedTenant } from "@/data/seed-catalog";
 
@@ -10,6 +11,7 @@ export default function SettingsPage() {
         <p className="eyebrow">Tenant settings</p>
         <h1>Widget configuration.</h1>
       </header>
+      <ShopifyPanel />
       <section className="dashboard-panel settings-form">
         <label>
           Brand name
