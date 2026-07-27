@@ -167,6 +167,9 @@ export function extractInlineSlots(input: string): Partial<AgentSlots> {
   // Pregnancy: only an explicit statement counts.
   const pregnant = readsPregnant(text);
   if (pregnant !== undefined) found.pregnantOrBreastfeeding = pregnant;
+  // A shopper who has told us he is a man should never be asked whether he is
+  // pregnant. Asking anyway is the kind of thing that loses a customer.
+  else if (MALE.test(text)) found.pregnantOrBreastfeeding = false;
 
   // Allergies: an explicit "no allergies", or a named "allergic to X".
   if (NO_ALLERGIES.test(text) || NO_ALLERGIES_AR.test(input)) {
@@ -193,6 +196,27 @@ const INGREDIENT_TERMS =
   /\b(acid|salicylic|glycolic|lactic|mandelic|azelaic|hyaluronic|retino|tretinoin|adapalene|benzoyl|niacinamide|vitamin|ascorbic|ceramide|panthenol|centella|cica|peptide|zinc|titanium|fragrance|perfume|parfum|paraben|sulfate|alcohol|essential oil|lanolin|latex|nut|shea|coconut|aloe|tea tree|penicillin|sulfa|nickel)/i;
 const SKIN_TERMS_AR = /بشرة|وجه|شعر|فروة|حبوب|بقع|جاف|دهني|مسام|تجاعيد|قشرة|كريم|سيروم|غسول|واقي|روتين|حساسية|حامل/;
 
+/** "I'm a man" — enough to skip the pregnancy question entirely. */
+const MALE = /\b(?:i am|i'?m|im)\s+(?:a\s+)?(?:man|male|guy|boy|dude|father|dad|husband)\b|\bmale\b/i;
+
+/**
+ * "I don't know" is an honest answer to a question we asked, not a tangent.
+ * It used to be met with "Just to be clear, I only cover skin and hair here."
+ */
+const UNSURE = /\b(?:i (?:don'?t|dont|do not) know|not sure|no idea|unsure|dunno|can'?t tell)\b/i;
+
+/**
+ * A complaint about a part of the body that isn't skin or hair. A skincare
+ * advisor has nothing useful to say about a sore knee, and answering "how would
+ * you describe your skin?" to "I have a leg pain" reads as not listening.
+ */
+const OTHER_BODY_PART =
+  /\b(leg|knee|ankle|foot|feet|toe|arm|elbow|shoulder|wrist|hip|back|spine|tooth|teeth|gum|jaw|stomach|belly|abdomen|chest|lung|kidney|liver|bladder|joint|muscle|bone|throat|ear|head)\b/i;
+const BODY_COMPLAINT =
+  /\b(pain|ache|aching|aches|hurts?|hurting|sore|swollen|swelling|stiff|injur\w*|broken|sprain\w*|cramp\w*)\b/i;
+/** "toothache" is one word, so the two patterns above never meet inside it. */
+const ACHE_COMPOUND = /\b(tooth|head|back|stomach|ear|belly|neck|body)aches?\b/i;
+
 const GREETINGS = /\b(hi|hello|hey|salam|marhaba|good (morning|evening|afternoon))\b/i;
 const IDENTITY = /\b(who|what) (are|r) (you|u)\b|\byour name\b|\bare you (a )?(human|robot|bot|real|ai)\b/i;
 const THANKS = /\b(thanks|thank you|shukran|cheers|appreciate)\b/i;
@@ -207,6 +231,32 @@ export type Aside = "greeting" | "identity" | "thanks" | "offtopic";
  * makes an assistant feel robotic. They get a real answer and are then brought
  * back to the question that is still open.
  */
+/**
+ * Is the shopper's opening line something this advisor can help with?
+ *
+ * Nothing checked it before: the first utterance was stored as the main concern
+ * whatever it said, so "I have a leg pain" was answered with "I have a leg pain
+ * — understood. How would you describe your skin?", and "do you sell iphones"
+ * became a skin concern. The tangent classifier existed but was only consulted
+ * from the second turn onwards.
+ *
+ * Safety triage runs before this, so anything alarming has already been sent to
+ * a clinician by the time we get here.
+ */
+export function classifyOpening(input: string): "elsewhere" | "offtopic" | null {
+  const text = normaliseTranscript(input);
+  if (!text) return null;
+
+  const aboutSkin = SKIN_TERMS.test(text) || INGREDIENT_TERMS.test(text) || SKIN_TERMS_AR.test(input);
+  if (aboutSkin) return null;
+
+  if (ACHE_COMPOUND.test(text)) return "elsewhere";
+  if (OTHER_BODY_PART.test(text) && BODY_COMPLAINT.test(text)) return "elsewhere";
+  // One word ("acne", "dandruff") is a concern, not a tangent, even if the
+  // vocabulary above hasn't heard of it.
+  return text.split(/\s+/).length >= 2 ? "offtopic" : null;
+}
+
 export function classifyAside(input: string): Aside | null {
   const text = normaliseTranscript(input);
   if (!text) return null;
@@ -217,6 +267,8 @@ export function classifyAside(input: string): Aside | null {
     readsPregnant(text) !== undefined;
   const aboutSkin = SKIN_TERMS.test(text) || INGREDIENT_TERMS.test(text) || SKIN_TERMS_AR.test(input);
 
+  // An honest "I don't know" is an answer to the open question, not a tangent.
+  if (UNSURE.test(text)) return null;
   if (IDENTITY.test(text)) return "identity";
   if (answersSomething || aboutSkin) return null;
   if (THANKS.test(text)) return "thanks";
@@ -266,7 +318,11 @@ const COPY = {
     greeting: "Hi — I'm your skin advisor. Tell me what's bothering your skin or hair.",
     askConcern: "Tell me your main skin or hair concern.",
     askSkinType: "How would you describe your skin — oily, dry, combination, or sensitive?",
-    askPregnancy: "Before I suggest anything — are you pregnant or breastfeeding?",
+    // Phrased as a rule about ingredients rather than a question about the
+    // shopper's body. Asked flatly, it reads as a presumption to every man who
+    // hears it. Skipped entirely when they have said it does not apply.
+    askPregnancy:
+      "One safety check — a few ingredients aren't advised in pregnancy or breastfeeding. Does either apply to you?",
     askAllergies: "And do you have any product or ingredient allergies? Say no if none.",
     askAllergyNames: "Which ingredients or products are you allergic to?",
     building: "Perfect, building your routine now.",
@@ -281,11 +337,16 @@ const COPY = {
       identity: "I'm the AI skin advisor for this store — not a doctor, and I only suggest over-the-counter products.",
       thanks: "Happy to help.",
       offtopic: "Just to be clear, I only cover skin and hair here.",
+      elsewhere:
+        "That one's outside what I can help with — worth speaking to a doctor or pharmacist. If something's going on with your skin or hair, tell me and I'll take it from there.",
     },
     offTopicBridge: (topic: string) =>
       `It sounds like you're asking about ${topic}. Just to be clear, I only cover skin and hair here.`,
     offTopicLetGo: "Understood — I'll leave that one. If a skin or hair question comes up, I'm here.",
-    heardConcern: (concern: string) => `${concern} — understood.`,
+    // Never repeat the shopper's words back at them: it reads as a machine
+    // proving it recorded the string, and speech-to-text mistakes turn the echo
+    // into an insult.
+    heardConcern: () => "Got it.",
     result: (count: number) =>
       `Here's a simple routine with ${count} product${count === 1 ? "" : "s"} matched from the store. I've kept it conservative — patch test anything new, and use sunscreen every morning.`,
   },
@@ -308,6 +369,8 @@ const COPY = {
       identity: "أنا مستشار البشرة الذكي لهذا المتجر — لست طبيباً، وأقترح منتجات بدون وصفة فقط.",
       thanks: "بكل سرور.",
       offtopic: "للتوضيح، أنا هنا للبشرة والشعر فقط.",
+      elsewhere:
+        "هذا خارج ما يمكنني المساعدة فيه — يُفضّل مراجعة طبيب أو صيدلي. إذا كان لديك ما يخص البشرة أو الشعر، أخبرني وسأساعدك.",
     },
     offTopicBridge: (topic: string) => `يبدو أنك تسأل عن ${topic}. للتوضيح، أنا هنا للبشرة والشعر فقط.`,
     offTopicLetGo: "مفهوم — سأترك هذا الأمر. إن كان لديك سؤال عن البشرة أو الشعر فأنا هنا.",

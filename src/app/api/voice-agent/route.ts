@@ -9,6 +9,7 @@ import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safe
 import {
   agentCopy,
   classifyAside,
+  classifyOpening,
   detectLang,
   extractSkinType,
   isHairConcern,
@@ -34,6 +35,9 @@ const SlotsSchema = z.object({
   askedAllergies: z.boolean().optional(),
   askedSkinType: z.boolean().optional(),
   askedAllergyNames: z.boolean().optional(),
+  // Must be listed, or zod strips it from the round trip and the agent forgets
+  // it gave up on the skin type — then asks for it again after the next answer.
+  skinTypeUnknown: z.boolean().optional(),
   misses: z.number().optional(),
   offTopic: z.number().optional(),
 });
@@ -83,6 +87,50 @@ export async function POST(request: Request) {
     }
 
     const before = (input.slots ?? {}) as AgentSlots;
+
+    // SAFETY RUNS FIRST, ON EVERY TURN, BEFORE ANYTHING CAN SHORT-CIRCUIT IT.
+    //
+    // It used to run last, on the assembled profile. Two ways that failed: an
+    // answer fitting no slot was discarded before triage saw it ("I have blue
+    // patches"), and the tangent classifier below returned first, so "I feel
+    // nauseous" was answered with "I only cover skin and hair here" instead of
+    // being escalated. A shopper who says something alarming gets the referral
+    // no matter which question happens to be open.
+    const turnSafety = runSafetyTriage({
+      ...slotsToProfile(before, input.sessionId),
+      mainConcern: [before.mainConcern, input.utterance].filter(Boolean).join(". "),
+    });
+    if (!turnSafety.recommendationAllowed) {
+      return NextResponse.json({
+        reply: await say(turnSafety.referralMessage ?? copy.noProducts),
+        phase: "referral",
+        slots: before,
+        products: [],
+        safetyLevel: turnSafety.level,
+        language: spoken,
+        rtl: isRtl(spoken),
+      });
+    }
+
+    // The opening line was never checked against anything: whatever the shopper
+    // said first became the main concern, so "I have a leg pain" was answered
+    // with "understood — how would you describe your skin?" and "do you sell
+    // iphones" became a skin concern. Nothing off-topic is stored.
+    if (!before.mainConcern) {
+      const opening = classifyOpening(input.utterance);
+      if (opening) {
+        const leadIn = opening === "elsewhere" ? copy.aside.elsewhere : copy.aside.offtopic;
+        return NextResponse.json({
+          reply: await say(`${leadIn} ${copy.askConcern}`),
+          speech: speakable(spoken, leadIn, copy.askConcern),
+          phase: "asking",
+          slots: before,
+          products: [],
+          language: spoken,
+          rtl: isRtl(spoken),
+        });
+      }
+    }
 
     // Greetings, "what are you?", thanks, or a genuine tangent: answer it, then
     // steer back to the question that's still open instead of parsing it as a
@@ -146,28 +194,6 @@ export async function POST(request: Request) {
         if (guess) slots = { ...slots, skinType: guess };
       }
     }
-    // Safety is screened on every turn, against what was just said as well as
-    // the concern so far. It used to run only once the intake was complete, on
-    // the assembled profile — so "I have blue patches" said in answer to the
-    // skin-type question was parsed as an unusable answer, dropped, and never
-    // seen by the triage that exists precisely to catch it. Anything alarming
-    // stops the intake here, whichever question happened to be open.
-    const turnSafety = runSafetyTriage({
-      ...slotsToProfile(slots, input.sessionId),
-      mainConcern: [slots.mainConcern, input.utterance].filter(Boolean).join(". "),
-    });
-    if (!turnSafety.recommendationAllowed) {
-      return NextResponse.json({
-        reply: await say(turnSafety.referralMessage ?? copy.noProducts),
-        phase: "referral",
-        slots,
-        products: [],
-        safetyLevel: turnSafety.level,
-        language: spoken,
-        rtl: isRtl(spoken),
-      });
-    }
-
     // Nothing new was understood from a non-empty answer -> we are about to ask
     // the same question again, so acknowledge the mishearing.
     const misheard =

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { runSafetyTriage } from "../src/services/safety-triage";
 import {
   classifyAside,
+  classifyOpening,
   extractAllergies,
   extractSkinType,
   isHairConcern,
@@ -441,5 +442,89 @@ describe("the blue patches transcript", () => {
 
     slots = updateSlots(slots, "actually my skin is oily", "en");
     expect(slots.skinType).toBe("oily");
+  });
+});
+
+/**
+ * Reported from a live consultation: "I have a cancerous pigment" was answered
+ * with "How would you describe your skin — oily, dry, combination, or
+ * sensitive?", and "I feel nauseous" with "I only cover skin and hair here".
+ */
+describe("red flags the vocabulary used to miss", () => {
+  const mustEscalate = [
+    "I have a cancerous pigment",
+    "the doctor said it might be cancer",
+    "I think this is a carcinoma",
+    "they want to do a biopsy on this spot",
+    "there is a malignant growth on my arm",
+    "I feel nauseous",
+    "I keep vomiting and my skin is bad",
+    "I feel dizzy and light-headed",
+    "I have chest pain",
+  ];
+
+  for (const utterance of mustEscalate) {
+    it(`escalates: "${utterance}"`, () => {
+      const result = runSafetyTriage({ mainConcern: utterance });
+      expect(result.recommendationAllowed).toBe(false);
+    });
+  }
+
+  it("does not escalate ordinary pigmentation", () => {
+    for (const fine of ["I have dark pigmentation on my cheeks", "uneven pigment after the sun"]) {
+      expect(runSafetyTriage({ mainConcern: fine }).recommendationAllowed).toBe(true);
+    }
+  });
+});
+
+describe("the opening line", () => {
+  it("sends a non-skin complaint elsewhere instead of asking about skin type", () => {
+    expect(classifyOpening("I have a leg pain")).toBe("elsewhere");
+    expect(classifyOpening("my knee hurts")).toBe("elsewhere");
+    expect(classifyOpening("toothache since yesterday")).toBe("elsewhere");
+  });
+
+  it("turns away a genuine tangent without storing it as a concern", () => {
+    expect(classifyOpening("do you sell iphones")).toBe("offtopic");
+    expect(classifyOpening("what is the weather today")).toBe("offtopic");
+  });
+
+  it("lets real concerns through, including one-word answers", () => {
+    for (const concern of [
+      "I am having acne",
+      "dandruff",
+      "acne",
+      "my face is red and flaky",
+      "I want something for wrinkles",
+      "back acne",
+      "my back hurts and I also have acne",
+    ]) {
+      expect(classifyOpening(concern), concern).toBeNull();
+    }
+  });
+});
+
+describe("not treating the shopper as a form", () => {
+  it("does not ask a man whether he is pregnant", () => {
+    let slots: AgentSlots = {};
+    slots = updateSlots(slots, "I'm a man with acne on my beard area", "en");
+    slots = updateSlots(slots, "oily", "en");
+
+    expect(slots.pregnantOrBreastfeeding).toBe(false);
+    const questions: string[] = [];
+    let guard = 0;
+    while (guard++ < 6) {
+      const pending = nextQuestion(slots, "en");
+      if (!pending) break;
+      questions.push(pending.question);
+      slots = { ...pending.slots, allergies: [] };
+    }
+    expect(questions.some((q) => /pregnan|breastfeed/i.test(q))).toBe(false);
+  });
+
+  it("treats \"I don't know\" as an answer, not a tangent", () => {
+    for (const unsure of ["I dont know", "I don't know", "not sure", "no idea"]) {
+      expect(classifyAside(unsure), unsure).toBeNull();
+    }
   });
 });

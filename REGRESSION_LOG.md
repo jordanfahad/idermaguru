@@ -10,6 +10,50 @@ that now guards it. An entry without a guarding test is a bug waiting to return.
 
 ---
 
+## 2026-07-27 — Sitting through real conversations
+
+Found by driving the live API and reading the transcripts as a shopper would.
+None of these were caught by the test suite, because the suite exercised the
+engine and never held a conversation.
+
+### R-021 — "I have a cancerous pigment" was answered with "how would you describe your skin?"
+- **Symptom:** the worst failure this product can have. A shopper reporting suspected cancer was asked about their skin type and taken on to a routine.
+- **Cause:** the referral vocabulary demanded the literal phrase "skin cancer". "cancerous", "carcinoma", "malignant", "tumour" and "biopsy" all matched nothing.
+- **Fix:** any mention of malignancy escalates, however worded.
+- **Guarded by:** `tests/voice-agent-safety.test.ts` — "red flags the vocabulary used to miss", with a counter-test that ordinary pigmentation still gets a routine.
+
+### R-022 — Systemic symptoms were treated as small talk
+- **Symptom:** "I feel nauseous" was answered "Just to be clear, I only cover skin and hair here."
+- **Cause:** two faults at once. Nausea, vomiting, dizziness and chest pain were in no pattern; and the tangent classifier ran *before* safety triage, so it returned first and triage never saw the turn.
+- **Fix:** safety runs first on every turn, before anything can short-circuit it, and systemic symptoms are referral-level.
+
+### R-023 — The opening line was never checked
+- **Symptom:** "I have a leg pain" → "I have a leg pain — understood. How would you describe your skin?". "do you sell iphones" became the shopper's skin concern.
+- **Cause:** the tangent classifier was only consulted from the second turn; the first utterance was stored as the main concern whatever it contained.
+- **Fix:** `classifyOpening` runs on the first line. A non-skin body complaint is sent to a doctor or pharmacist; a genuine tangent is turned away. Neither is stored.
+- **Guarded by:** `tests/voice-agent-safety.test.ts` — "the opening line", including that real concerns and one-word answers still pass.
+
+### R-024 — Every shopper was asked whether they were pregnant
+- **Symptom:** a man is asked if he is pregnant or breastfeeding. Offensive, and it reads as a form rather than an advisor.
+- **Fix:** the question is skipped outright once the shopper has said it does not apply, and is now phrased as a rule about ingredients rather than a question about their body.
+- **Guarded by:** `tests/voice-agent-safety.test.ts` — "does not ask a man whether he is pregnant".
+- **Still open:** it is still asked of everyone who has not said. The better fix is to ask only when a pregnancy-restricted ingredient is actually a candidate for that shopper's routine — most routines have none.
+
+### R-025 — "I don't know" was met with "I only cover skin and hair here"
+- **Cause:** an honest non-answer matched no pattern, so the tangent classifier claimed it.
+- **Fix:** unsure answers are answers. They count towards moving the question on, not towards a lecture.
+
+### R-026 — The agent forgot it had given up on the skin type
+- **Symptom:** after moving on from an unanswerable skin-type question, the very next turn asked it again.
+- **Cause:** `skinTypeUnknown` was missing from the route's zod slot schema, so it was stripped from every round trip.
+- **Note:** introduced by the R-017 fix and caught only by reading a live transcript. Any new slot must be added to `SlotsSchema` or it does not survive a turn.
+
+### R-027 — The agent parroted the shopper's words back
+- **Symptom:** "I am having acne — understood."
+- **Fix:** it acknowledges without repeating. Speech-to-text errors made the echo worse than useless.
+
+---
+
 ## 2026-07-27 — Reported from a live consultation
 
 Found by Fahad from a real transcript and routine panel, not by the test suite.

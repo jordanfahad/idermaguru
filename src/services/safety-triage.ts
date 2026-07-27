@@ -54,7 +54,15 @@ const referPatterns = [
   /acne.*causing scarring|active acne.*scarring/i,
   /worsening rash|widespread rash|rash.*widespread/i,
   /suspected infection|looks infected|skin infection/i,
-  /fungal infection|skin cancer|melanoma/i,
+  // "I have a cancerous pigment" matched nothing while this demanded the exact
+  // phrase "skin cancer", and the shopper was asked whether their skin is oily.
+  // Any mention of malignancy is a referral, however it is worded.
+  /\b(cancer|cancerous|carcinoma|melanoma|malignan\w*|tumou?r|biopsy|precancerous|pre-cancerous)\b/i,
+  /fungal infection/i,
+  // Systemic symptoms are not cosmetic and are not tangents either. Feeling
+  // nauseous used to be answered with "I only cover skin and hair here".
+  /\b(nause\w*|vomit\w*|throwing up|dizz\w*|faint\w*|light[- ]headed|short of breath|chest pain|palpitation\w*)\b/i,
+  /\b(numb\w*|tingling|weakness)\b[^.]{0,30}\b(arm|leg|face|hand|foot|side)\b/i,
   /diagnos(?:e|is).*(eczema|psoriasis|rosacea|melasma|fungal acne|infection|rash)|(?:eczema|psoriasis|rosacea|melasma|fungal acne|infection|rash).*diagnos(?:e|is)/i,
   /diagnos(?:e|is)|what disease|what condition/i,
   /prescription|antibiotic|steroid|isotretinoin|accutane|hydroquinone|oral medication|injection|tretinoin/i,
