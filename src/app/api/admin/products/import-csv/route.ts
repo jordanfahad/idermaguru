@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { seedTenant } from "@/data/seed-catalog";
-import { createProductForTenant } from "@/services/catalog";
+import { importProductForTenant, markMissingOutOfStock } from "@/services/catalog";
 import { requireSuperAdmin } from "@/lib/admin-guard";
 import { csvSplit, jsonError } from "../../../_shared";
 
@@ -44,12 +44,19 @@ export async function POST(request: Request) {
   const missing = csvHeaders.filter((name) => !header.includes(name));
   if (missing.length > 0) return jsonError(`Missing columns: ${missing.join(", ")}`);
 
+  // "replace" treats the file as the merchant's whole catalogue: anything absent
+  // from it is marked out of stock. Default is "merge", because a partial upload
+  // under replace semantics would empty the shelf.
+  const mode = String(form.get("mode") ?? "merge") === "replace" ? "replace" : "merge";
   const created = [];
+  const seenUrls: string[] = [];
   for (const line of dataLines) {
     const cells = line.split(",").map((item) => item.trim());
     const row = Object.fromEntries(header.map((key, index) => [key, cells[index] ?? ""]));
+    const url = sanitize(row.url);
+    if (url) seenUrls.push(url);
     created.push(
-      await createProductForTenant(tenantSlug, {
+      await importProductForTenant(tenantSlug, {
         sku: sanitize(row.sku),
         name: sanitize(row.name),
         brand: sanitize(row.brand),
@@ -77,7 +84,9 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json({ created });
+  const markedOutOfStock = mode === "replace" ? await markMissingOutOfStock(tenantSlug, seenUrls) : 0;
+
+  return NextResponse.json({ created, mode, markedOutOfStock });
 }
 
 function sanitize(value: string) {

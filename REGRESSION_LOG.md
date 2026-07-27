@@ -10,6 +10,41 @@ that now guards it. An entry without a guarding test is a bug waiting to return.
 
 ---
 
+## 2026-07-27 — Reported from a live consultation
+
+Found by Fahad from a real transcript and routine panel, not by the test suite.
+
+### R-016 — A red flag said mid-intake was never safety-screened
+- **Symptom:** shopper answered the skin-type question with "I have blue patches with some acne and". The advisor repeated the question and went on to sell a routine. Blue patches are in the bruising/discolouration escalation list.
+- **Cause:** `runSafetyTriage` ran once, after the intake was complete, on the assembled profile. An answer that fits no slot is discarded by `updateSlots`, so those words never reached triage. The escalation patterns worked perfectly — they were never shown the text.
+- **Fix:** every turn is triaged against the concern so far plus what was just said, before the next question is asked. Anything alarming stops the intake immediately.
+- **Guarded by:** `tests/voice-agent-safety.test.ts` — "the blue patches transcript", including a test that reproduces why the old end-of-intake check missed it.
+
+### R-017 — The advisor invented a skin type and announced it
+- **Symptom:** after two answers it could not parse, the agent said "Got it — combination skin" to a shopper who never said it.
+- **Cause:** `updateSlots` assigned `skinType = "combination"` after `MAX_MISSES`, to avoid looping. The route then reported it back as something understood.
+- **Fix:** it gives up on the question instead of answering it for them, and stops asking. An unknown skin type scores neutrally in the engine, so the routine is still sound — just less tailored. A skin type volunteered later is still accepted.
+- **Guarded by:** `tests/voice-agent-safety.test.ts` — "never invents a skin type the shopper did not give".
+
+### R-018 — The same product recommended twice in one routine
+- **Symptom:** "CeraVe Hydrating Mineral Sunscreen SPF 30 Face Sheer Tint 50ml" appeared twice in one routine.
+- **Cause:** the catalogue holds the same product under several ids and SKUs (see R-019); the routine builder deduplicated on `product.id` only.
+- **Fix:** identity within a routine is the product name, not the row id.
+- **Guarded by:** `tests/product-taxonomy.test.ts` — "shows a duplicated catalogue product only once".
+
+### R-019 — Every CSV import duplicated the whole catalogue
+- **Symptom:** 964 product rows for 509 real products; 466 distinct names.
+- **Cause:** the import called `createProductForTenant` per row unconditionally — an insert, never an upsert. The SKU could not act as the key either: the exports carried `csv-<timestamp>-<row>` SKUs, so the same product arrived with a different SKU in every export.
+- **Fix:** the import upserts on the product URL, which is stable and populated on every row.
+
+### R-020 — A product that left the store stayed sellable forever
+- **Symptom:** out-of-stock products recommended to shoppers.
+- **Cause:** nothing ever cleared `inStock`. The read path filters it correctly, but no import pass marked vanished products as gone, so a product imported once stayed in stock permanently.
+- **Fix:** an import can be run in `replace` mode, which marks everything absent from the file out of stock. Rows are kept, not deleted — recommendations already made still point at them. Default stays `merge`, because a partial upload under replace semantics would empty the shelf.
+- **Still open:** the ~455 duplicate rows already in the live catalogue, and the stale `inStock` flags on them, need a one-off cleanup.
+
+---
+
 ## 2026-07-27 — Recommendation engine against a real merchant catalogue
 
 Found while moving the engine from the 12-product seed catalogue to a live

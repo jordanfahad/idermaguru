@@ -105,6 +105,42 @@ describe("routine integrity", () => {
     expect(result.items.every((i) => productKind(i.product) === "face")).toBe(true);
   });
 
+  it("shows a duplicated catalogue product only once", () => {
+    // A re-imported catalogue held the same sunscreen twice under different ids
+    // and SKUs, and a shopper was shown both in one routine. The rows differ
+    // enough that they can even land in different steps.
+    const base: ProductCatalogItem = {
+      ...seedProducts[0],
+      name: "CeraVe Hydrating Mineral Sunscreen SPF 30 Face Sheer Tint 50ml",
+      category: "sunscreen",
+      description: "A mineral sunscreen for daily use.",
+      activeIngredientsJson: ["zinc oxide", "titanium dioxide"],
+      concernsJson: ["sun protection", "dark spots"],
+      merchantPriority: 90,
+    };
+    const copyA: ProductCatalogItem = { ...base, id: "cica-csv-1779892727414-316", sku: "csv-1779892727414-316" };
+    const copyB: ProductCatalogItem = {
+      ...base,
+      id: "cica-csv-1779897334820-316",
+      sku: "csv-1779897334820-316",
+      // The second row's blurb pushes it towards a different step.
+      category: "lotions & moisturizers",
+      merchantPriority: 89,
+    };
+
+    const profile = { mainConcern: "dark spots and sun protection", skinType: "combination" };
+    const result = buildRecommendations({
+      tenantId: seedTenant.id,
+      profile,
+      safety: runSafetyTriage(profile),
+      products: [...seedProducts, copyA, copyB],
+      sponsoredEnabled: false,
+    });
+
+    const names = result.items.map((item) => item.product.name.toLowerCase());
+    expect(new Set(names).size).toBe(names.length);
+  });
+
   it("recommends each step at most once", () => {
     const profile = { mainConcern: "My skin is dry and flaky.", skinType: "dry" };
     const result = buildRecommendations({

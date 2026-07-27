@@ -64,6 +64,58 @@ export async function createProductForTenant(tenantSlug: string, input: Omit<Pro
   return mapPrismaProduct(product);
 }
 
+/**
+ * Import a product by its page URL rather than inserting a new row every time.
+ *
+ * A CSV import used to call `createProductForTenant` per row unconditionally,
+ * so re-importing a catalogue duplicated all of it — one live catalogue reached
+ * 964 rows for 509 real products, and shoppers were shown the same sunscreen
+ * twice in one routine. The SKU cannot be the key: the exports carried
+ * `csv-<timestamp>-<row>` SKUs, so the same product had a different SKU in
+ * every export. The product URL is stable and was populated on every row.
+ */
+export async function importProductForTenant(
+  tenantSlug: string,
+  input: Omit<ProductCatalogItem, "id" | "tenantId">,
+) {
+  const tenant = await getTenantBySlug(tenantSlug);
+  if (!tenant) throw new Error("Tenant not found.");
+
+  const url = input.url?.trim();
+  if (!url) return createProductForTenant(tenantSlug, input);
+
+  const product = await withTenant(tenant.id, async (tx) => {
+    const existing = await tx.product.findFirst({ where: { tenantId: tenant.id, url } });
+    if (!existing) {
+      return tx.product.create({ data: { ...input, url, tenantId: tenant.id } });
+    }
+    return tx.product.update({ where: { id: existing.id }, data: { ...input, url } });
+  });
+
+  if (!product) return { ...input, id: crypto.randomUUID(), tenantId: tenant.id };
+  return mapPrismaProduct(product);
+}
+
+/**
+ * Mark everything the merchant did not send this time as out of stock.
+ *
+ * Nothing else ever cleared the flag, so a product that vanished from the store
+ * stayed sellable in the advisor for good. Rows are kept rather than deleted:
+ * recommendations already made still point at them.
+ */
+export async function markMissingOutOfStock(tenantSlug: string, seenUrls: string[]) {
+  const tenant = await getTenantBySlug(tenantSlug);
+  if (!tenant) throw new Error("Tenant not found.");
+
+  const result = await withTenant(tenant.id, (tx) =>
+    tx.product.updateMany({
+      where: { tenantId: tenant.id, inStock: true, url: { notIn: seenUrls } },
+      data: { inStock: false },
+    }),
+  );
+  return result?.count ?? 0;
+}
+
 export async function updateProductForTenant(productId: string, tenantSlug: string, input: Partial<ProductCatalogItem>) {
   const tenant = await getTenantBySlug(tenantSlug);
   if (!tenant) throw new Error("Tenant not found.");

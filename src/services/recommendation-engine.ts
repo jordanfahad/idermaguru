@@ -225,10 +225,18 @@ function chooseRoutine(candidates: RecommendationCandidate[], profile: IntakePro
     ? FACE_ROUTINE.filter((entry) => SIMPLE_ROUTINE.includes(entry.step))
     : FACE_ROUTINE;
 
+  // Merchant catalogues carry the same product more than once — a re-import
+  // that inserts instead of updating leaves two rows with different ids and
+  // SKUs but the same product. Matching on id alone let both through, so a
+  // routine could list one bottle of sunscreen twice. Identity is the name.
+  const identity = (item: RecommendationCandidate) => normalize(item.product.name);
+
   const chosen: RecommendationCandidate[] = [];
   for (const entry of wanted) {
     const candidate = candidates.find(
-      (item) => item.step === entry.step && !chosen.some((picked) => picked.product.id === item.product.id),
+      (item) =>
+        item.step === entry.step &&
+        !chosen.some((picked) => picked.product.id === item.product.id || identity(picked) === identity(item)),
     );
     if (candidate) chosen.push(candidate);
   }

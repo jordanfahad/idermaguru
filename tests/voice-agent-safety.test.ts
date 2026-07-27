@@ -376,3 +376,70 @@ describe("scripted lines", () => {
     }
   });
 });
+
+/**
+ * A shopper reported this exact exchange. The advisor asked for a skin type,
+ * the shopper answered "I have blue patches with some acne and", and the agent
+ * repeated the question, then announced "Got it — combination skin" and sold a
+ * routine. Blue patches are in the bruising/discolouration escalation list, and
+ * the shopper never said combination.
+ */
+describe("the blue patches transcript", () => {
+  const OPENING = "I am having acne";
+  const RED_FLAG = "I have blue patches with some acne and";
+  const VAGUE = "it is patchy at the moment and its very easy";
+
+  /** How the route composes the text safety triage sees on each turn. */
+  const turnText = (slots: AgentSlots, utterance: string) =>
+    [slots.mainConcern, utterance].filter(Boolean).join(". ");
+
+  it("escalates on the turn the red flag is spoken, whatever question was open", () => {
+    let slots: AgentSlots = {};
+    slots = updateSlots(slots, OPENING, "en");
+    nextQuestion(slots, "en"); // advisor asks for a skin type
+    slots.askedSkinType = true;
+
+    const safety = runSafetyTriage({ mainConcern: turnText(slots, RED_FLAG) });
+    expect(safety.recommendationAllowed).toBe(false);
+    expect(["REFER_CLINIC", "URGENT"]).toContain(safety.level);
+  });
+
+  it("shows why triaging only the assembled profile missed it", () => {
+    // The red flag never lands in a slot: it is not a skin type, so the intake
+    // discards it. Triage run at the end therefore sees only the opening line.
+    let slots: AgentSlots = { mainConcern: OPENING, askedSkinType: true };
+    slots = updateSlots(slots, RED_FLAG, "en");
+    expect(slots.mainConcern).toBe(OPENING);
+    expect(runSafetyTriage({ mainConcern: slots.mainConcern! }).recommendationAllowed).toBe(true);
+  });
+
+  it("never invents a skin type the shopper did not give", () => {
+    let slots: AgentSlots = { mainConcern: OPENING, askedSkinType: true };
+    slots = updateSlots(slots, RED_FLAG, "en");
+    slots = updateSlots(slots, VAGUE, "en");
+
+    expect(slots.skinType).toBeUndefined();
+    expect(slots.skinTypeUnknown).toBe(true);
+  });
+
+  it("stops asking for a skin type once it has given up", () => {
+    let slots: AgentSlots = { mainConcern: OPENING, askedSkinType: true };
+    const asked = nextQuestion({ ...slots }, "en")!.question;
+    slots = updateSlots(slots, RED_FLAG, "en");
+    slots = updateSlots(slots, VAGUE, "en");
+
+    const pending = nextQuestion(slots, "en");
+    expect(pending).not.toBeNull();
+    expect(pending!.question).not.toBe(asked);
+  });
+
+  it("still accepts a skin type volunteered later", () => {
+    let slots: AgentSlots = { mainConcern: OPENING, askedSkinType: true };
+    slots = updateSlots(slots, VAGUE, "en");
+    slots = updateSlots(slots, VAGUE, "en");
+    expect(slots.skinTypeUnknown).toBe(true);
+
+    slots = updateSlots(slots, "actually my skin is oily", "en");
+    expect(slots.skinType).toBe("oily");
+  });
+});

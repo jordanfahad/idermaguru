@@ -146,6 +146,28 @@ export async function POST(request: Request) {
         if (guess) slots = { ...slots, skinType: guess };
       }
     }
+    // Safety is screened on every turn, against what was just said as well as
+    // the concern so far. It used to run only once the intake was complete, on
+    // the assembled profile — so "I have blue patches" said in answer to the
+    // skin-type question was parsed as an unusable answer, dropped, and never
+    // seen by the triage that exists precisely to catch it. Anything alarming
+    // stops the intake here, whichever question happened to be open.
+    const turnSafety = runSafetyTriage({
+      ...slotsToProfile(slots, input.sessionId),
+      mainConcern: [slots.mainConcern, input.utterance].filter(Boolean).join(". "),
+    });
+    if (!turnSafety.recommendationAllowed) {
+      return NextResponse.json({
+        reply: await say(turnSafety.referralMessage ?? copy.noProducts),
+        phase: "referral",
+        slots,
+        products: [],
+        safetyLevel: turnSafety.level,
+        language: spoken,
+        rtl: isRtl(spoken),
+      });
+    }
+
     // Nothing new was understood from a non-empty answer -> we are about to ask
     // the same question again, so acknowledge the mishearing.
     const misheard =

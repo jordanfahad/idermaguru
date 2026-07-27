@@ -20,6 +20,8 @@ export type AgentSlots = {
   askedSkinType?: boolean;
   /** Set once the shopper says they DO have allergies but hasn't named them. */
   askedAllergyNames?: boolean;
+  /** Set once we have given up asking for a skin type, so we stop asking. */
+  skinTypeUnknown?: boolean;
   /** How many times we have failed to understand the current question. */
   misses?: number;
   /** Consecutive off-topic turns, so the agent stops nagging and lets go. */
@@ -456,7 +458,7 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
     return next;
   }
 
-  if (next.askedSkinType && !next.skinType) {
+  if (next.askedSkinType && !next.skinType && !next.skinTypeUnknown) {
     const skinType = extractSkinType(text);
     if (skinType) {
       next.skinType = skinType;
@@ -471,7 +473,12 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
     }
     next.misses = (next.misses ?? 0) + 1;
     if (next.misses > MAX_MISSES) {
-      next.skinType = "combination";
+      // Move on without a skin type rather than inventing one. This used to
+      // assign "combination", and the agent then said "Got it — combination
+      // skin" to a shopper who had never said it: a fabrication presented as
+      // understanding. The engine scores an unknown skin type neutrally, so
+      // the routine is still sound, just less tailored.
+      next.skinTypeUnknown = true;
       next.misses = 0;
     }
     return next;
@@ -489,7 +496,7 @@ export function nextQuestion(slots: AgentSlots, lang: AgentLang): { question: st
 
   if (!next.mainConcern) return { question: copy.askConcern, slots: next };
 
-  if (!next.skinType) {
+  if (!next.skinType && !next.skinTypeUnknown) {
     next.askedSkinType = true;
     return { question: copy.askSkinType, slots: next };
   }
