@@ -22,6 +22,8 @@ export type AgentSlots = {
   askedAllergyNames?: boolean;
   /** How many times we have failed to understand the current question. */
   misses?: number;
+  /** Consecutive off-topic turns, so the agent stops nagging and lets go. */
+  offTopic?: number;
 };
 
 /**
@@ -276,8 +278,11 @@ const COPY = {
       greeting: "Hello!",
       identity: "I'm the AI skin advisor for this store — not a doctor, and I only suggest over-the-counter products.",
       thanks: "Happy to help.",
-      offtopic: "That's outside what I can help with — I only do skin and hair here.",
+      offtopic: "Just to be clear, I only cover skin and hair here.",
     },
+    offTopicBridge: (topic: string) =>
+      `It sounds like you're asking about ${topic}. Just to be clear, I only cover skin and hair here.`,
+    offTopicLetGo: "Understood — I'll leave that one. If a skin or hair question comes up, I'm here.",
     heardConcern: (concern: string) => `${concern} — understood.`,
     result: (count: number) =>
       `Here's a simple routine with ${count} product${count === 1 ? "" : "s"} matched from the store. I've kept it conservative — patch test anything new, and use sunscreen every morning.`,
@@ -300,8 +305,10 @@ const COPY = {
       greeting: "أهلاً!",
       identity: "أنا مستشار البشرة الذكي لهذا المتجر — لست طبيباً، وأقترح منتجات بدون وصفة فقط.",
       thanks: "بكل سرور.",
-      offtopic: "هذا خارج نطاق مساعدتي — أنا هنا للبشرة والشعر فقط.",
+      offtopic: "للتوضيح، أنا هنا للبشرة والشعر فقط.",
     },
+    offTopicBridge: (topic: string) => `يبدو أنك تسأل عن ${topic}. للتوضيح، أنا هنا للبشرة والشعر فقط.`,
+    offTopicLetGo: "مفهوم — سأترك هذا الأمر. إن كان لديك سؤال عن البشرة أو الشعر فأنا هنا.",
     heardConcern: (concern: string) => `${concern} — فهمت.`,
     result: (count: number) =>
       `هذا روتين بسيط يضم ${count} منتج مطابق من المتجر. أبقيته متحفظاً — جرّب المنتج على مساحة صغيرة أولاً، واستخدم واقي الشمس كل صباح.`,

@@ -34,6 +34,7 @@ const SlotsSchema = z.object({
   askedSkinType: z.boolean().optional(),
   askedAllergyNames: z.boolean().optional(),
   misses: z.number().optional(),
+  offTopic: z.number().optional(),
 });
 
 const AgentSchema = z.object({
@@ -90,12 +91,27 @@ export async function POST(request: Request) {
     const aside = before.mainConcern && !awaitingAllergens ? classifyAside(input.utterance) : null;
     if (aside) {
       const pendingAside = nextQuestion(before, lang);
+      const offTopicRun = aside === "offtopic" ? (before.offTopic ?? 0) + 1 : 0;
+
+      let line: string;
+      if (aside !== "offtopic") {
+        line = `${copy.aside[aside]}${pendingAside ? ` ${pendingAside.question}` : ""}`;
+      } else if (offTopicRun >= 2) {
+        // They meant it. Stop asking - pressing a third time is nagging.
+        line = copy.offTopicLetGo;
+      } else {
+        // Name what they actually raised before redirecting, so the bridge
+        // reads as listening rather than a canned refusal.
+        const topic = await summariseTopic(input.utterance, lang);
+        line = `${topic ? copy.offTopicBridge(topic) : copy.aside.offtopic}${
+          pendingAside ? ` ${pendingAside.question}` : ""
+        }`;
+      }
+
       return NextResponse.json({
-        reply: await say(
-          `${copy.aside[aside]}${pendingAside ? ` ${pendingAside.question}` : ""}`,
-        ),
+        reply: await say(line),
         phase: "asking",
-        slots: pendingAside?.slots ?? before,
+        slots: { ...(pendingAside?.slots ?? before), offTopic: offTopicRun },
         products: [],
         language: spoken,
         rtl: isRtl(spoken),
@@ -334,6 +350,38 @@ function pickHairProducts(
       cautions: ["Patch test before first use.", "Follow the label directions."],
       sponsored: false,
     }));
+}
+
+/**
+ * A two or three word label for whatever the shopper raised, used to redirect
+ * by name ("It sounds like you're asking about a leg pain") rather than with a
+ * blanket refusal. Falls back to nothing when no model is configured, and the
+ * caller then uses the generic line.
+ */
+async function summariseTopic(utterance: string, lang: AgentLang): Promise<string> {
+  const provider = getLLMProvider();
+  if ((provider.lastUsedId ?? provider.id) === "mock") return "";
+  try {
+    const label = await provider.generateAssistantMessage({
+      messages: [
+        {
+          role: "system",
+          content:
+            "Reply with a two-to-four word noun phrase naming the topic of the user's message, " +
+            "lowercase, no punctuation, no quotes. Examples: \"a leg pain\", \"tomorrow's weather\", " +
+            "\"last night's football\". Reply with the phrase only.",
+        },
+        { role: "user", content: utterance },
+      ],
+      approvedProducts: [],
+      safety: { level: "LOW", reasons: [], recommendationAllowed: true },
+    });
+    const clean = label.trim().replace(/^["'\u201c]|["'\u201d.]$/g, "").toLowerCase();
+    void lang;
+    return clean.length > 2 && clean.split(/\s+/).length <= 5 ? clean : "";
+  } catch {
+    return "";
+  }
 }
 
 function shorten(text: string, max = 90) {

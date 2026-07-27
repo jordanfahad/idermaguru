@@ -102,6 +102,8 @@ const UI = {
     cameraUnusable: "I couldn't read that clearly. Try better light and hold steady.",
     cameraDenied: "I couldn't open the camera. Allow camera access, or just describe your skin.",
     cameraError: "The photo review didn't work. You can describe your skin instead.",
+    liveTranscript: "Live transcript",
+    quickPicks: "Common concerns",
   },
   ar: {
     voiceMode: "صوت",
@@ -140,6 +142,8 @@ const UI = {
     cameraUnusable: "لم أتمكن من رؤية الصورة بوضوح. جرّب إضاءة أفضل وثبّت الكاميرا.",
     cameraDenied: "تعذّر فتح الكاميرا. اسمح بالوصول أو صف بشرتك بالكلمات.",
     cameraError: "لم تنجح مراجعة الصورة. يمكنك وصف بشرتك بدلاً من ذلك.",
+    liveTranscript: "النص المباشر",
+    quickPicks: "مشاكل شائعة",
   },
 };
 
@@ -190,6 +194,7 @@ export function VoiceAgent({
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const orbRef = useRef<OrbAudio | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const continueRef = useRef(false);
   const t = UI[lang];
@@ -207,6 +212,12 @@ export function VoiceAgent({
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
+
+  // Keep the newest turn in view inside the panel, never by growing the page.
+  useEffect(() => {
+    const panel = transcriptRef.current;
+    if (panel) panel.scrollTop = panel.scrollHeight;
+  }, [turns, interim]);
 
   // Rotate the example prompts while the shopper hasn't started.
   useEffect(() => {
@@ -565,6 +576,27 @@ export function VoiceAgent({
 
   return (
     <div className={`va va-${phase}${lang === "ar" ? " va-rtl" : ""}`} dir={lang === "ar" ? "rtl" : "ltr"}>
+     <div className="va-grid">
+      <aside className={turns.length ? "va-side va-side-live" : "va-side"}>
+        {turns.length ? (
+          <>
+            <p className="va-side-title">
+              <span className="va-live-dot" />
+              {t.liveTranscript}
+            </p>
+            <div className="va-transcript" ref={transcriptRef}>
+              {turns.map((turn, index) => (
+                <p key={`${turn.role}-${index}-${turn.text.slice(0, 12)}`} className={`va-turn va-turn-${turn.role}`}>
+                  <span>{turn.role === "user" ? t.you : t.agent}</span>
+                  {turn.text}
+                </p>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </aside>
+
+      <div className="va-centre">
       <div className="va-stage" ref={stageRef}>
         <div className="va-bloom" aria-hidden="true" />
         <div className="va-halo" aria-hidden="true" />
@@ -654,6 +686,20 @@ export function VoiceAgent({
         </div>
       ) : null}
 
+      </div>
+
+      <aside className="va-side va-side-picks">
+        <p className="va-side-title">{t.quickPicks}</p>
+        <div className="va-picks">
+          {PROMPTS[lang].slice(0, 4).map((prompt) => (
+            <button key={prompt} type="button" className="va-pick" onClick={() => submitText(prompt)}>
+              {prompt}
+            </button>
+          ))}
+        </div>
+      </aside>
+     </div>
+
       {mode === "chat" ? (
         <form
           className="va-composer"
@@ -680,17 +726,6 @@ export function VoiceAgent({
         <p className="va-notice">
           {notice} <a href="/live-consultation-1">{t.fallback}</a>
         </p>
-      ) : null}
-
-      {turns.length ? (
-        <div className="va-transcript">
-          {turns.slice(-6).map((turn, index) => (
-            <p key={`${turn.role}-${index}-${turn.text.slice(0, 12)}`} className={`va-turn va-turn-${turn.role}`}>
-              <span>{turn.role === "user" ? t.you : t.agent}</span>
-              {turn.text}
-            </p>
-          ))}
-        </div>
       ) : null}
 
       {products.length ? (
