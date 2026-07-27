@@ -141,11 +141,59 @@
   background: rgba(47, 143, 131, 0.1);
 }
 .dg-admin .shopify-connect .primary-button,
-.dg-admin .table-like .secondary-button {
+.dg-admin .shopify-table .secondary-button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   white-space: nowrap;
+}
+
+/* A real <table>, so it must not inherit ".table-like { display: grid }" —
+   that collapsed every cell into one run-on line of text. */
+.dg-admin .shopify-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-size: 0.92rem;
+}
+.dg-admin .shopify-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid var(--line, rgba(27, 26, 23, 0.12));
+}
+.dg-admin .shopify-table td {
+  padding: 12px 14px 12px 0;
+  border-bottom: 1px solid var(--line, rgba(27, 26, 23, 0.08));
+  vertical-align: middle;
+}
+.dg-admin .shopify-table tr:last-child td { border-bottom: none; }
+.dg-admin .shopify-table td:first-child { font-weight: 600; }
+.dg-admin .shopify-table td:last-child { padding-right: 0; text-align: right; }
+
+@media (max-width: 720px) {
+  .dg-admin .shopify-table,
+  .dg-admin .shopify-table tbody,
+  .dg-admin .shopify-table tr,
+  .dg-admin .shopify-table td { display: block; width: 100%; }
+  .dg-admin .shopify-table thead { display: none; }
+  .dg-admin .shopify-table tr { padding: 12px 0; border-bottom: 1px solid var(--line, rgba(27, 26, 23, 0.12)); }
+  .dg-admin .shopify-table td { border: none; padding: 2px 0; text-align: left; }
+  .dg-admin .shopify-table td:last-child { text-align: left; padding-top: 10px; }
+  .dg-admin .shopify-table td::before {
+    content: attr(data-label) " ";
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-right: 6px;
+  }
+  .dg-admin .shopify-table td:first-child::before,
+  .dg-admin .shopify-table td:last-child::before { content: none; }
 }
 .dg-admin .spin { animation: dg-admin-spin 1s linear infinite; }
 @keyframes dg-admin-spin { to { transform: rotate(360deg); } }
