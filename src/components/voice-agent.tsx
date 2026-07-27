@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Square } from "lucide-react";
+import { Camera, ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Square } from "lucide-react";
 import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
 import { speechLocale } from "@/services/language";
 import "./voice-agent.css";
@@ -88,6 +88,20 @@ const UI = {
     replay: "Tap to answer",
     fallback: "Open the full advisor",
     error: "Something went wrong. Tap the mic to try again.",
+    showSkin: "Show your skin",
+    cameraTitle: "Let the advisor look at your skin?",
+    cameraBody:
+      "Your camera opens on this device. The photo is reviewed once and immediately discarded — it is never saved, never stored, and never attached to your details. Cosmetic observations only; this is not a diagnosis.",
+    cameraAllow: "Open camera",
+    cameraCancel: "Not now",
+    cameraCapture: "Capture",
+    cameraShared: "(shared a photo of my skin)",
+    cameraSaw: "From the photo I can see",
+    cameraRefer:
+      "I'd rather not comment on that from a photo — it's worth having a pharmacist or clinician take a look in person. I can still help with general routine questions.",
+    cameraUnusable: "I couldn't read that clearly. Try better light and hold steady.",
+    cameraDenied: "I couldn't open the camera. Allow camera access, or just describe your skin.",
+    cameraError: "The photo review didn't work. You can describe your skin instead.",
   },
   ar: {
     voiceMode: "صوت",
@@ -112,6 +126,20 @@ const UI = {
     replay: "اضغط للإجابة",
     fallback: "افتح المستشار الكامل",
     error: "حدث خطأ. اضغط الميكروفون للمحاولة مرة أخرى.",
+    showSkin: "أرِ بشرتك",
+    cameraTitle: "هل تسمح للمستشار برؤية بشرتك؟",
+    cameraBody:
+      "تُفتح الكاميرا على جهازك. تتم مراجعة الصورة مرة واحدة ثم تُحذف فوراً — لا تُحفظ ولا تُخزَّن ولا تُربط ببياناتك. ملاحظات تجميلية فقط، وليست تشخيصاً.",
+    cameraAllow: "افتح الكاميرا",
+    cameraCancel: "ليس الآن",
+    cameraCapture: "التقط",
+    cameraShared: "(شاركت صورة لبشرتي)",
+    cameraSaw: "من الصورة ألاحظ",
+    cameraRefer:
+      "أفضّل ألا أعلّق على ذلك من صورة — يستحسن أن يراه صيدلي أو مختص شخصياً. ما زال بإمكاني مساعدتك في أسئلة الروتين العامة.",
+    cameraUnusable: "لم أتمكن من رؤية الصورة بوضوح. جرّب إضاءة أفضل وثبّت الكاميرا.",
+    cameraDenied: "تعذّر فتح الكاميرا. اسمح بالوصول أو صف بشرتك بالكلمات.",
+    cameraError: "لم تنجح مراجعة الصورة. يمكنك وصف بشرتك بدلاً من ذلك.",
   },
 };
 
@@ -148,6 +176,10 @@ export function VoiceAgent({
   const [notice, setNotice] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
   const [promptIndex, setPromptIndex] = useState(0);
+
+  const [camera, setCamera] = useState<"off" | "consent" | "live" | "reviewing">("off");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const slotsRef = useRef<Record<string, unknown>>({});
   const modeRef = useRef<Mode>("voice");
@@ -196,6 +228,7 @@ export function VoiceAgent({
       window.speechSynthesis?.cancel();
       audioElRef.current?.pause();
       orbRef.current?.dispose();
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
 
@@ -373,6 +406,102 @@ export function VoiceAgent({
     void speak(greeting, () => listen());
   }
 
+  function stopCamera() {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCamera("off");
+  }
+
+  async function openCamera() {
+    setNotice(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1280 } },
+        audio: false,
+      });
+      cameraStreamRef.current = stream;
+      setCamera("live");
+      // The element mounts with the "live" state, so attach on the next frame.
+      requestAnimationFrame(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          void videoRef.current.play().catch(() => {});
+        }
+      });
+    } catch {
+      setNotice(t.cameraDenied);
+      setCamera("off");
+    }
+  }
+
+  /**
+   * Captures one frame, sends it for review, and drops it. The image is never
+   * uploaded to storage, never attached to the session and never kept in state.
+   */
+  async function captureAndReview() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    setCamera("reviewing");
+
+    const maxEdge = 768;
+    const scale = Math.min(1, maxEdge / Math.max(video.videoWidth, video.videoHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      stopCamera();
+      return;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const image = canvas.toDataURL("image/jpeg", 0.7);
+    stopCamera();
+
+    try {
+      const response = await fetch("/api/voice-agent/vision", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ image, language: spokenLangRef.current }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error ?? "vision failed");
+
+      if (payload.refer) {
+        const line = t.cameraRefer;
+        setTurns((current) => [...current, { role: "agent", text: line }]);
+        void speak(line, () => setPhase("idle"));
+        return;
+      }
+      if (payload.usable === false) {
+        setNotice(t.cameraUnusable);
+        return;
+      }
+
+      const observations: string[] = payload.observations ?? [];
+      const concerns: string[] = payload.concerns ?? [];
+      setTurns((current) => [
+        ...current,
+        { role: "user", text: t.cameraShared },
+        ...(observations.length ? [{ role: "agent" as const, text: `${t.cameraSaw} ${observations.join(", ")}.` }] : []),
+      ]);
+
+      // Fold what was seen into the intake, then continue the same conversation
+      // so the routine reflects it. Safety slots are untouched.
+      const slots = slotsRef.current as Record<string, unknown>;
+      const seen = [...observations, ...concerns].join(", ");
+      slotsRef.current = {
+        ...slots,
+        mainConcern: slots.mainConcern ? `${slots.mainConcern}. Visible: ${seen}` : seen,
+        ...(payload.skinType && !slots.skinType ? { skinType: payload.skinType } : {}),
+      };
+      void send("");
+    } catch {
+      setNotice(t.cameraError);
+      setPhase("idle");
+    }
+  }
+
   /** Chat send, and the "Try saying" chips. Works with no microphone at all. */
   function submitText(text: string) {
     const clean = text.trim();
@@ -488,6 +617,42 @@ export function VoiceAgent({
           {t.chatMode}
         </button>
       </div>
+
+      <button type="button" className="va-skin-btn" onClick={() => setCamera("consent")}>
+        <Camera size={15} />
+        {t.showSkin}
+      </button>
+
+      {camera === "consent" ? (
+        <div className="va-consent" role="dialog" aria-label={t.cameraTitle}>
+          <strong>{t.cameraTitle}</strong>
+          <p>{t.cameraBody}</p>
+          <div className="va-consent-actions">
+            <button type="button" className="va-consent-yes" onClick={openCamera}>
+              <Camera size={15} />
+              {t.cameraAllow}
+            </button>
+            <button type="button" className="va-consent-no" onClick={() => setCamera("off")}>
+              {t.cameraCancel}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {camera === "live" || camera === "reviewing" ? (
+        <div className="va-camera">
+          <video ref={videoRef} playsInline muted autoPlay />
+          <div className="va-camera-actions">
+            <button type="button" className="va-consent-yes" onClick={captureAndReview} disabled={camera === "reviewing"}>
+              {camera === "reviewing" ? <Loader2 className="va-spin-icon" size={15} /> : <Camera size={15} />}
+              {t.cameraCapture}
+            </button>
+            <button type="button" className="va-consent-no" onClick={stopCamera}>
+              {t.cameraCancel}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {mode === "chat" ? (
         <form
