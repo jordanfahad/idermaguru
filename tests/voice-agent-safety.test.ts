@@ -8,8 +8,11 @@ import {
   nextQuestion,
   readPregnancyAnswer,
   readYesNo,
+  scriptedLines,
   summariseSlots,
   updateSlots,
+  type AgentLang,
+  type AgentSlots,
 } from "../src/services/voice-agent";
 
 /**
@@ -339,6 +342,37 @@ describe("conversation handles asides without losing the thread", () => {
   it("never mistakes a real answer for an aside", () => {
     for (const answer of ["no", "yes", "dry", "oily skin", "I'm pregnant", "salicylic acid", "dark spots"]) {
       expect(classifyAside(answer)).toBeNull();
+    }
+  });
+});
+
+describe("scripted lines", () => {
+  // The client synthesises these before anyone speaks, so a question missing
+  // from the list is a question the shopper waits for on every single turn.
+  const states: AgentSlots[] = [
+    {},
+    { mainConcern: "acne" },
+    { mainConcern: "acne", skinType: "oily" },
+    { mainConcern: "acne", skinType: "oily", pregnantOrBreastfeeding: false },
+    { mainConcern: "acne", skinType: "oily", pregnantOrBreastfeeding: false, askedAllergyNames: true },
+  ];
+
+  for (const lang of ["en", "ar"] as AgentLang[]) {
+    it(`covers every question the interview can ask (${lang})`, () => {
+      const warmed = scriptedLines(lang);
+      for (const slots of states) {
+        const pending = nextQuestion(slots, lang);
+        expect(pending).not.toBeNull();
+        expect(warmed).toContain(pending!.question);
+      }
+    });
+  }
+
+  it("has no blank or duplicated lines", () => {
+    for (const lang of ["en", "ar"] as AgentLang[]) {
+      const warmed = scriptedLines(lang);
+      expect(warmed.every((line) => line.trim().length > 0)).toBe(true);
+      expect(new Set(warmed).size).toBe(warmed.length);
     }
   });
 });
