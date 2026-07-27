@@ -8,6 +8,7 @@ import { buildRecommendations, passesHardFilters } from "@/services/recommendati
 import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safety-triage";
 import {
   agentCopy,
+  classifyAside,
   detectLang,
   extractSkinType,
   isHairConcern,
@@ -79,6 +80,28 @@ export async function POST(request: Request) {
     }
 
     const before = (input.slots ?? {}) as AgentSlots;
+
+    // Greetings, "what are you?", thanks, or a genuine tangent: answer it, then
+    // steer back to the question that's still open instead of parsing it as a
+    // skin concern or failing to understand.
+    // While waiting for the allergen list, whatever they say IS the answer -
+    // an ingredient name must never be mistaken for a tangent.
+    const awaitingAllergens = Boolean(before.askedAllergyNames) && before.allergies === undefined;
+    const aside = before.mainConcern && !awaitingAllergens ? classifyAside(input.utterance) : null;
+    if (aside) {
+      const pendingAside = nextQuestion(before, lang);
+      return NextResponse.json({
+        reply: await say(
+          `${copy.aside[aside]}${pendingAside ? ` ${pendingAside.question}` : ""}`,
+        ),
+        phase: "asking",
+        slots: pendingAside?.slots ?? before,
+        products: [],
+        language: spoken,
+        rtl: isRtl(spoken),
+      });
+    }
+
     let slots: AgentSlots = updateSlots(before, input.utterance, lang);
 
     // When a real model is configured, let it read anything the deterministic
@@ -121,7 +144,20 @@ export async function POST(request: Request) {
         },
         lang,
       );
-      const prefix = misheard ? `${copy.repeat} ` : learned ? `${copy.understood(learned)} ` : "";
+      // Acknowledge the opening concern in the agent's own words. Echoing the
+      // raw transcript is what made "I am a mad" insulting, so only a concern
+      // we parsed into the profile is reflected back.
+      const openingConcern =
+        !before.mainConcern && slots.mainConcern && slots.mainConcern.length <= 60
+          ? copy.heardConcern(slots.mainConcern)
+          : "";
+      const prefix = misheard
+        ? `${copy.repeat} `
+        : learned
+          ? `${copy.understood(learned)} `
+          : openingConcern
+            ? `${openingConcern} `
+            : "";
       // Never repeat the transcript back: speech-to-text mistakes ("I'm a man"
       // -> "I am a mad") turn a friendly echo into an insult.
       return NextResponse.json({

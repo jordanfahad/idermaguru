@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runSafetyTriage } from "../src/services/safety-triage";
 import {
+  classifyAside,
   extractAllergies,
   extractSkinType,
   isHairConcern,
@@ -281,5 +282,63 @@ describe("voice dialogue slot filling", () => {
     const asked = { mainConcern: "acne", skinType: "oily", askedPregnancy: true };
     const slots = updateSlots(asked, "hmm what do you mean", "en");
     expect(slots.pregnantOrBreastfeeding).toBeUndefined();
+  });
+});
+
+describe("discolouration and bruising are not cosmetic concerns", () => {
+  it("refuses to sell a routine for blue or purple patches", () => {
+    // The transcript that reached a 6-product routine in a real session. Blue
+    // or purple patching can be trauma, a bleeding disorder or a medication
+    // effect; none of them are answered with a serum.
+    for (const utterance of [
+      "Blue patching skin",
+      "blue patches on my skin",
+      "purple blotches on my arms",
+      "I keep getting unexplained bruises",
+      "black and blue marks",
+      "welts on my legs",
+    ]) {
+      const result = runSafetyTriage({ mainConcern: utterance });
+      expect(result.recommendationAllowed).toBe(false);
+    }
+  });
+
+  it("treats blue lips or fingers as urgent, not a referral", () => {
+    for (const utterance of ["my lips are turning blue", "my fingers look bluish"]) {
+      expect(runSafetyTriage({ mainConcern: utterance }).level).toBe("URGENT");
+    }
+  });
+
+  it("does not trip on cosmetic products that contain the word blue", () => {
+    for (const utterance of [
+      "I want the blue tansy oil for dullness",
+      "does blueberry serum help with dark spots",
+      "blue light protection sunscreen",
+    ]) {
+      expect(runSafetyTriage({ mainConcern: utterance }).recommendationAllowed).toBe(true);
+    }
+  });
+});
+
+describe("conversation handles asides without losing the thread", () => {
+  it("answers who it is, then returns to the open question", () => {
+    expect(classifyAside("what are you")).toBe("identity");
+    expect(classifyAside("who are you exactly?")).toBe("identity");
+  });
+
+  it("recognises thanks and greetings", () => {
+    expect(classifyAside("thank you so much")).toBe("thanks");
+    expect(classifyAside("hello there")).toBe("greeting");
+  });
+
+  it("treats a genuine tangent as off topic", () => {
+    expect(classifyAside("what is the weather tomorrow")).toBe("offtopic");
+    expect(classifyAside("who won the football last night")).toBe("offtopic");
+  });
+
+  it("never mistakes a real answer for an aside", () => {
+    for (const answer of ["no", "yes", "dry", "oily skin", "I'm pregnant", "salicylic acid", "dark spots"]) {
+      expect(classifyAside(answer)).toBeNull();
+    }
   });
 });

@@ -181,6 +181,46 @@ export function extractInlineSlots(input: string): Partial<AgentSlots> {
   return found;
 }
 
+const SKIN_TERMS =
+  /\b(skin|hair|scalp|face|facial|complexion|acne|pimple|blemish|spot|patch|blotch|bruis|dry|oily|greasy|pore|blackhead|wrinkle|line|dull|glow|tone|pigment|redness|irritat|itch|flake|dandruff|serum|cream|cleanser|wash|sunscreen|spf|moistur|routine|product|allerg|pregnan|breast|sensitive|barrier|eczema|rash|burn|scar|mole|lip|eye|nose|cheek|forehead|chin|neck|beard|shave)/i;
+// Ingredient names are valid answers to "what are you allergic to?", so they
+// must never read as a tangent.
+const INGREDIENT_TERMS =
+  /\b(acid|salicylic|glycolic|lactic|mandelic|azelaic|hyaluronic|retino|tretinoin|adapalene|benzoyl|niacinamide|vitamin|ascorbic|ceramide|panthenol|centella|cica|peptide|zinc|titanium|fragrance|perfume|parfum|paraben|sulfate|alcohol|essential oil|lanolin|latex|nut|shea|coconut|aloe|tea tree|penicillin|sulfa|nickel)/i;
+const SKIN_TERMS_AR = /بشرة|وجه|شعر|فروة|حبوب|بقع|جاف|دهني|مسام|تجاعيد|قشرة|كريم|سيروم|غسول|واقي|روتين|حساسية|حامل/;
+
+const GREETINGS = /\b(hi|hello|hey|salam|marhaba|good (morning|evening|afternoon))\b/i;
+const IDENTITY = /\b(who|what) (are|r) (you|u)\b|\byour name\b|\bare you (a )?(human|robot|bot|real|ai)\b/i;
+const THANKS = /\b(thanks|thank you|shukran|cheers|appreciate)\b/i;
+
+export type Aside = "greeting" | "identity" | "thanks" | "offtopic";
+
+/**
+ * Detects an utterance that isn't answering us and isn't about skin.
+ *
+ * People say hello, ask what you are, thank you, or wander off topic entirely.
+ * Treating those as a skin concern - or as a failure to understand - is what
+ * makes an assistant feel robotic. They get a real answer and are then brought
+ * back to the question that is still open.
+ */
+export function classifyAside(input: string): Aside | null {
+  const text = normaliseTranscript(input);
+  if (!text) return null;
+
+  const answersSomething =
+    readYesNo(text) !== undefined ||
+    extractSkinType(text) !== undefined ||
+    readsPregnant(text) !== undefined;
+  const aboutSkin = SKIN_TERMS.test(text) || INGREDIENT_TERMS.test(text) || SKIN_TERMS_AR.test(input);
+
+  if (IDENTITY.test(text)) return "identity";
+  if (answersSomething || aboutSkin) return null;
+  if (THANKS.test(text)) return "thanks";
+  if (GREETINGS.test(text) && text.split(" ").length <= 4) return "greeting";
+  // Anything else with real content that mentions nothing we handle.
+  return text.split(" ").length >= 2 ? "offtopic" : null;
+}
+
 /** Human-readable summary of what was understood, in the agent's own words. */
 export function summariseSlots(slots: AgentSlots, lang: AgentLang): string {
   const parts: string[] = [];
@@ -232,6 +272,13 @@ const COPY = {
       "That's a hair and scalp concern, and this store's catalogue is skincare only — so I'd be guessing if I recommended anything. For dandruff or hair fall, an anti-dandruff shampoo from a pharmacy is the right place to start, and a pharmacist can point you to one.",
     repeat: "Sorry, I didn't catch that.",
     understood: (summary: string) => `Got it — ${summary}.`,
+    aside: {
+      greeting: "Hello!",
+      identity: "I'm the AI skin advisor for this store — not a doctor, and I only suggest over-the-counter products.",
+      thanks: "Happy to help.",
+      offtopic: "That's outside what I can help with — I only do skin and hair here.",
+    },
+    heardConcern: (concern: string) => `${concern} — understood.`,
     result: (count: number) =>
       `Here's a simple routine with ${count} product${count === 1 ? "" : "s"} matched from the store. I've kept it conservative — patch test anything new, and use sunscreen every morning.`,
   },
@@ -249,6 +296,13 @@ const COPY = {
       "هذه مشكلة تتعلق بالشعر وفروة الرأس، وكتالوج هذا المتجر للعناية بالبشرة فقط — لذلك سأكون مخطئاً إن اقترحت منتجاً. لعلاج القشرة أو تساقط الشعر، ابدأ بشامبو مخصص من الصيدلية، ويمكن للصيدلي إرشادك.",
     repeat: "عذراً، لم أسمع ذلك بوضوح.",
     understood: (summary: string) => `تمام — ${summary}.`,
+    aside: {
+      greeting: "أهلاً!",
+      identity: "أنا مستشار البشرة الذكي لهذا المتجر — لست طبيباً، وأقترح منتجات بدون وصفة فقط.",
+      thanks: "بكل سرور.",
+      offtopic: "هذا خارج نطاق مساعدتي — أنا هنا للبشرة والشعر فقط.",
+    },
+    heardConcern: (concern: string) => `${concern} — فهمت.`,
     result: (count: number) =>
       `هذا روتين بسيط يضم ${count} منتج مطابق من المتجر. أبقيته متحفظاً — جرّب المنتج على مساحة صغيرة أولاً، واستخدم واقي الشمس كل صباح.`,
   },

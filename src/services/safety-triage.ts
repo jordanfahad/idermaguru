@@ -17,7 +17,27 @@ const urgentPatterns = [
   /eye.*(pain|swelling)|(?:pain|swelling).*eye/i,
   /chemical burn|severe burn/i,
   /serious infection|spreading infection/i,
+  // Cyanosis: blue lips, fingers or nails is a circulation/oxygen emergency,
+  // not a complexion concern.
+  /(lips?|fingers?|nails?|tongue|hands?|feet)\b[^.]{0,25}\b(blue|bluish|purple)\b/i,
+  /\b(turning|going|gone)\s+blue\b/i,
 ];
+
+// Discolouration and bruising. These can be trauma, a bleeding or circulatory
+// problem, or a medication effect - none of which a shopping assistant should
+// answer with a serum. "blue patching skin" reached a product routine before
+// this existed. Known cosmetic uses of the word blue are excluded below.
+const bruisingPatterns = [
+  /\bbruis(?:e|es|ed|ing)\b/i,
+  /\b(blue|purple|violet|blackish)\b[^.]{0,25}\b(patch|patches|patching|blotch|blotches|mark|marks|spot|spots|area|areas|skin)\b/i,
+  /\b(patch|patches|blotch|blotches|mark|marks|spot|spots)\b[^.]{0,25}\b(blue|purple|violet)\b/i,
+  /\bblack and blue\b/i,
+  /\bwelts?\b/i,
+  /\bunexplained (?:marks?|bruis|spots?)/i,
+];
+
+// Cosmetic ingredients and product names that legitimately contain "blue".
+const cosmeticBlue = /blue\s?(?:berry|tansy|light|clay|lagoon|agave|chamomile)|butterfly pea/i;
 
 const referPatterns = [
   // Moles: match conversational phrasing, not just adjacent words. People say
@@ -61,6 +81,14 @@ export function runSafetyTriage(profile: IntakeProfileInput): SafetyTriage {
 
   if (reasons.length > 0) {
     return buildResult("URGENT", reasons, false);
+  }
+
+  if (!cosmeticBlue.test(text)) {
+    for (const pattern of bruisingPatterns) {
+      if (pattern.test(text)) {
+        reasons.push(`Matched discolouration/bruising red flag: ${pattern.source}`);
+      }
+    }
   }
 
   for (const pattern of referPatterns) {
