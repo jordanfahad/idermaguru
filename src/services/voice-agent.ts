@@ -283,7 +283,12 @@ export function summariseSlots(slots: AgentSlots, lang: AgentLang): string {
   if (slots.skinType) {
     parts.push(lang === "ar" ? `بشرة ${translateSkinType(slots.skinType)}` : `${slots.skinType} skin`);
   }
-  if (slots.pregnantOrBreastfeeding === true) parts.push(lang === "ar" ? "حامل أو مرضعة" : "pregnant or breastfeeding");
+  // Not "pregnant or breastfeeding" — read back to a shopper it sounds like the
+  // agent guessing which. It only ever affects which ingredients are excluded,
+  // so say that instead.
+  if (slots.pregnantOrBreastfeeding === true) {
+    parts.push(lang === "ar" ? "سأتجنّب المكونات غير المناسبة" : "I'll skip the ingredients that aren't advised");
+  }
   if (slots.allergies?.length) {
     parts.push(
       lang === "ar" ? `حساسية من ${slots.allergies.join("، ")}` : `allergic to ${slots.allergies.join(", ")}`,

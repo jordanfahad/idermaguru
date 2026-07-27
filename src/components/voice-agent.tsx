@@ -901,6 +901,11 @@ export function VoiceAgent({
                           src={product.imageUrl}
                           alt={`${product.brand ? `${product.brand} ` : ""}${product.name}`}
                           loading="lazy"
+                          // Shopify's CDN and several merchant hosts refuse a
+                          // request that carries a referrer from another domain,
+                          // which is exactly what the widget is. Sending none
+                          // gets the image rather than a 403.
+                          referrerPolicy="no-referrer"
                           // Merchant catalogues carry dead image URLs; show the
                           // neutral tile rather than a broken-image glyph. The
                           // alt text goes too — a src-less img paints its alt
