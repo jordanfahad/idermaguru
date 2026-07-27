@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Square } from "lucide-react";
+import { Camera, ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Sparkles, Square } from "lucide-react";
 import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
 import { speechLocale } from "@/services/language";
 import "./voice-agent.css";
@@ -21,10 +21,31 @@ type AgentProduct = {
   url: string;
   slot: string;
   reason: string;
+  cautions?: string[];
   sponsored?: boolean;
 };
 
 type Turn = { role: "user" | "agent"; text: string };
+
+/** Routine buckets, in the order a shopper actually uses them. */
+const ROUTINE_ORDER = ["am", "daily", "pm", "optional"] as const;
+type RoutineBucket = (typeof ROUTINE_ORDER)[number];
+
+function bucketFor(slot: string): RoutineBucket {
+  const name = slot.toLowerCase();
+  if (name.startsWith("optional")) return "optional";
+  if (name.startsWith("morning") || name.includes("sunscreen")) return "am";
+  if (name.startsWith("evening")) return "pm";
+  return "daily";
+}
+
+/** Groups the routine for the side panel, dropping any bucket with nothing in it. */
+function groupRoutine(items: AgentProduct[]) {
+  return ROUTINE_ORDER.map((bucket) => ({
+    bucket,
+    items: items.filter((item) => bucketFor(item.slot) === bucket),
+  })).filter((group) => group.items.length > 0);
+}
 
 interface SpeechRecognitionLike {
   lang: string;
@@ -104,6 +125,10 @@ const UI = {
     cameraError: "The photo review didn't work. You can describe your skin instead.",
     liveTranscript: "Live transcript",
     quickPicks: "Common concerns",
+    yourRoutine: "Your routine",
+    steps: (n: number) => (n === 1 ? "1 step" : `${n} steps`),
+    routine: { am: "Morning", daily: "Daily", pm: "Evening", optional: "As needed" },
+    startOver: "Start a new routine",
   },
   ar: {
     voiceMode: "صوت",
@@ -144,6 +169,10 @@ const UI = {
     cameraError: "لم تنجح مراجعة الصورة. يمكنك وصف بشرتك بدلاً من ذلك.",
     liveTranscript: "النص المباشر",
     quickPicks: "مشاكل شائعة",
+    yourRoutine: "روتينك",
+    steps: (n: number) => (n === 1 ? "خطوة واحدة" : `${n} خطوات`),
+    routine: { am: "صباحاً", daily: "يومياً", pm: "مساءً", optional: "عند الحاجة" },
+    startOver: "ابدأ روتيناً جديداً",
   },
 };
 
@@ -176,6 +205,7 @@ export function VoiceAgent({
   const [interim, setInterim] = useState("");
   const [draft, setDraft] = useState("");
   const [products, setProducts] = useState<AgentProduct[]>([]);
+  const [disclosure, setDisclosure] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
@@ -331,7 +361,10 @@ export function VoiceAgent({
           // Only the two authored locales drive the interface copy.
           if (payload.language === "ar" || payload.language === "en") setLang(payload.language);
         }
-        if (Array.isArray(payload.products) && payload.products.length) setProducts(payload.products);
+        if (Array.isArray(payload.products) && payload.products.length) {
+          setProducts(payload.products);
+          setDisclosure(typeof payload.disclosure === "string" ? payload.disclosure : null);
+        }
 
         const reply: string = payload.reply ?? "";
         setTurns((current) => [...current, { role: "agent", text: reply }]);
@@ -564,6 +597,13 @@ export function VoiceAgent({
     });
   }
 
+  /** Clears the routine so the panel goes back to concerns and the intake restarts. */
+  function resetRoutine() {
+    setProducts([]);
+    setDisclosure(null);
+    slotsRef.current = {};
+  }
+
   function cartUrl(items: AgentProduct[]) {
     const payload = items.map((p) => ({ id: p.id, name: p.name, url: p.url }));
     return `/api/cart/cicabelle?items=${encodeURIComponent(JSON.stringify(payload))}`;
@@ -688,15 +728,99 @@ export function VoiceAgent({
 
       </div>
 
-      <aside className="va-side va-side-picks">
-        <p className="va-side-title">{t.quickPicks}</p>
-        <div className="va-picks">
-          {PROMPTS[lang].slice(0, 4).map((prompt) => (
-            <button key={prompt} type="button" className="va-pick" onClick={() => submitText(prompt)}>
-              {prompt}
+      {/* The right column is contextual: common concerns until the advisor has
+          something to show, then the routine itself — so results never push the
+          orb or the transcript off the screen. */}
+      <aside className={products.length ? "va-side va-side-picks va-side-routine" : "va-side va-side-picks"}>
+        {products.length ? (
+          <div className="va-panel" key="routine">
+            <p className="va-side-title">
+              <Sparkles size={13} />
+              {t.yourRoutine}
+              <span className="va-panel-count">{t.steps(products.length)}</span>
+            </p>
+
+            <div className="va-routine">
+              {groupRoutine(products).map((group) => (
+                <section className="va-routine-group" key={group.bucket}>
+                  <p className="va-routine-head">{t.routine[group.bucket]}</p>
+                  {group.items.map((product) => (
+                    <article className="va-rx" key={product.id}>
+                      {product.imageUrl ? (
+                        <img
+                          src={product.imageUrl}
+                          alt=""
+                          loading="lazy"
+                          // Merchant catalogues carry dead image URLs; show the
+                          // neutral tile rather than a broken-image glyph.
+                          onError={(event) => {
+                            event.currentTarget.classList.add("va-rx-noimg");
+                            event.currentTarget.removeAttribute("src");
+                          }}
+                        />
+                      ) : (
+                        <div className="va-rx-noimg" />
+                      )}
+                      <div className="va-rx-body">
+                        <span className="va-rx-slot">
+                          {product.slot}
+                          {product.sponsored ? <em className="va-sponsored">{t.sponsored}</em> : null}
+                        </span>
+                        <strong>{product.name}</strong>
+                        <p className="va-rx-reason">{product.reason}</p>
+                        {product.cautions?.length ? <p className="va-rx-caution">{product.cautions[0]}</p> : null}
+                        <div className="va-rx-foot">
+                          <span className="va-price">
+                            {product.currency} {product.price}
+                          </span>
+                          <button
+                            type="button"
+                            className={wishlist.includes(product.id) ? "va-icon-btn va-saved" : "va-icon-btn"}
+                            onClick={() => toggleWishlist(product.id)}
+                            aria-label={wishlist.includes(product.id) ? t.saved : t.save}
+                            title={wishlist.includes(product.id) ? t.saved : t.save}
+                          >
+                            <Heart size={14} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
+                          </button>
+                          <a
+                            className="va-icon-btn"
+                            href={product.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={t.view}
+                            title={t.view}
+                          >
+                            <ExternalLink size={13} />
+                          </a>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </section>
+              ))}
+            </div>
+
+            <a className="va-cart-all" href={cartUrl(products)} target="_blank" rel="noreferrer">
+              <ShoppingCart size={15} />
+              {t.cart}
+            </a>
+            {disclosure ? <p className="va-disclosure">{disclosure}</p> : null}
+            <button type="button" className="va-restart" onClick={resetRoutine}>
+              {t.startOver}
             </button>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="va-panel" key="picks">
+            <p className="va-side-title">{t.quickPicks}</p>
+            <div className="va-picks">
+              {PROMPTS[lang].slice(0, 4).map((prompt) => (
+                <button key={prompt} type="button" className="va-pick" onClick={() => submitText(prompt)}>
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </aside>
      </div>
 
@@ -728,42 +852,6 @@ export function VoiceAgent({
         </p>
       ) : null}
 
-      {products.length ? (
-        <div className="va-products">
-          {products.map((product) => (
-            <article className="va-card" key={product.id}>
-              {product.imageUrl ? <img src={product.imageUrl} alt={product.name} /> : <div className="va-card-noimg" />}
-              <div className="va-card-body">
-                <span className="va-slot">{product.slot}</span>
-                {product.sponsored ? <span className="va-sponsored">{t.sponsored}</span> : null}
-                <strong>{product.name}</strong>
-                <p>{product.reason}</p>
-                <span className="va-price">
-                  {product.currency} {product.price}
-                </span>
-                <div className="va-actions">
-                  <button
-                    type="button"
-                    className={wishlist.includes(product.id) ? "va-save va-saved" : "va-save"}
-                    onClick={() => toggleWishlist(product.id)}
-                  >
-                    <Heart size={14} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
-                    {wishlist.includes(product.id) ? t.saved : t.save}
-                  </button>
-                  <a className="va-view" href={product.url} target="_blank" rel="noreferrer">
-                    {t.view}
-                    <ExternalLink size={13} />
-                  </a>
-                </div>
-              </div>
-            </article>
-          ))}
-          <a className="va-cart-all" href={cartUrl(products)} target="_blank" rel="noreferrer">
-            <ShoppingCart size={16} />
-            {t.cart}
-          </a>
-        </div>
-      ) : null}
     </div>
   );
 }
