@@ -13,11 +13,41 @@ export type AssistantMessageContext = {
   safety: SafetyTriage;
 };
 
+/**
+ * What the model made of one answer the shopper gave.
+ *
+ * Deliberately narrow. The model may say a sentence is nonsense, off topic, or
+ * something a shop should not answer — and it may read a skin type, because
+ * that only sharpens a recommendation. It is never asked about pregnancy or
+ * allergies: those stay with the explicit parser, so a model can neither assert
+ * nor clear a safety slot. `needsClinician` can only ever ADD an escalation;
+ * the deterministic triage still runs and still wins when it says stop.
+ */
+export type AnswerReading = {
+  makesSense: boolean;
+  onTopic: boolean;
+  needsClinician: boolean;
+  skinType?: "oily" | "dry" | "combination" | "sensitive" | "normal";
+  concern?: string;
+};
+
+export const UNREADABLE_ANSWER: AnswerReading = {
+  makesSense: true,
+  onTopic: true,
+  needsClinician: false,
+};
+
 export type LLMProvider = {
   /** Stable identifier for the concrete provider ("openai" | "anthropic" | "mock" | "fallback"). */
   readonly id: string;
   /** Set by composite providers to the id of the underlying provider that served the last call. */
   readonly lastUsedId?: string;
+  /**
+   * Reads one answer in the context of the question that was asked. Called only
+   * when the deterministic parser could not make sense of it, so the common
+   * path ("oily", "no") costs nothing.
+   */
+  readAnswer(question: string, utterance: string): Promise<AnswerReading>;
   generateAssistantMessage(context: AssistantMessageContext): Promise<string>;
   summarizeIntake(messages: AssistantMessageContext["messages"]): Promise<Partial<IntakeProfileInput>>;
   explainRecommendations(
@@ -93,6 +123,16 @@ function isUnavailableStatus(status?: number): boolean {
  * then the offline mock as a last resort. Real bugs (non-`ProviderUnavailableError`)
  * are never swallowed.
  */
+const READ_ANSWER_PROMPT = `You read one reply from a shopper talking to a skincare shop's advisor.
+Return ONLY compact JSON: {"makesSense":bool,"onTopic":bool,"needsClinician":bool,"skinType":"oily|dry|combination|sensitive|normal"|null,"concern":string|null}
+
+makesSense: false if the reply is gibberish, a joke, or cannot be a real answer ("I have horns", "I am breastfeeding goat").
+onTopic: false if it is not about skin or hair and is not answering the question.
+needsClinician: true for growths, lumps, moles, bleeding, suspected cancer, infection, or any symptom that is not cosmetic.
+skinType: only if the shopper clearly states it. Never guess.
+concern: the skin or hair problem in a few words, or null.
+Never infer pregnancy or allergies.`;
+
 export class FallbackLLMProvider implements LLMProvider {
   readonly id = "fallback";
   lastUsedId?: string;
@@ -123,6 +163,10 @@ export class FallbackLLMProvider implements LLMProvider {
 
   generateAssistantMessage(context: AssistantMessageContext) {
     return this.run((provider) => provider.generateAssistantMessage(context));
+  }
+
+  readAnswer(question: string, utterance: string) {
+    return this.run((provider) => provider.readAnswer(question, utterance));
   }
 
   summarizeIntake(messages: AssistantMessageContext["messages"]) {
@@ -175,6 +219,11 @@ class MockLLMProvider implements LLMProvider {
     return "I can help with a conservative OTC routine. I’ll keep recommendations limited to the approved product catalog and avoid anything that conflicts with your intake.";
   }
 
+  async readAnswer(): Promise<AnswerReading> {
+    // No model configured: say nothing new, so the deterministic path decides.
+    return UNREADABLE_ANSWER;
+  }
+
   async summarizeIntake(messages: AssistantMessageContext["messages"]) {
     const joined = messages.map((message) => message.content).join(" ");
     return {
@@ -224,6 +273,17 @@ class OpenAICompatibleProvider implements LLMProvider {
     ]);
   }
 
+  async readAnswer(question: string, utterance: string): Promise<AnswerReading> {
+    const text = await this.chat(
+      [
+        { role: "system", content: READ_ANSWER_PROMPT },
+        { role: "user", content: `Question asked: ${question}\nShopper said: ${utterance}` },
+      ],
+      120,
+    );
+    return parseAnswerReading(text);
+  }
+
   async summarizeIntake(messages: AssistantMessageContext["messages"]) {
     const text = await this.chat([
       { role: "system", content: "Extract a concise JSON skincare intake object. Return JSON only." },
@@ -260,7 +320,7 @@ class OpenAICompatibleProvider implements LLMProvider {
     return "Image analysis provider is stubbed. This system does not diagnose from images.";
   }
 
-  private async chat(messages: { role: string; content: string }[]) {
+  private async chat(messages: { role: string; content: string }[], maxTokens?: number) {
     let response: Response;
     try {
       response = await fetch(this.endpoint, {
@@ -271,7 +331,8 @@ class OpenAICompatibleProvider implements LLMProvider {
         },
         body: JSON.stringify({
           model: this.model,
-          temperature: 0.2,
+          temperature: 0,
+          ...(maxTokens ? { max_tokens: maxTokens } : {}),
           messages,
         }),
       });
@@ -327,6 +388,18 @@ class AnthropicProvider implements LLMProvider {
 
     const text = await this.createMessage(this.chatModel, groundingSystem, toAnthropicMessages(context.messages), 700);
     return text || "I can help with a conservative OTC routine using the approved product catalog. What is your main skin concern?";
+  }
+
+  async readAnswer(question: string, utterance: string): Promise<AnswerReading> {
+    // Haiku on a tight token cap: this runs inside a sub-second budget and its
+    // only job is a five-field verdict.
+    const text = await this.createMessage(
+      this.chatModel,
+      READ_ANSWER_PROMPT,
+      [{ role: "user" as const, content: `Question asked: ${question}\nShopper said: ${utterance}` }],
+      120,
+    );
+    return parseAnswerReading(text);
   }
 
   async summarizeIntake(messages: AssistantMessageContext["messages"]) {
@@ -437,5 +510,30 @@ function safeParseIntake(text: string): Partial<IntakeProfileInput> | null {
     return parsed && typeof parsed === "object" ? (parsed as Partial<IntakeProfileInput>) : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Parses the model's verdict, defaulting every field to "nothing to add".
+ *
+ * A malformed reply must never invent a reason to stop the conversation, and
+ * must never quietly clear a concern the deterministic patterns raised.
+ */
+export function parseAnswerReading(text: string): AnswerReading {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return UNREADABLE_ANSWER;
+  try {
+    const raw = JSON.parse(match[0]) as Record<string, unknown>;
+    const skinType = typeof raw.skinType === "string" ? raw.skinType.toLowerCase() : undefined;
+    const allowed = ["oily", "dry", "combination", "sensitive", "normal"];
+    return {
+      makesSense: raw.makesSense !== false,
+      onTopic: raw.onTopic !== false,
+      needsClinician: raw.needsClinician === true,
+      skinType: skinType && allowed.includes(skinType) ? (skinType as AnswerReading["skinType"]) : undefined,
+      concern: typeof raw.concern === "string" && raw.concern.trim() ? raw.concern.trim().slice(0, 120) : undefined,
+    };
+  } catch {
+    return UNREADABLE_ANSWER;
   }
 }

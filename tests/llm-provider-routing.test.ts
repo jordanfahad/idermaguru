@@ -22,6 +22,10 @@ function makeProvider(id: string, opts: { unavailable?: boolean; throwOther?: bo
   };
   return {
     id,
+    async readAnswer() {
+      fail();
+      return { makesSense: true, onTopic: true, needsClinician: false };
+    },
     async generateAssistantMessage() {
       fail();
       return `assistant:${id}`;

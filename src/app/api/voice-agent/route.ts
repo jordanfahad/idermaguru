@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { seedTenant } from "@/data/seed-catalog";
-import type { IntakeProfileInput, ProductCatalogItem, SafetyTriage } from "@/domain/skincare";
+import { ESCALATION_MESSAGE, type IntakeProfileInput, type ProductCatalogItem, type SafetyTriage } from "@/domain/skincare";
 import { getTenantBySlug, listTenantProducts } from "@/services/catalog";
-import { getLLMProvider } from "@/services/llm/provider";
+import { getLLMProvider, UNREADABLE_ANSWER } from "@/services/llm/provider";
 import { buildRecommendations, passesHardFilters } from "@/services/recommendation-engine";
 import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safety-triage";
 import {
@@ -196,8 +196,58 @@ export async function POST(request: Request) {
     }
     // Nothing new was understood from a non-empty answer -> we are about to ask
     // the same question again, so acknowledge the mishearing.
-    const misheard =
+    let misheard =
       Boolean(input.utterance.trim()) && JSON.stringify(before) === JSON.stringify(slots);
+
+    // The patterns could not place this answer. THIS is where the model earns
+    // its round trip — and only here, so "oily" or "no" still costs nothing.
+    //
+    // Regexes will never cover every way a person can say something senseless:
+    // "I have horns" was absorbed as a failed skin-type answer and "I am
+    // breastfeeding goat" set a safety slot, because both contain words the
+    // patterns recognise. A reader that understands the sentence catches what a
+    // vocabulary cannot.
+    if (misheard) {
+      const provider = getLLMProvider();
+      const asked = nextQuestion(before, lang)?.question ?? copy.askConcern;
+      const reading = await withBudget(
+        provider.readAnswer(asked, input.utterance),
+        900,
+        UNREADABLE_ANSWER,
+      );
+
+      // Escalation only ever tightens: the model can raise a concern the
+      // patterns missed, never wave one through.
+      if (reading.needsClinician) {
+        return NextResponse.json({
+          reply: await say(ESCALATION_MESSAGE),
+          phase: "referral",
+          slots: before,
+          products: [],
+          safetyLevel: "REFER_CLINIC",
+          language: spoken,
+          rtl: isRtl(spoken),
+        });
+      }
+
+      // A skin type it read plainly is worth keeping; it only sharpens ranking.
+      if (reading.skinType && !slots.skinType) {
+        slots = { ...slots, skinType: reading.skinType, misses: 0 };
+        misheard = false;
+      } else if (!reading.makesSense || !reading.onTopic) {
+        const leadIn = reading.onTopic ? copy.didNotFollow : copy.aside.offtopic;
+        const question = nextQuestion(slots, lang);
+        return NextResponse.json({
+          reply: await say(question ? `${leadIn} ${question.question}` : leadIn),
+          speech: speakable(spoken, leadIn, question?.question),
+          phase: "asking",
+          slots: question?.slots ?? slots,
+          products: [],
+          language: spoken,
+          rtl: isRtl(spoken),
+        });
+      }
+    }
 
     // Still gathering the required intake -> ask the next question.
     const pending = nextQuestion(slots, lang);

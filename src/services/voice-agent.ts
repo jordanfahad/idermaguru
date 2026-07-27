@@ -336,6 +336,7 @@ const COPY = {
     noHairProducts:
       "That's a hair and scalp concern, and this store's catalogue is skincare only — so I'd be guessing if I recommended anything. For dandruff or hair fall, an anti-dandruff shampoo from a pharmacy is the right place to start, and a pharmacist can point you to one.",
     repeat: "Sorry, I didn't catch that.",
+    didNotFollow: "I didn't quite follow that.",
     understood: (summary: string) => `Got it — ${summary}.`,
     aside: {
       greeting: "Hello!",
@@ -368,6 +369,7 @@ const COPY = {
     noHairProducts:
       "هذه مشكلة تتعلق بالشعر وفروة الرأس، وكتالوج هذا المتجر للعناية بالبشرة فقط — لذلك سأكون مخطئاً إن اقترحت منتجاً. لعلاج القشرة أو تساقط الشعر، ابدأ بشامبو مخصص من الصيدلية، ويمكن للصيدلي إرشادك.",
     repeat: "عذراً، لم أسمع ذلك بوضوح.",
+    didNotFollow: "لم أفهم ذلك تماماً.",
     understood: (summary: string) => `تمام — ${summary}.`,
     aside: {
       greeting: "أهلاً!",

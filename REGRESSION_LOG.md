@@ -10,6 +10,18 @@ that now guards it. An entry without a guarding test is a bug waiting to return.
 
 ---
 
+## 2026-07-27 — Nonsense was absorbed rather than questioned
+
+### R-028 — The intake had no concept of "that made no sense"
+- **Symptom:** "I have horns" was absorbed as a failed skin-type answer and the question simply repeated. "I am breastfeeding goat" set a safety slot. Neither was ever questioned.
+- **Cause:** structural, not a missing phrase. Every answer was matched against vocabularies; anything unmatched was counted as a miss and moved past. `YES` contains `i have`, so any sentence opening "I have…" reads as an affirmative and skips the tangent check entirely.
+- **Fix:** when the deterministic parser cannot place an answer, and only then, the model reads it in the context of the question that was asked and returns a five-field verdict: does it make sense, is it on topic, does it need a clinician, is there a skin type, is there a concern. Nonsense gets "I didn't quite follow that" and a re-ask.
+- **Cost:** nothing on the common path. "oily", "no", "no allergies" all parse deterministically and never reach the model. The call is capped at 120 tokens inside a 900ms budget, and the deterministic answer stands if it overruns.
+- **Safety:** the model may only ADD an escalation, never remove one — deterministic triage still runs first and still wins. It is never asked about pregnancy or allergies, so it can neither assert nor clear a safety slot. Every field is parsed defensively: a truncated or malformed reply reads as "nothing to add" rather than as nonsense or as a reason to stop.
+- **Guarded by:** `tests/answer-reading.test.ts` — 12 cases over malformed, truncated, prose-wrapped and hostile verdicts.
+
+---
+
 ## 2026-07-27 — Sitting through real conversations
 
 Found by driving the live API and reading the transcripts as a shopper would.
