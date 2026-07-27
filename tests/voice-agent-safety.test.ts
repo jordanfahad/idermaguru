@@ -109,6 +109,52 @@ describe("conversational slot extraction", () => {
   });
 });
 
+describe("transcripts arrive in spellings the patterns must tolerate", () => {
+  it("understands breastfeeding however speech-to-text writes it", () => {
+    // A real session looped three times on "Breast-feeding": the pattern
+    // required the concatenated spelling, and the device produced a hyphen.
+    for (const utterance of [
+      "Breast-feeding",
+      "breast feeding",
+      "breastfeeding",
+      "I'm breast-feeding",
+      "yes, breast feeding",
+    ]) {
+      expect(readPregnancyAnswer(utterance)).toBe(true);
+    }
+  });
+
+  it("answers the pregnancy question on the first try", () => {
+    const asked = { mainConcern: "blue patching skin", skinType: "dry", askedPregnancy: true };
+    const slots = updateSlots(asked, "Breast-feeding", "en");
+    expect(slots.pregnantOrBreastfeeding).toBe(true);
+    expect(nextQuestion(slots, "en")?.question).toMatch(/allerg/i);
+  });
+
+  it("keeps a fact volunteered while a different question was open", () => {
+    // The real failure: "Breast-feeding" was said while the agent was asking
+    // about skin type. The answer was consumed as a skin type, defaulted, and
+    // the pregnancy fact was thrown away - then asked for again.
+    const asked = { mainConcern: "blue patching skin", askedSkinType: true };
+    const afterVolunteering = updateSlots(asked, "Breast-feeding", "en");
+    expect(afterVolunteering.pregnantOrBreastfeeding).toBe(true);
+    // and it must not invent a skin type from that sentence
+    expect(afterVolunteering.skinType).toBeUndefined();
+
+    const withSkin = updateSlots(afterVolunteering, "dry", "en");
+    expect(withSkin.skinType).toBe("dry");
+    // pregnancy was already answered, so it is never asked
+    expect(nextQuestion(withSkin, "en")?.question).toMatch(/allerg/i);
+  });
+
+  it("tolerates hyphens and stray punctuation elsewhere too", () => {
+    expect(extractSkinType("combination-skin")).toBe("combination");
+    expect(isHairConcern("hair-fall and dandruff")).toBe(true);
+    expect(readYesNo("No.")).toBe(false);
+    expect(readYesNo("Yes!")).toBe(true);
+  });
+});
+
 describe("the agent can never trap a shopper in a loop", () => {
   const asked = { mainConcern: "acne", skinType: "oily", pregnantOrBreastfeeding: false, askedAllergies: true };
 

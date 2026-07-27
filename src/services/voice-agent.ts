@@ -29,9 +29,25 @@ export type AgentSlots = {
  * shopper who cannot be understood must never be trapped in a loop, so the
  * third time we take the safest available answer and move on.
  */
-const MAX_MISSES = 2;
+const MAX_MISSES = 1;
 
 export type AgentPhase = "asking" | "result" | "referral";
+
+/**
+ * Speech-to-text splits and hyphenates compound words unpredictably: the same
+ * answer arrives as "breastfeeding", "breast-feeding" or "breast feeding"
+ * depending on the device. Matching the raw transcript meant one spelling was
+ * understood and the others looped. Everything below matches against this
+ * normalised form instead.
+ */
+export function normaliseTranscript(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[‘’ʼ]/g, "'")
+    .replace(/[-_/.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 const ARABIC = /[؀-ۿ]/;
 
@@ -60,37 +76,42 @@ const NO_AR = /لا|كلا|ما في|مافي|ولا|ما عندي/;
 // Statements that answer "are you pregnant/breastfeeding?" with an implicit no.
 const NOT_PREGNANT = /\b(man|male|guy|boy|father|husband|not pregnant)\b/i;
 const NOT_PREGNANT_AR = /رجل|ذكر|لست حامل/;
-const PREGNANT = /\b(pregnant|pregnancy|expecting|breastfeeding|nursing)\b/i;
+// Written against the normalised transcript, so compounds are matched with an
+// optional space: "breastfeeding" / "breast-feeding" / "breast feeding".
+const PREGNANT = /\b(pregnant|pregnancy|expecting|breast ?feeding|nursing|feeding my baby)\b/i;
 const PREGNANT_AR = /حامل|مرضع/;
 // Negation must sit next to the pregnancy word. A sentence-wide "no" test read
 // "I am pregnant, no allergies" as NOT pregnant, because "no allergies"
 // supplied the negative - and that silently disabled the retinoid filter.
 const NOT_PREGNANT_PHRASE =
-  /\b(?:not|never|no longer|isn'?t|ain'?t|am ?n[o']?t|'m not)\s+(?:\w+\s+){0,2}?(?:pregnant|pregnancy|expecting|breastfeeding|nursing)\b/i;
+  /\b(?:not|never|no longer|isn'?t|ain'?t|am ?n[o']?t|'m not)\s+(?:\w+\s+){0,2}?(?:pregnant|pregnancy|expecting|breast ?feeding|nursing)\b/i;
 const NOT_PREGNANT_PHRASE_AR = /(?:لست|لسنا|غير|لا)\s*(?:حامل|مرضع)/;
 
 /**
  * Single source of truth for "is this person pregnant or breastfeeding?".
  * Returns undefined when the text does not say either way.
  */
-export function readsPregnant(text: string): boolean | undefined {
-  if (NOT_PREGNANT_PHRASE.test(text) || NOT_PREGNANT_PHRASE_AR.test(text)) return false;
-  if (PREGNANT.test(text) || PREGNANT_AR.test(text)) return true;
-  if (NOT_PREGNANT.test(text) || NOT_PREGNANT_AR.test(text)) return false;
+export function readsPregnant(input: string): boolean | undefined {
+  const text = normaliseTranscript(input);
+  if (NOT_PREGNANT_PHRASE.test(text) || NOT_PREGNANT_PHRASE_AR.test(input)) return false;
+  if (PREGNANT.test(text) || PREGNANT_AR.test(input)) return true;
+  if (NOT_PREGNANT.test(text) || NOT_PREGNANT_AR.test(input)) return false;
   return undefined;
 }
 
-export function extractSkinType(text: string): string | undefined {
+export function extractSkinType(input: string): string | undefined {
+  const text = normaliseTranscript(input);
   for (const type of SKIN_TYPES) {
-    if (type.en.test(text) || type.ar.test(text)) return type.key;
+    if (type.en.test(text) || type.ar.test(input)) return type.key;
   }
   return undefined;
 }
 
 /** Explicit yes/no reading. Returns undefined when the answer is unclear. */
-export function readYesNo(text: string): boolean | undefined {
-  const negative = NO.test(text) || NO_AR.test(text);
-  const positive = YES.test(text) || YES_AR.test(text);
+export function readYesNo(input: string): boolean | undefined {
+  const text = normaliseTranscript(input);
+  const negative = NO.test(text) || NO_AR.test(input);
+  const positive = YES.test(text) || YES_AR.test(input);
   if (negative && !positive) return false;
   if (positive && !negative) return true;
   return undefined;
@@ -112,8 +133,8 @@ const HAIR_CONCERN =
 const HAIR_CONCERN_AR = /شعر|فروة|قشرة|تساقط|شامبو|بلسم/;
 
 /** True when the shopper is asking about hair or scalp rather than skin. */
-export function isHairConcern(text: string): boolean {
-  return HAIR_CONCERN.test(text) || HAIR_CONCERN_AR.test(text);
+export function isHairConcern(input: string): boolean {
+  return HAIR_CONCERN.test(normaliseTranscript(input)) || HAIR_CONCERN_AR.test(input);
 }
 
 const NO_ALLERGIES =
@@ -131,9 +152,10 @@ const ALLERGIC_TO_AR = /حساسية\s+(?:من|تجاه)\s+([^.،؛!؟]{2,60})/;
  * still only set from an EXPLICIT statement; anything merely implied is left
  * empty so it gets asked properly.
  */
-export function extractInlineSlots(text: string): Partial<AgentSlots> {
+export function extractInlineSlots(input: string): Partial<AgentSlots> {
   const found: Partial<AgentSlots> = {};
-  if (!text.trim()) return found;
+  if (!input.trim()) return found;
+  const text = normaliseTranscript(input);
 
   const skinType = extractSkinType(text);
   if (skinType) found.skinType = skinType;
@@ -143,10 +165,10 @@ export function extractInlineSlots(text: string): Partial<AgentSlots> {
   if (pregnant !== undefined) found.pregnantOrBreastfeeding = pregnant;
 
   // Allergies: an explicit "no allergies", or a named "allergic to X".
-  if (NO_ALLERGIES.test(text) || NO_ALLERGIES_AR.test(text)) {
+  if (NO_ALLERGIES.test(text) || NO_ALLERGIES_AR.test(input)) {
     found.allergies = [];
   } else {
-    const named = ALLERGIC_TO.exec(text)?.[1] ?? ALLERGIC_TO_AR.exec(text)?.[1];
+    const named = ALLERGIC_TO.exec(text)?.[1] ?? ALLERGIC_TO_AR.exec(input)?.[1];
     if (named) {
       const list = named
         .split(/\s*(?:,|and|أو|و)\s*/i)
@@ -183,9 +205,9 @@ function translateSkinType(value: string) {
 }
 
 /** Allergy list from a spoken answer. "no"/"none" yields an empty list. */
-export function extractAllergies(text: string): string[] | undefined {
-  if (readYesNo(text) === false) return [];
-  const cleaned = text
+export function extractAllergies(input: string): string[] | undefined {
+  if (readYesNo(input) === false) return [];
+  const cleaned = normaliseTranscript(input)
     .replace(/\b(yes|yeah|i am|i'm|allergic|to|allergy|allergies|and)\b/gi, " ")
     .replace(/حساسية|من|و/g, " ")
     .replace(/[.,؛;!؟?]/g, " ")
@@ -199,8 +221,8 @@ const COPY = {
   en: {
     greeting: "Hi, I'm your AI skin advisor. Tell me what's going on with your skin or hair.",
     askConcern: "Tell me your main skin or hair concern.",
-    askSkinType: "Got it. How would you describe your skin — oily, dry, combination, or sensitive?",
-    askPregnancy: "Thanks. Before I suggest anything: are you pregnant or breastfeeding?",
+    askSkinType: "How would you describe your skin — oily, dry, combination, or sensitive?",
+    askPregnancy: "Before I suggest anything — are you pregnant or breastfeeding?",
     askAllergies: "And do you have any product or ingredient allergies? Say no if none.",
     askAllergyNames: "Which ingredients or products are you allergic to?",
     building: "Perfect, building your routine now.",
@@ -216,7 +238,7 @@ const COPY = {
   ar: {
     greeting: "مرحباً، أنا مستشار البشرة الذكي. أخبرني ما الذي يزعجك في بشرتك أو شعرك.",
     askConcern: "أخبرني بمشكلتك الأساسية في البشرة أو الشعر.",
-    askSkinType: "تمام. كيف تصف بشرتك — دهنية أم جافة أم مختلطة أم حساسة؟",
+    askSkinType: "كيف تصف بشرتك — دهنية أم جافة أم مختلطة أم حساسة؟",
     askPregnancy: "شكراً. قبل أن أقترح أي شيء: هل أنتِ حامل أو مرضعة؟",
     askAllergies: "وهل لديك أي حساسية من منتجات أو مكونات؟ قل لا إذا لم يكن هناك.",
     askAllergyNames: "ما المكونات أو المنتجات التي لديك حساسية منها؟",
@@ -237,21 +259,47 @@ export function agentCopy(lang: AgentLang) {
 }
 
 /**
- * Merges a new utterance into the accumulated slots, given which question was
- * outstanding. Safety slots are only set from an explicit answer.
+ * Merges a new utterance into the accumulated slots.
+ *
+ * Anything the shopper volunteers is harvested FIRST, whatever question happens
+ * to be open. A real session looped because "Breast-feeding" was said while the
+ * agent was asking about skin type: the old code treated the utterance purely
+ * as a skin-type answer, defaulted the slot and discarded the pregnancy fact
+ * entirely. People answer the question they want to answer, not the one they
+ * were asked.
+ *
+ * Safety slots are still only set from an explicit statement, and a question is
+ * only counted as missed when the utterance told us nothing at all - so a
+ * shopper who answers a different question is never scolded or looped.
  */
 export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLang): AgentSlots {
+  void lang;
   const next: AgentSlots = { ...slots };
   const text = utterance.trim();
   if (!text) return next;
 
   if (!next.mainConcern) {
     next.mainConcern = text;
-    // Take everything else the shopper volunteered in the same breath.
     return { ...next, ...extractInlineSlots(text) };
   }
 
-  // Answers are interpreted against the question we actually asked last.
+  // Harvest whatever was volunteered, without overwriting a known answer.
+  const volunteered = extractInlineSlots(text);
+  let gained = false;
+  if (volunteered.skinType && !next.skinType) {
+    next.skinType = volunteered.skinType;
+    gained = true;
+  }
+  if (volunteered.pregnantOrBreastfeeding !== undefined && next.pregnantOrBreastfeeding === undefined) {
+    next.pregnantOrBreastfeeding = volunteered.pregnantOrBreastfeeding;
+    gained = true;
+  }
+  if (volunteered.allergies !== undefined && next.allergies === undefined) {
+    next.allergies = volunteered.allergies;
+    gained = true;
+  }
+
+  // Then resolve the question that is actually open.
   if (next.askedPregnancy && next.pregnantOrBreastfeeding === undefined) {
     const answer = readPregnancyAnswer(text);
     if (answer !== undefined) {
@@ -259,9 +307,12 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
       next.misses = 0;
       return next;
     }
-    // Unclear answer to a safety question: ask again, and do NOT fold the
-    // misheard words into the concern. After the cap, assume the answer that
-    // filters the most (pregnant) rather than looping or guessing "no".
+    if (gained) {
+      next.misses = 0;
+      return next;
+    }
+    // Unintelligible: ask once more, then assume the answer that filters the
+    // most rather than looping or guessing "no".
     next.misses = (next.misses ?? 0) + 1;
     if (next.misses > MAX_MISSES) {
       next.pregnantOrBreastfeeding = true;
@@ -284,10 +335,12 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
       next.misses = 0;
       return next;
     }
+    if (gained) {
+      next.misses = 0;
+      return next;
+    }
     next.misses = (next.misses ?? 0) + 1;
     if (next.misses > MAX_MISSES) {
-      // Can't understand them: ask which, which is easier to answer than a
-      // yes/no they keep failing.
       next.askedAllergyNames = true;
       next.misses = 0;
     }
@@ -330,21 +383,22 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
       next.misses = 0;
       return next;
     }
-    // Unrecognised description still moves the flow on rather than looping.
-    next.skinType = "combination";
-    next.misses = 0;
+    if (gained) {
+      // They answered a different question; ask this one again rather than
+      // inventing a skin type from an unrelated sentence.
+      next.misses = 0;
+      return next;
+    }
+    next.misses = (next.misses ?? 0) + 1;
+    if (next.misses > MAX_MISSES) {
+      next.skinType = "combination";
+      next.misses = 0;
+    }
     return next;
   }
 
-  // Otherwise treat it as more detail about the concern, still harvesting any
-  // slots it happens to contain.
+  // Otherwise it is more detail about the concern.
   next.mainConcern = `${next.mainConcern}. ${text}`;
-  const inline = extractInlineSlots(text);
-  if (inline.skinType && !next.skinType) next.skinType = inline.skinType;
-  if (inline.pregnantOrBreastfeeding !== undefined && next.pregnantOrBreastfeeding === undefined) {
-    next.pregnantOrBreastfeeding = inline.pregnantOrBreastfeeding;
-  }
-  if (inline.allergies !== undefined && next.allergies === undefined) next.allergies = inline.allergies;
   return next;
 }
 

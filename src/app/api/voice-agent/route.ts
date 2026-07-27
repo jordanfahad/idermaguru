@@ -110,10 +110,22 @@ export async function POST(request: Request) {
     const pending = nextQuestion(slots, lang);
     if (pending) {
       slots = pending.slots;
+      // If they answered a question we hadn't asked yet, say so before asking
+      // again - otherwise repeating the question reads as if we ignored them.
+      const learned = summariseSlots(
+        {
+          skinType: before.skinType ? undefined : slots.skinType,
+          pregnantOrBreastfeeding:
+            before.pregnantOrBreastfeeding === undefined ? slots.pregnantOrBreastfeeding : undefined,
+          allergies: before.allergies === undefined ? slots.allergies : undefined,
+        },
+        lang,
+      );
+      const prefix = misheard ? `${copy.repeat} ` : learned ? `${copy.understood(learned)} ` : "";
       // Never repeat the transcript back: speech-to-text mistakes ("I'm a man"
       // -> "I am a mad") turn a friendly echo into an insult.
       return NextResponse.json({
-        reply: await say(misheard ? `${copy.repeat} ${pending.question}` : pending.question),
+        reply: await say(`${prefix}${pending.question}`),
         phase: "asking",
         slots,
         products: [],
