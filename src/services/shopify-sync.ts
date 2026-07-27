@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import type { ProductCatalogItem } from "@/domain/skincare";
 import type { ShopifyProduct } from "@/lib/shopify";
 
@@ -109,4 +110,94 @@ export function mapShopifyProduct(
     merchantPriority: 50,
     sponsoredBidCpc: 0,
   };
+}
+
+/**
+ * Writes a mapped catalogue into the Product table in batches.
+ *
+ * A row-at-a-time upsert of a real catalogue is one database round trip per
+ * product; at ~900 products that ran past the serverless time limit and the
+ * whole sync 504'd. One statement per chunk turns that into a handful of round
+ * trips.
+ *
+ * Conflicts resolve on (tenantId, sku) — the same SKU in the same store is the
+ * same product however it first arrived — and the primary key is deliberately
+ * left untouched so recommendations and events already pointing at a row keep
+ * pointing at it. If a chunk still fails (a merchant can reuse a Shopify id
+ * under a new SKU) it is retried row by row, so one bad product costs one
+ * product rather than two hundred.
+ */
+export async function writeCatalogue(
+  prisma: PrismaLike,
+  items: ProductCatalogItem[],
+  chunkSize = 200,
+): Promise<number> {
+  // Two rows with the same conflict key in one statement is a Postgres error
+  // ("cannot affect row a second time"), so the last one wins here instead.
+  const deduped = [...new Map(items.map((item) => [`${item.tenantId}:${item.sku}`, item])).values()];
+
+  let written = 0;
+  for (let index = 0; index < deduped.length; index += chunkSize) {
+    const chunk = deduped.slice(index, index + chunkSize);
+    try {
+      await prisma.$executeRaw(upsertSql(chunk));
+      written += chunk.length;
+    } catch {
+      for (const item of chunk) {
+        try {
+          await prisma.$executeRaw(upsertSql([item]));
+          written += 1;
+        } catch {
+          // One malformed product must not abort the whole catalogue.
+        }
+      }
+    }
+  }
+  return written;
+}
+
+type PrismaLike = { $executeRaw: (query: Prisma.Sql) => Promise<number> };
+
+function upsertSql(items: ProductCatalogItem[]): Prisma.Sql {
+  const rows = items.map(
+    (item) => Prisma.sql`(
+      ${item.id}, ${item.tenantId}, ${item.sku}, ${item.name}, ${item.brand}, ${item.category},
+      ${item.description}, ${item.url}, ${item.imageUrl}, ${item.price}, ${item.currency}, ${item.inStock},
+      ${JSON.stringify(item.activeIngredientsJson)}::jsonb, ${JSON.stringify(item.skinTypesJson)}::jsonb,
+      ${JSON.stringify(item.concernsJson)}::jsonb, ${JSON.stringify(item.avoidIfJson)}::jsonb,
+      ${item.pregnancySafety}::"PregnancySafety", ${item.fragranceFree}, ${item.nonComedogenic},
+      ${item.sensitiveSkinSuitable}, ${item.merchantPriority}, NOW()
+    )`,
+  );
+
+  return Prisma.sql`
+    INSERT INTO "Product" (
+      "id", "tenantId", "sku", "name", "brand", "category",
+      "description", "url", "imageUrl", "price", "currency", "inStock",
+      "activeIngredientsJson", "skinTypesJson",
+      "concernsJson", "avoidIfJson",
+      "pregnancySafety", "fragranceFree", "nonComedogenic",
+      "sensitiveSkinSuitable", "merchantPriority", "updatedAt"
+    )
+    VALUES ${Prisma.join(rows)}
+    ON CONFLICT ("tenantId", "sku") DO UPDATE SET
+      "name" = EXCLUDED."name",
+      "brand" = EXCLUDED."brand",
+      "category" = EXCLUDED."category",
+      "description" = EXCLUDED."description",
+      "url" = EXCLUDED."url",
+      "imageUrl" = EXCLUDED."imageUrl",
+      "price" = EXCLUDED."price",
+      "currency" = EXCLUDED."currency",
+      "inStock" = EXCLUDED."inStock",
+      "activeIngredientsJson" = EXCLUDED."activeIngredientsJson",
+      "skinTypesJson" = EXCLUDED."skinTypesJson",
+      "concernsJson" = EXCLUDED."concernsJson",
+      "avoidIfJson" = EXCLUDED."avoidIfJson",
+      "pregnancySafety" = EXCLUDED."pregnancySafety",
+      "fragranceFree" = EXCLUDED."fragranceFree",
+      "nonComedogenic" = EXCLUDED."nonComedogenic",
+      "sensitiveSkinSuitable" = EXCLUDED."sensitiveSkinSuitable",
+      "updatedAt" = NOW()
+  `;
 }

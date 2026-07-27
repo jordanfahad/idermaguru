@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getAdminSessionCookieName, verifyAdminSession } from "@/lib/admin-auth";
 import { fetchShopifyProducts, normaliseShopDomain } from "@/lib/shopify";
-import { mapShopifyProduct } from "@/services/shopify-sync";
+import { mapShopifyProduct, writeCatalogue } from "@/services/shopify-sync";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { getPrisma } from "@/server/db";
 import { jsonError } from "../../_shared";
@@ -18,6 +18,18 @@ export const maxDuration = 60;
  * POST /api/shopify/sync { shop }
  */
 export async function POST(request: Request) {
+  try {
+    return await sync(request);
+  } catch (error) {
+    // Anything uncaught here would reach the browser as the platform's HTML
+    // error page, and the panel's response.json() would fail on it — which is
+    // how a timeout surfaced as "Unexpected token 'A'".
+    console.error("Shopify sync failed", error);
+    return jsonError(error instanceof Error ? error.message : "Sync failed.", 500);
+  }
+}
+
+async function sync(request: Request) {
   const cookieStore = await cookies();
   const session = await verifyAdminSession(cookieStore.get(getAdminSessionCookieName())?.value);
   if (!session) return jsonError("Admin login required.", 401);
@@ -47,41 +59,13 @@ export async function POST(request: Request) {
   const prisma = getPrisma();
   if (!prisma) return jsonError("Database is not configured.", 503);
 
-  const products = await fetchShopifyProducts(shop, connection.access_token);
+  const limit = 1000;
+  const products = await fetchShopifyProducts(shop, connection.access_token, limit);
   const mapped = products
     .map((product) => mapShopifyProduct(product, connection.tenant_id, shop))
     .filter((product): product is NonNullable<typeof product> => product !== null);
 
-  let written = 0;
-  for (const product of mapped) {
-    try {
-      await prisma.product.upsert({
-        where: { id: product.id },
-        create: product,
-        update: {
-          name: product.name,
-          brand: product.brand,
-          category: product.category,
-          description: product.description,
-          url: product.url,
-          imageUrl: product.imageUrl,
-          price: product.price,
-          inStock: product.inStock,
-          activeIngredientsJson: product.activeIngredientsJson,
-          skinTypesJson: product.skinTypesJson,
-          concernsJson: product.concernsJson,
-          avoidIfJson: product.avoidIfJson,
-          pregnancySafety: product.pregnancySafety,
-          fragranceFree: product.fragranceFree,
-          nonComedogenic: product.nonComedogenic,
-          sensitiveSkinSuitable: product.sensitiveSkinSuitable,
-        },
-      });
-      written += 1;
-    } catch {
-      // One malformed product must not abort the whole catalogue.
-    }
-  }
+  const written = await writeCatalogue(prisma, mapped);
 
   await supabase
     .from("shopify_shops")
@@ -93,5 +77,8 @@ export async function POST(request: Request) {
     fetched: products.length,
     imported: written,
     skipped: products.length - mapped.length,
+    // Say so rather than quietly stopping at the cap: a merchant who cannot see
+    // that half their catalogue was left out will not know to ask.
+    truncated: products.length >= limit,
   });
 }

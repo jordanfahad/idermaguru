@@ -12,6 +12,29 @@ type Shop = {
 };
 
 /**
+ * Reads a JSON body without assuming there is one.
+ *
+ * A serverless timeout or crash answers with the platform's own HTML page, and
+ * calling response.json() on that reported "Unexpected token 'A'" instead of
+ * what actually went wrong.
+ */
+async function readJson(response: Response) {
+  try {
+    return (await response.json()) as Record<string, never> & { error?: string; [key: string]: unknown };
+  } catch {
+    return null;
+  }
+}
+
+function failureFor(status: number) {
+  if (status === 401) return "Your admin session expired. Sign in again and retry.";
+  if (status === 504 || status === 408) {
+    return "The store took too long to answer and the sync timed out. Try again — it resumes where it left off.";
+  }
+  return `Sync failed (HTTP ${status}).`;
+}
+
+/**
  * Connect a Shopify store and pull its catalogue, without touching a console.
  * Syncing rewrites the catalogue every shopper is recommended from, so both
  * endpoints behind this panel require an admin session.
@@ -59,11 +82,14 @@ export function ShopifyPanel() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ shop }),
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error ?? "Sync failed.");
+      const payload = await readJson(response);
+      if (!response.ok || !payload) {
+        throw new Error(payload?.error ?? failureFor(response.status));
+      }
       setMessage(
         `Imported ${payload.imported} of ${payload.fetched} products from ${shop}` +
-          (payload.skipped ? ` (${payload.skipped} skipped: no usable price).` : "."),
+          (payload.skipped ? ` — ${payload.skipped} skipped (no usable price)` : "") +
+          (payload.truncated ? `. Stopped at the first ${payload.fetched}; sync again for the rest.` : "."),
       );
       await load();
     } catch (error) {
@@ -108,7 +134,7 @@ export function ShopifyPanel() {
       {loading ? (
         <p className="muted">Loading connected stores…</p>
       ) : shops.length ? (
-        <table className="table-like">
+        <table className="shopify-table">
           <thead>
             <tr>
               <th>Store</th>
@@ -122,9 +148,11 @@ export function ShopifyPanel() {
             {shops.map((shop) => (
               <tr key={shop.shop_domain}>
                 <td>{shop.shop_domain}</td>
-                <td>{new Date(shop.installed_at).toLocaleDateString()}</td>
-                <td>{shop.last_sync_at ? new Date(shop.last_sync_at).toLocaleString() : "Never"}</td>
-                <td>{shop.last_sync_count ?? "—"}</td>
+                <td data-label="Connected">{new Date(shop.installed_at).toLocaleDateString()}</td>
+                <td data-label="Last sync">
+                  {shop.last_sync_at ? new Date(shop.last_sync_at).toLocaleString() : "Never"}
+                </td>
+                <td data-label="Products">{shop.last_sync_count ?? "—"}</td>
                 <td>
                   <button
                     className="secondary-button"

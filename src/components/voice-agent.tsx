@@ -1,10 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Square } from "lucide-react";
+import { Camera, ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Sparkles, Square } from "lucide-react";
 import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
 import { speechLocale } from "@/services/language";
+import { scriptedLines } from "@/services/voice-agent";
 import "./voice-agent.css";
+
+/** GET endpoint for a fixed line, so <audio> streams it from the browser cache. */
+function speechUrl(text: string, language: string) {
+  return `/api/voice-agent/speech?lang=${language === "ar" ? "ar" : "en"}&text=${encodeURIComponent(text)}`;
+}
+
+/** Roughly 30s of silence before the advisor stops listening and waits for a tap. */
+const MAX_SILENT_RESTARTS = 4;
+
+/** Every line the interview can say verbatim — these are the ones worth caching. */
+const SCRIPTED = new Set([...scriptedLines("en"), ...scriptedLines("ar")]);
+function isScriptedLine(text: string) {
+  return SCRIPTED.has(text.trim());
+}
 
 type Lang = "en" | "ar";
 type Mode = "voice" | "chat";
@@ -21,10 +36,31 @@ type AgentProduct = {
   url: string;
   slot: string;
   reason: string;
+  cautions?: string[];
   sponsored?: boolean;
 };
 
 type Turn = { role: "user" | "agent"; text: string };
+
+/** Routine buckets, in the order a shopper actually uses them. */
+const ROUTINE_ORDER = ["am", "daily", "pm", "optional"] as const;
+type RoutineBucket = (typeof ROUTINE_ORDER)[number];
+
+function bucketFor(slot: string): RoutineBucket {
+  const name = slot.toLowerCase();
+  if (name.startsWith("optional")) return "optional";
+  if (name.startsWith("morning") || name.includes("sunscreen")) return "am";
+  if (name.startsWith("evening")) return "pm";
+  return "daily";
+}
+
+/** Groups the routine for the side panel, dropping any bucket with nothing in it. */
+function groupRoutine(items: AgentProduct[]) {
+  return ROUTINE_ORDER.map((bucket) => ({
+    bucket,
+    items: items.filter((item) => bucketFor(item.slot) === bucket),
+  })).filter((group) => group.items.length > 0);
+}
 
 interface SpeechRecognitionLike {
   lang: string;
@@ -42,9 +78,11 @@ interface SpeechRecognitionLike {
 }
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 
+// One source of truth with the server, so the greeting the client speaks is the
+// same string it prewarmed — and the same one the API would have sent.
 const GREETING = {
-  en: "Hi — I'm your skin advisor. Tell me what's bothering your skin or hair.",
-  ar: "مرحباً — أنا مستشار البشرة. أخبرني ما الذي يزعج بشرتك أو شعرك.",
+  en: scriptedLines("en")[0],
+  ar: scriptedLines("ar")[0],
 };
 
 const PROMPTS = {
@@ -85,7 +123,7 @@ const UI = {
     cart: "Add routine to cart",
     view: "View",
     sponsored: "Sponsored",
-    replay: "Tap to answer",
+    replay: "Tap when you're ready",
     fallback: "Open the full advisor",
     error: "Something went wrong. Tap the mic to try again.",
     showSkin: "Show your skin",
@@ -104,6 +142,10 @@ const UI = {
     cameraError: "The photo review didn't work. You can describe your skin instead.",
     liveTranscript: "Live transcript",
     quickPicks: "Common concerns",
+    yourRoutine: "Your routine",
+    steps: (n: number) => (n === 1 ? "1 step" : `${n} steps`),
+    routine: { am: "Morning", daily: "Daily", pm: "Evening", optional: "As needed" },
+    startOver: "Start a new routine",
   },
   ar: {
     voiceMode: "صوت",
@@ -125,7 +167,7 @@ const UI = {
     cart: "أضف الروتين إلى السلة",
     view: "عرض",
     sponsored: "مموَّل",
-    replay: "اضغط للإجابة",
+    replay: "اضغط عندما تكون جاهزاً",
     fallback: "افتح المستشار الكامل",
     error: "حدث خطأ. اضغط الميكروفون للمحاولة مرة أخرى.",
     showSkin: "أرِ بشرتك",
@@ -144,6 +186,10 @@ const UI = {
     cameraError: "لم تنجح مراجعة الصورة. يمكنك وصف بشرتك بدلاً من ذلك.",
     liveTranscript: "النص المباشر",
     quickPicks: "مشاكل شائعة",
+    yourRoutine: "روتينك",
+    steps: (n: number) => (n === 1 ? "خطوة واحدة" : `${n} خطوات`),
+    routine: { am: "صباحاً", daily: "يومياً", pm: "مساءً", optional: "عند الحاجة" },
+    startOver: "ابدأ روتيناً جديداً",
   },
 };
 
@@ -176,6 +222,7 @@ export function VoiceAgent({
   const [interim, setInterim] = useState("");
   const [draft, setDraft] = useState("");
   const [products, setProducts] = useState<AgentProduct[]>([]);
+  const [disclosure, setDisclosure] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
@@ -197,6 +244,10 @@ export function VoiceAgent({
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const continueRef = useRef(false);
+  // How many times recognition has restarted without hearing anything. A
+  // shopper who walked away shouldn't keep the microphone open forever.
+  const silentRestartsRef = useRef(0);
+  const restartTimerRef = useRef<number | null>(null);
   const t = UI[lang];
 
   // Drive --level from real audio every frame.
@@ -226,6 +277,22 @@ export function VoiceAgent({
     return () => window.clearInterval(id);
   }, [started]);
 
+  // Synthesise the scripted lines before anyone taps. The greeting goes first
+  // so the very first word is instant; the interview questions follow a beat
+  // later so they don't compete with it for bandwidth. Both the server cache
+  // and the browser cache are warm by the time they're needed.
+  useEffect(() => {
+    const warm = (text: string) =>
+      fetch(speechUrl(text, lang), { cache: "force-cache" }).catch(() => {
+        // Prewarming is an optimisation; speak() still works without it.
+      });
+
+    const [greeting, ...questions] = scriptedLines(lang);
+    void warm(greeting);
+    const id = window.setTimeout(() => questions.forEach((line) => void warm(line)), 1500);
+    return () => window.clearTimeout(id);
+  }, [lang]);
+
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem("ai-derma-wishlist");
@@ -235,6 +302,7 @@ export function VoiceAgent({
     }
     return () => {
       continueRef.current = false;
+      if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
       recognitionRef.current?.abort();
       window.speechSynthesis?.cancel();
       audioElRef.current?.pause();
@@ -275,31 +343,43 @@ export function VoiceAgent({
       audioElRef.current?.pause();
       setPhase("speaking");
 
-      try {
-        const response = await fetch("/api/voice-agent/speech", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text, language: spokenLangRef.current }),
-        });
-        if (!response.ok) throw new Error("no natural voice");
+      let audio = audioElRef.current;
+      if (!audio) {
+        audio = new Audio();
+        audio.preload = "auto";
+        audioElRef.current = audio;
+      }
+      // Route through the analyser so the orb pulses with the agent's voice.
+      orbRef.current?.attachElement(audio);
 
-        const url = URL.createObjectURL(await response.blob());
-        let audio = audioElRef.current;
-        if (!audio) {
-          audio = new Audio();
-          audio.crossOrigin = "anonymous";
-          audioElRef.current = audio;
+      let objectUrl: string | null = null;
+      const finish = () => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        onDone();
+      };
+
+      try {
+        if (isScriptedLine(text)) {
+          // A scripted line is already in the browser cache, and the element
+          // starts playing on the first bytes rather than the last — this is
+          // the difference between an instant reply and a second of silence.
+          audio.src = speechUrl(text, spokenLangRef.current);
+        } else {
+          // Anything personalised goes over POST so the shopper's routine never
+          // lands in a URL or a request log.
+          const response = await fetch("/api/voice-agent/speech", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text, language: spokenLangRef.current }),
+          });
+          if (!response.ok) throw new Error("no natural voice");
+          objectUrl = URL.createObjectURL(await response.blob());
+          audio.src = objectUrl;
         }
-        audio.src = url;
-        // Route through the analyser so the orb pulses with the agent's voice.
-        orbRef.current?.attachElement(audio);
-        const finish = () => {
-          URL.revokeObjectURL(url);
-          onDone();
-        };
+
         audio.onended = finish;
         audio.onerror = () => {
-          URL.revokeObjectURL(url);
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
           speakWithBrowser(text, onDone);
         };
         await audio.play();
@@ -308,6 +388,34 @@ export function VoiceAgent({
       }
     },
     [lang, speakWithBrowser],
+  );
+
+  /**
+   * Speaks a reply that arrived in pieces — typically an acknowledgement
+   * followed by the next scripted question. The next piece is fetched while the
+   * current one plays, so the join sounds like a breath rather than a stall.
+   */
+  const speakSequence = useCallback(
+    (parts: string[], onDone: () => void) => {
+      const queue = parts.map((part) => part.trim()).filter(Boolean);
+      if (!queue.length) {
+        onDone();
+        return;
+      }
+      const step = (index: number) => {
+        if (index >= queue.length) {
+          onDone();
+          return;
+        }
+        const upcoming = queue[index + 1];
+        if (upcoming && isScriptedLine(upcoming)) {
+          void fetch(speechUrl(upcoming, spokenLangRef.current), { cache: "force-cache" }).catch(() => {});
+        }
+        void speak(queue[index], () => step(index + 1));
+      };
+      step(0);
+    },
+    [speak],
   );
 
   const send = useCallback(
@@ -331,7 +439,10 @@ export function VoiceAgent({
           // Only the two authored locales drive the interface copy.
           if (payload.language === "ar" || payload.language === "en") setLang(payload.language);
         }
-        if (Array.isArray(payload.products) && payload.products.length) setProducts(payload.products);
+        if (Array.isArray(payload.products) && payload.products.length) {
+          setProducts(payload.products);
+          setDisclosure(typeof payload.disclosure === "string" ? payload.disclosure : null);
+        }
 
         const reply: string = payload.reply ?? "";
         setTurns((current) => [...current, { role: "agent", text: reply }]);
@@ -341,66 +452,120 @@ export function VoiceAgent({
           setPhase("idle");
           return;
         }
-        const keepGoing = payload.phase === "asking" && continueRef.current;
-        void speak(reply, () => (keepGoing ? listen() : setPhase("idle")));
+        // Keep the microphone open unless safety triage ended the session — the
+        // shopper can always ask a follow-up once the routine is on screen.
+        const keepGoing = payload.phase !== "referral" && continueRef.current;
+        const parts: string[] = Array.isArray(payload.speech) && payload.speech.length ? payload.speech : [reply];
+        speakSequence(parts, () => (keepGoing ? listen() : setPhase("idle")));
       } catch {
         setNotice(t.error);
         setPhase("idle");
       }
     },
     // eslint-disable-next-line
-    [lang, speak, t.error],
+    [lang, speakSequence, t.error],
   );
 
-  const listen = useCallback(() => {
-    const w = window as unknown as {
-      SpeechRecognition?: SpeechRecognitionCtor;
-      webkitSpeechRecognition?: SpeechRecognitionCtor;
-    };
-    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-    if (!Ctor) {
-      setNotice(t.noVoice);
-      setPhase("idle");
-      return;
-    }
-
-    const recognition = new Ctor();
-    recognition.lang = speechLocale(spokenLangRef.current);
-    recognition.interimResults = true; // live words as the shopper speaks
-    recognition.continuous = false;
-
-    recognition.onresult = (event) => {
-      let live = "";
-      let settled = "";
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const result = event.results[i];
-        const text = result[0]?.transcript ?? "";
-        if (result.isFinal) settled += text;
-        else live += text;
+  /**
+   * Opens the microphone and keeps it open.
+   *
+   * Browsers end recognition on every pause — including pauses in the middle of
+   * a sentence. Treating that as the end of the shopper's turn is what made the
+   * conversation stop dead and demand another tap, so a silent end just starts
+   * it again. After a run of restarts with nothing heard we do stand down, so a
+   * shopper who walked away isn't left with a live mic.
+   */
+  const listen = useCallback(
+    function startListening() {
+      const w = window as unknown as {
+        SpeechRecognition?: SpeechRecognitionCtor;
+        webkitSpeechRecognition?: SpeechRecognitionCtor;
+      };
+      const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+      if (!Ctor) {
+        setNotice(t.noVoice);
+        setPhase("idle");
+        return;
       }
-      setInterim(live);
-      if (settled.trim()) void send(settled.trim());
-    };
-    recognition.onerror = (event) => {
-      if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
-        setNotice(t.denied);
-        continueRef.current = false;
-      }
-      setPhase("idle");
-    };
-    recognition.onend = () => setPhase((current) => (current === "listening" ? "idle" : current));
 
-    recognitionRef.current = recognition;
-    setPhase("listening");
-    setNotice(null);
-    orbRef.current?.cue();
-    void orbRef.current?.attachMic();
-    try {
-      recognition.start();
-    } catch {
-      setPhase("idle");
-    }
-  }, [lang, send, t.noVoice, t.denied]);
+      if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+      // Detach before aborting, so the replaced session's onend knows it is no
+      // longer the live one and doesn't queue a restart of its own.
+      const previous = recognitionRef.current;
+      recognitionRef.current = null;
+      previous?.abort();
+
+      const recognition = new Ctor();
+      recognition.lang = speechLocale(spokenLangRef.current);
+      recognition.interimResults = true; // live words as the shopper speaks
+      recognition.continuous = false;
+      let heard = false;
+
+      recognition.onresult = (event) => {
+        let live = "";
+        let settled = "";
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          const text = result[0]?.transcript ?? "";
+          if (result.isFinal) settled += text;
+          else live += text;
+        }
+        setInterim(live);
+        if (live.trim() || settled.trim()) {
+          heard = true;
+          silentRestartsRef.current = 0;
+        }
+        if (settled.trim()) {
+          // The answer is in; stop before the browser restarts on its own.
+          recognitionRef.current = null;
+          try {
+            recognition.stop();
+          } catch {
+            // already stopping
+          }
+          void send(settled.trim());
+        }
+      };
+
+      recognition.onerror = (event) => {
+        if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
+          setNotice(t.denied);
+          continueRef.current = false;
+          setPhase("idle");
+        }
+        // "no-speech" and "aborted" are ordinary: onend decides what happens.
+      };
+
+      recognition.onend = () => {
+        if (recognitionRef.current !== recognition) return; // we ended it on purpose
+        recognitionRef.current = null;
+        if (!continueRef.current || modeRef.current !== "voice") {
+          setPhase((current) => (current === "listening" ? "idle" : current));
+          return;
+        }
+        silentRestartsRef.current = heard ? 0 : silentRestartsRef.current + 1;
+        if (silentRestartsRef.current > MAX_SILENT_RESTARTS) {
+          silentRestartsRef.current = 0;
+          setPhase("idle");
+          return;
+        }
+        restartTimerRef.current = window.setTimeout(startListening, 120);
+      };
+
+      recognitionRef.current = recognition;
+      setPhase("listening");
+      setNotice(null);
+      // Only chime when the turn actually changes hands, not on every restart.
+      if (silentRestartsRef.current === 0) orbRef.current?.cue();
+      void orbRef.current?.attachMic();
+      try {
+        recognition.start();
+      } catch {
+        setPhase("idle");
+      }
+    },
+    [lang, send, t.noVoice, t.denied],
+  );
 
   function begin() {
     modeRef.current = "voice";
@@ -408,12 +573,15 @@ export function VoiceAgent({
     if (!orbRef.current) orbRef.current = createOrbAudio();
     orbRef.current.startHum();
     continueRef.current = true;
+    silentRestartsRef.current = 0;
     setStarted(true);
     setNotice(null);
 
-    // Greet instantly and locally — no round trip before the first word.
+    // Greet instantly and locally — no round trip before the first word, and
+    // the audio was prewarmed on page load so it plays on the tap itself.
     const greeting = GREETING[lang];
     setTurns([{ role: "agent", text: greeting }]);
+    setPhase("speaking");
     void speak(greeting, () => listen());
   }
 
@@ -543,6 +711,7 @@ export function VoiceAgent({
 
   function stop() {
     continueRef.current = false;
+    if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
     recognitionRef.current?.abort();
     window.speechSynthesis?.cancel();
     audioElRef.current?.pause();
@@ -562,6 +731,13 @@ export function VoiceAgent({
       }
       return next;
     });
+  }
+
+  /** Clears the routine so the panel goes back to concerns and the intake restarts. */
+  function resetRoutine() {
+    setProducts([]);
+    setDisclosure(null);
+    slotsRef.current = {};
   }
 
   function cartUrl(items: AgentProduct[]) {
@@ -688,15 +864,99 @@ export function VoiceAgent({
 
       </div>
 
-      <aside className="va-side va-side-picks">
-        <p className="va-side-title">{t.quickPicks}</p>
-        <div className="va-picks">
-          {PROMPTS[lang].slice(0, 4).map((prompt) => (
-            <button key={prompt} type="button" className="va-pick" onClick={() => submitText(prompt)}>
-              {prompt}
+      {/* The right column is contextual: common concerns until the advisor has
+          something to show, then the routine itself — so results never push the
+          orb or the transcript off the screen. */}
+      <aside className={products.length ? "va-side va-side-picks va-side-routine" : "va-side va-side-picks"}>
+        {products.length ? (
+          <div className="va-panel" key="routine">
+            <p className="va-side-title">
+              <Sparkles size={13} />
+              {t.yourRoutine}
+              <span className="va-panel-count">{t.steps(products.length)}</span>
+            </p>
+
+            <div className="va-routine">
+              {groupRoutine(products).map((group) => (
+                <section className="va-routine-group" key={group.bucket}>
+                  <p className="va-routine-head">{t.routine[group.bucket]}</p>
+                  {group.items.map((product) => (
+                    <article className="va-rx" key={product.id}>
+                      {product.imageUrl ? (
+                        <img
+                          src={product.imageUrl}
+                          alt=""
+                          loading="lazy"
+                          // Merchant catalogues carry dead image URLs; show the
+                          // neutral tile rather than a broken-image glyph.
+                          onError={(event) => {
+                            event.currentTarget.classList.add("va-rx-noimg");
+                            event.currentTarget.removeAttribute("src");
+                          }}
+                        />
+                      ) : (
+                        <div className="va-rx-noimg" />
+                      )}
+                      <div className="va-rx-body">
+                        <span className="va-rx-slot">
+                          {product.slot}
+                          {product.sponsored ? <em className="va-sponsored">{t.sponsored}</em> : null}
+                        </span>
+                        <strong>{product.name}</strong>
+                        <p className="va-rx-reason">{product.reason}</p>
+                        {product.cautions?.length ? <p className="va-rx-caution">{product.cautions[0]}</p> : null}
+                        <div className="va-rx-foot">
+                          <span className="va-price">
+                            {product.currency} {product.price}
+                          </span>
+                          <button
+                            type="button"
+                            className={wishlist.includes(product.id) ? "va-icon-btn va-saved" : "va-icon-btn"}
+                            onClick={() => toggleWishlist(product.id)}
+                            aria-label={wishlist.includes(product.id) ? t.saved : t.save}
+                            title={wishlist.includes(product.id) ? t.saved : t.save}
+                          >
+                            <Heart size={14} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
+                          </button>
+                          <a
+                            className="va-icon-btn"
+                            href={product.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={t.view}
+                            title={t.view}
+                          >
+                            <ExternalLink size={13} />
+                          </a>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </section>
+              ))}
+            </div>
+
+            <a className="va-cart-all" href={cartUrl(products)} target="_blank" rel="noreferrer">
+              <ShoppingCart size={15} />
+              {t.cart}
+            </a>
+            {disclosure ? <p className="va-disclosure">{disclosure}</p> : null}
+            <button type="button" className="va-restart" onClick={resetRoutine}>
+              {t.startOver}
             </button>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="va-panel" key="picks">
+            <p className="va-side-title">{t.quickPicks}</p>
+            <div className="va-picks">
+              {PROMPTS[lang].slice(0, 4).map((prompt) => (
+                <button key={prompt} type="button" className="va-pick" onClick={() => submitText(prompt)}>
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </aside>
      </div>
 
@@ -728,42 +988,6 @@ export function VoiceAgent({
         </p>
       ) : null}
 
-      {products.length ? (
-        <div className="va-products">
-          {products.map((product) => (
-            <article className="va-card" key={product.id}>
-              {product.imageUrl ? <img src={product.imageUrl} alt={product.name} /> : <div className="va-card-noimg" />}
-              <div className="va-card-body">
-                <span className="va-slot">{product.slot}</span>
-                {product.sponsored ? <span className="va-sponsored">{t.sponsored}</span> : null}
-                <strong>{product.name}</strong>
-                <p>{product.reason}</p>
-                <span className="va-price">
-                  {product.currency} {product.price}
-                </span>
-                <div className="va-actions">
-                  <button
-                    type="button"
-                    className={wishlist.includes(product.id) ? "va-save va-saved" : "va-save"}
-                    onClick={() => toggleWishlist(product.id)}
-                  >
-                    <Heart size={14} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
-                    {wishlist.includes(product.id) ? t.saved : t.save}
-                  </button>
-                  <a className="va-view" href={product.url} target="_blank" rel="noreferrer">
-                    {t.view}
-                    <ExternalLink size={13} />
-                  </a>
-                </div>
-              </div>
-            </article>
-          ))}
-          <a className="va-cart-all" href={cartUrl(products)} target="_blank" rel="noreferrer">
-            <ShoppingCart size={16} />
-            {t.cart}
-          </a>
-        </div>
-      ) : null}
     </div>
   );
 }

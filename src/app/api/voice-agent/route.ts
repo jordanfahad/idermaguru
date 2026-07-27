@@ -72,6 +72,7 @@ export async function POST(request: Request) {
     if (!input.utterance.trim() && !input.slots?.mainConcern) {
       return NextResponse.json({
         reply: await say(copy.greeting),
+        speech: speakable(spoken, "", copy.greeting),
         phase: "asking",
         slots: {},
         products: [],
@@ -93,23 +94,25 @@ export async function POST(request: Request) {
       const pendingAside = nextQuestion(before, lang);
       const offTopicRun = aside === "offtopic" ? (before.offTopic ?? 0) + 1 : 0;
 
-      let line: string;
+      let leadIn: string;
+      let question = pendingAside?.question;
       if (aside !== "offtopic") {
-        line = `${copy.aside[aside]}${pendingAside ? ` ${pendingAside.question}` : ""}`;
+        leadIn = copy.aside[aside];
       } else if (offTopicRun >= 2) {
         // They meant it. Stop asking - pressing a third time is nagging.
-        line = copy.offTopicLetGo;
+        leadIn = copy.offTopicLetGo;
+        question = undefined;
       } else {
         // Name what they actually raised before redirecting, so the bridge
         // reads as listening rather than a canned refusal.
-        const topic = await summariseTopic(input.utterance, lang);
-        line = `${topic ? copy.offTopicBridge(topic) : copy.aside.offtopic}${
-          pendingAside ? ` ${pendingAside.question}` : ""
-        }`;
+        const topic = await withBudget(summariseTopic(input.utterance, lang), 1200, "");
+        leadIn = topic ? copy.offTopicBridge(topic) : copy.aside.offtopic;
       }
+      const line = question ? `${leadIn} ${question}` : leadIn;
 
       return NextResponse.json({
         reply: await say(line),
+        speech: speakable(spoken, leadIn, question),
         phase: "asking",
         slots: { ...(pendingAside?.slots ?? before), offTopic: offTopicRun },
         products: [],
@@ -131,13 +134,15 @@ export async function POST(request: Request) {
     if (firstDescription && !slots.skinType) {
       const provider = getLLMProvider();
       if ((provider.lastUsedId ?? provider.id) !== "mock") {
-        try {
-          const intake = await provider.summarizeIntake([{ role: "user", content: input.utterance }]);
-          const guess = typeof intake?.skinType === "string" ? extractSkinType(intake.skinType) : undefined;
-          if (guess) slots = { ...slots, skinType: guess };
-        } catch {
-          // Understanding is a bonus; the scripted question still covers it.
-        }
+        // Understanding is a bonus; the scripted question still covers it, so
+        // it never gets more than a moment of the shopper's time.
+        const intake = await withBudget(
+          provider.summarizeIntake([{ role: "user", content: input.utterance }]),
+          1200,
+          null,
+        );
+        const guess = typeof intake?.skinType === "string" ? extractSkinType(intake.skinType) : undefined;
+        if (guess) slots = { ...slots, skinType: guess };
       }
     }
     // Nothing new was understood from a non-empty answer -> we are about to ask
@@ -178,6 +183,7 @@ export async function POST(request: Request) {
       // -> "I am a mad") turn a friendly echo into an insult.
       return NextResponse.json({
         reply: await say(`${prefix}${pending.question}`),
+        speech: speakable(spoken, prefix, pending.question),
         phase: "asking",
         slots,
         products: [],
@@ -258,14 +264,15 @@ export async function POST(request: Request) {
     // the result. English only for now: the models are not prompted in Arabic.
     const usingRealModel = (provider.lastUsedId ?? provider.id) !== "mock";
     if (usingRealModel && lang === "en") {
-      try {
-        const explanation = await provider.explainRecommendations(profile, recommendation, safety);
-        const postSafety = validateAssistantTextForSafety(explanation, safety);
-        if (postSafety.recommendationAllowed && explanation.trim()) {
-          spokenReply = `${preface}${shorten(explanation, 420)}`;
-        }
-      } catch {
-        // Provider unavailable: the deterministic summary above is already correct.
+      // Provider unavailable or slow: the deterministic summary above is
+      // already correct, and the shopper hears it a lot sooner.
+      const explanation = await withBudget(
+        provider.explainRecommendations(profile, recommendation, safety),
+        2500,
+        "",
+      );
+      if (explanation.trim() && validateAssistantTextForSafety(explanation, safety).recommendationAllowed) {
+        spokenReply = `${preface}${shorten(explanation, 420)}`;
       }
     }
 
@@ -296,6 +303,47 @@ export async function POST(request: Request) {
     if (error instanceof RequestValidationError) return jsonError(error.message);
     throw error;
   }
+}
+
+/**
+ * Caps how long an optional model call may hold up a reply.
+ *
+ * Every LLM call in a turn is an enrichment — the deterministic backbone
+ * already has an answer ready. A slow or retrying provider used to add seconds
+ * of dead air before the advisor said anything, so past the budget we simply
+ * take the fallback and move on.
+ */
+function withBudget<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    work
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        resolve(fallback);
+      });
+  });
+}
+
+/**
+ * Splits a reply into the pieces the client should synthesise separately.
+ *
+ * The trailing question is one of a handful of fixed lines, so on its own it
+ * plays from cache the instant it is needed; only the short acknowledgement in
+ * front of it has to be generated. Speaking them as one blob meant every turn
+ * waited on the speech API for the whole sentence.
+ *
+ * Skipped when the shopper is speaking a third language, because the reply the
+ * client receives is a translation and no longer matches these pieces.
+ */
+function speakable(spoken: LanguageCode, leadIn: string, question?: string): string[] | undefined {
+  if (spoken !== "en" && spoken !== "ar") return undefined;
+  if (!question) return undefined;
+  const prefix = leadIn.trim();
+  return prefix ? [prefix, question] : [question];
 }
 
 /**

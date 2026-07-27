@@ -261,7 +261,7 @@ export function extractAllergies(input: string): string[] | undefined {
 
 const COPY = {
   en: {
-    greeting: "Hi, I'm your AI skin advisor. Tell me what's going on with your skin or hair.",
+    greeting: "Hi — I'm your skin advisor. Tell me what's bothering your skin or hair.",
     askConcern: "Tell me your main skin or hair concern.",
     askSkinType: "How would you describe your skin — oily, dry, combination, or sensitive?",
     askPregnancy: "Before I suggest anything — are you pregnant or breastfeeding?",
@@ -288,7 +288,7 @@ const COPY = {
       `Here's a simple routine with ${count} product${count === 1 ? "" : "s"} matched from the store. I've kept it conservative — patch test anything new, and use sunscreen every morning.`,
   },
   ar: {
-    greeting: "مرحباً، أنا مستشار البشرة الذكي. أخبرني ما الذي يزعجك في بشرتك أو شعرك.",
+    greeting: "مرحباً — أنا مستشار البشرة. أخبرني ما الذي يزعج بشرتك أو شعرك.",
     askConcern: "أخبرني بمشكلتك الأساسية في البشرة أو الشعر.",
     askSkinType: "كيف تصف بشرتك — دهنية أم جافة أم مختلطة أم حساسة؟",
     askPregnancy: "شكراً. قبل أن أقترح أي شيء: هل أنتِ حامل أو مرضعة؟",
@@ -317,6 +317,25 @@ const COPY = {
 
 export function agentCopy(lang: AgentLang) {
   return COPY[lang];
+}
+
+/**
+ * The lines every single session says, in the order they are said.
+ *
+ * The client synthesises these ahead of time so the first tap makes a sound
+ * immediately and each answer is followed straight away by the next question,
+ * instead of a pause while the speech API catches up.
+ */
+export function scriptedLines(lang: AgentLang): string[] {
+  const copy = COPY[lang];
+  return [
+    copy.greeting,
+    copy.askConcern,
+    copy.askSkinType,
+    copy.askPregnancy,
+    copy.askAllergies,
+    copy.askAllergyNames,
+  ];
 }
 
 /**
