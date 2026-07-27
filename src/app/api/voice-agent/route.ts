@@ -351,7 +351,7 @@ function speakable(spoken: LanguageCode, leadIn: string, question?: string): str
 const HAIR_LABELS: Record<string, string> = {
   shampoo: "shampoo",
   conditioner: "conditioner",
-  scalp: "scalp treatment",
+  scalp: "scalp care",
 };
 
 /**

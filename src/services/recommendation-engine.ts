@@ -26,7 +26,10 @@ import {
 const FACE_ROUTINE: { step: RoutineStep; label: string; optional?: boolean }[] = [
   { step: "cleanser", label: "cleanser" },
   { step: "toner", label: "toner", optional: true },
-  { step: "treatment", label: "treatment" },
+  // Labelled "serum", not "treatment": DermaGuru is a cosmetic advisor under
+  // UAE Federal Decree-Law No. 38 of 2024, and "treatment" is medical framing.
+  // "Serum" is also what the catalogue calls these — its largest category.
+  { step: "treatment", label: "serum" },
   { step: "eye", label: "eye care", optional: true },
   { step: "moisturizer", label: "moisturiser" },
   { step: "sunscreen", label: "sunscreen" },
@@ -66,7 +69,7 @@ export function buildRecommendations(input: {
     .filter((candidate) => candidate.score.finalScore > 0.18)
     .sort((a, b) => b.score.finalScore - a.score.finalScore);
 
-  const items = chooseRoutine(candidates, input.profile);
+  const items = flagIngredientConflicts(chooseRoutine(candidates, input.profile), input.profile);
 
   return {
     summary: buildSummary(input.profile, input.safety, items),
@@ -256,6 +259,50 @@ function chooseRoutine(candidates: RecommendationCandidate[], profile: IntakePro
   return chosen;
 }
 
+const RETINOID = /retinol|retinoid|retinal|tretinoin|adapalene|granactive/i;
+const EXFOLIATING_ACID = /glycolic|lactic|mandelic|salicylic|azelaic|\baha\b|\bbha\b|\bpha\b/i;
+const POTENT = /vitamin c|ascorbic|benzoyl peroxide/i;
+
+const activesOf = (item: RecommendationCandidate) => item.product.activeIngredientsJson.join(" ");
+
+/**
+ * Cautions that depend on the routine as a whole rather than on one product.
+ *
+ * A retinoid and an exfoliating acid are each fine alone and irritating
+ * together, so the conflict is invisible while every product is judged on its
+ * own — which is how the engine used to judge them. The pairing is the single
+ * most common self-inflicted irritation in an over-the-counter routine, so both
+ * halves of it say so, on the card where the shopper is looking.
+ */
+function flagIngredientConflicts(items: RecommendationCandidate[], profile: IntakeProfileInput) {
+  const retinoids = items.filter((item) => RETINOID.test(activesOf(item)));
+  const acids = items.filter((item) => EXFOLIATING_ACID.test(activesOf(item)));
+  const sensitive =
+    normalize(profile.sensitivity).includes("sensitive") ||
+    normalize(profile.skinType).includes("sensitive") ||
+    normalize(profile.previousIrritationHistory).length > 0;
+
+  return items.map((item) => {
+    // These go in front of "Patch test before first use.", not after it. The
+    // routine card shows the first caution only, so a conflict warning appended
+    // to the end is a warning nobody ever reads.
+    const leading: string[] = [];
+    const isRetinoid = RETINOID.test(activesOf(item));
+    const isAcid = EXFOLIATING_ACID.test(activesOf(item));
+
+    if (retinoids.length && acids.length && (isRetinoid || isAcid)) {
+      const other = (isRetinoid ? acids : retinoids)[0];
+      leading.push(
+        `Use this on different nights from ${other.product.name} — an exfoliating acid and a retinoid in the same session is the usual cause of stinging and peeling.`,
+      );
+    }
+    if (sensitive && (isRetinoid || isAcid || POTENT.test(activesOf(item)))) {
+      leading.push("Start twice a week and build up, since you told me your skin reacts easily.");
+    }
+    return leading.length ? { ...item, cautions: [...leading, ...item.cautions] } : item;
+  });
+}
+
 /** The shopper-facing label for a step. */
 function slotLabel(step: RoutineStep) {
   return FACE_ROUTINE.find((entry) => entry.step === step)?.label ?? step;
@@ -310,7 +357,16 @@ function buildSummary(profile: IntakeProfileInput, safety: SafetyTriage, items: 
     return safety.referralMessage ?? "No suitable OTC products were found after safety filtering.";
   }
 
-  return `Here is a ${profile.routinePreference === "simple" ? "simple" : "balanced"} OTC routine for ${profile.mainConcern}. It uses only approved merchant catalog products and keeps safety level ${safety.level}.`;
+  const shape = profile.routinePreference === "simple" ? "simple" : "balanced";
+  // A shopper who skipped the question, or picked "none of the above", used to
+  // be told "Here is a balanced OTC routine for ." — naming the concern only
+  // works when there is one.
+  const concern = (profile.mainConcern ?? "").trim();
+  const named = concern && !/^(none|none of the above|n\/?a|nothing)$/i.test(concern);
+
+  return named
+    ? `Here is a ${shape} OTC routine for ${concern}. It uses only approved merchant catalog products and keeps safety level ${safety.level}.`
+    : `Here is a ${shape} OTC routine built from what you told me. It uses only approved merchant catalog products and keeps safety level ${safety.level}.`;
 }
 
 function baselineEvidence(product: ProductCatalogItem) {

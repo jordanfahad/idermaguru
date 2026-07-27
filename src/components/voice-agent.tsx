@@ -899,13 +899,17 @@ export function VoiceAgent({
                       {product.imageUrl ? (
                         <img
                           src={product.imageUrl}
-                          alt=""
+                          alt={`${product.brand ? `${product.brand} ` : ""}${product.name}`}
                           loading="lazy"
                           // Merchant catalogues carry dead image URLs; show the
-                          // neutral tile rather than a broken-image glyph.
+                          // neutral tile rather than a broken-image glyph. The
+                          // alt text goes too — a src-less img paints its alt
+                          // inside the tile, and the product name is already
+                          // spelled out beside it.
                           onError={(event) => {
                             event.currentTarget.classList.add("va-rx-noimg");
                             event.currentTarget.removeAttribute("src");
+                            event.currentTarget.alt = "";
                           }}
                         />
                       ) : (

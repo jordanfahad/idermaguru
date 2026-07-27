@@ -115,3 +115,89 @@ describe("recommendation filtering", () => {
     expect(result.items.every((item) => item.product.sensitiveSkinSuitable || item.product.category === "sunscreen")).toBe(true);
   });
 });
+
+describe("ingredient conflicts", () => {
+  const retinoid: ProductCatalogItem = {
+    ...seedProducts[0],
+    id: "conflict_retinoid",
+    sku: "CONF-RET",
+    name: "Retinol Night Serum",
+    category: "face serums",
+    description: "A retinol serum for lines and texture.",
+    activeIngredientsJson: ["retinol"],
+    concernsJson: ["wrinkles", "fine lines"],
+    merchantPriority: 99,
+  };
+  const acid: ProductCatalogItem = {
+    ...seedProducts[0],
+    id: "conflict_acid",
+    sku: "CONF-ACID",
+    name: "Glycolic Exfoliant 10%",
+    category: "exfoliants",
+    description: "A weekly glycolic exfoliant.",
+    activeIngredientsJson: ["glycolic acid"],
+    concernsJson: ["texture", "dullness"],
+    merchantPriority: 99,
+  };
+  const profile = { mainConcern: "wrinkles and rough texture", skinType: "normal" };
+  const layering = /different nights/i;
+
+  it("warns on both halves when a retinoid and an acid share a routine", () => {
+    const result = buildRecommendations({
+      tenantId: seedTenant.id,
+      profile,
+      safety: runSafetyTriage(profile),
+      products: [...seedProducts, retinoid, acid],
+      sponsoredEnabled: false,
+    });
+
+    const ret = result.items.find((item) => item.product.id === "conflict_retinoid");
+    const exf = result.items.find((item) => item.product.id === "conflict_acid");
+    expect(ret, "retinoid should be in the routine").toBeDefined();
+    expect(exf, "exfoliant should be in the routine").toBeDefined();
+    expect(ret!.cautions.some((c) => layering.test(c))).toBe(true);
+    expect(exf!.cautions.some((c) => layering.test(c))).toBe(true);
+
+    // The warning has to name the product to separate it from, or it is not
+    // actionable. The routine may hold more than one acid — the seed catalogue
+    // has an exfoliating toner too — so the retinoid may be paired with either.
+    const acidNames = result.items
+      .filter((item) => /glycolic|lactic|mandelic|salicylic|azelaic/i.test(item.product.activeIngredientsJson.join(" ")))
+      .map((item) => item.product.name);
+    expect(acidNames.length).toBeGreaterThan(0);
+    expect(ret!.cautions.some((c) => acidNames.some((name) => c.includes(name)))).toBe(true);
+    expect(exf!.cautions.some((c) => c.includes(retinoid.name))).toBe(true);
+  });
+
+  it("does not warn when only a retinoid is present", () => {
+    const noAcids = seedProducts.filter(
+      (product) => !/glycolic|lactic|mandelic|salicylic|azelaic/i.test(product.activeIngredientsJson.join(" ")),
+    );
+    const result = buildRecommendations({
+      tenantId: seedTenant.id,
+      profile,
+      safety: runSafetyTriage(profile),
+      products: [...noAcids, retinoid],
+      sponsoredEnabled: false,
+    });
+
+    expect(result.items.every((item) => item.cautions.every((c) => !layering.test(c)))).toBe(true);
+  });
+});
+
+describe("summary copy", () => {
+  it("does not name a concern the shopper never gave", () => {
+    for (const mainConcern of ["", "   ", "none of the above"]) {
+      const profile = { mainConcern };
+      const result = buildRecommendations({
+        tenantId: seedTenant.id,
+        profile,
+        safety: runSafetyTriage(profile),
+        products: seedProducts,
+        sponsoredEnabled: false,
+      });
+      expect(result.summary, JSON.stringify(mainConcern)).not.toMatch(/routine for\s*\./);
+      expect(result.summary).not.toMatch(/routine for none of the above/i);
+    }
+  });
+});
