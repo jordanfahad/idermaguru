@@ -24,7 +24,7 @@ import {
   type AgentLang,
   type AgentSlots,
 } from "@/services/voice-agent";
-import { derivedConcerns, productKind, routineStep } from "@/services/product-taxonomy";
+import { derivedConcerns, productFamily, productKind, routineStep, type RoutineStep } from "@/services/product-taxonomy";
 import { detectLanguage, isRtl, localise, type LanguageCode } from "@/services/language";
 import { jsonError, parseJson, RequestValidationError } from "../_shared";
 
@@ -394,7 +394,7 @@ export async function POST(request: Request) {
         pickHairProducts(products, slots.mainConcern ?? "", profile, tenant.id, safety),
       );
       return NextResponse.json({
-        reply: await say(hairMatches.length ? copy.result(hairMatches.length) : copy.noHairProducts),
+        reply: await say(hairMatches.length ? copy.hairResult(hairMatches.length) : copy.noHairProducts),
         phase: hairMatches.length ? "result" : "referral",
         slots: { ...slots, gaveRoutine: true, lastRoutine: hairMatches.map((match) => match.id) },
         safetyLevel: safety.level,
@@ -711,11 +711,21 @@ function speakable(spoken: LanguageCode, leadIn: string, question?: string): str
   return prefix ? [prefix, question] : [question];
 }
 
-const HAIR_LABELS: Record<string, string> = {
-  shampoo: "shampoo",
-  conditioner: "conditioner",
-  scalp: "scalp care",
-};
+/**
+ * A hair routine, in the order it is used.
+ *
+ * There was no plan here at all: the four best-scoring hair products were
+ * returned, so "dandruff" came back as the same Vichy anti-dandruff shampoo in
+ * 200ML and 390ML, plus two more shampoos. Every step is optional — a routine
+ * that skips what the catalogue cannot fill is honest.
+ */
+const HAIR_ROUTINE: { step: RoutineStep; label: string }[] = [
+  { step: "shampoo", label: "shampoo" },
+  { step: "conditioner", label: "conditioner" },
+  { step: "scalp", label: "scalp care" },
+  { step: "oil", label: "hair oil" },
+  { step: "mask", label: "weekly mask" },
+];
 
 /**
  * Hair and scalp matching. Runs the same hard safety filters as the routine
@@ -739,7 +749,7 @@ function pickHairProducts(
     .filter((entry) => entry.match.test(text))
     .map((entry) => entry.term);
 
-  return products
+  const ranked = products
     .filter((product) => passesHardFilters(product, profile, tenantId, safety))
     // Same hard gate as the face routine, in the other direction: a hair answer
     // is built from hair products, never from a face serum that happens to
@@ -751,9 +761,37 @@ function pickHairProducts(
       const specific = wants.filter((want) => tags.includes(want) || haystack.includes(want)).length;
       return { product, score: specific * 10 + product.merchantPriority / 100 };
     })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 4)
-    .map(({ product }) => ({
+    .sort((a, b) => b.score - a.score);
+
+  // One product per routine, not one row per routine — the guard the face
+  // builder has had for a while and this one never did. Two sizes of the same
+  // shampoo are two catalogue rows and one product to a shopper, and both were
+  // being offered as separate steps.
+  const seenFamilies = new Set<string>();
+  const distinct = ranked.filter(({ product }) => {
+    const family = productFamily(product.name);
+    if (!family) return true;
+    if (seenFamilies.has(family)) return false;
+    seenFamilies.add(family);
+    return true;
+  });
+
+  // Best product per step, in routine order. Nothing is picked twice, so a
+  // dandruff answer is a shampoo and the things you use alongside it.
+  const chosen: typeof distinct = [];
+  for (const entry of HAIR_ROUTINE) {
+    const match = distinct.find(
+      (candidate) =>
+        routineStep(candidate.product) === entry.step &&
+        !chosen.some((picked) => picked.product.id === candidate.product.id),
+    );
+    if (match) chosen.push(match);
+  }
+
+  return chosen.slice(0, 4).map(({ product }) => {
+    const step = routineStep(product);
+    const label = HAIR_ROUTINE.find((entry) => entry.step === step)?.label ?? "hair & scalp";
+    return {
       id: product.id,
       name: product.name,
       brand: product.brand,
@@ -762,14 +800,19 @@ function pickHairProducts(
       currency: product.currency,
       imageUrl: product.imageUrl ?? null,
       url: product.url,
-      step: routineStep(product),
-      slot: HAIR_LABELS[routineStep(product)] ?? "hair & scalp",
+      step,
+      slot: label,
       reason: wants.length
         ? `Chosen for the ${wants.slice(0, 2).join(" and ")} you described.`
-        : `A ${HAIR_LABELS[routineStep(product)] ?? "hair"} step for what you described.`,
+        : `Your ${label} step for what you described.`,
+      expectedResults:
+        step === "shampoo"
+          ? "Flaking and itch usually settle within two to four weeks of regular washes."
+          : "Hair and scalp are slow — most people give a new step six to eight weeks.",
       cautions: ["Patch test before first use.", "Follow the label directions."],
       sponsored: false,
-    }));
+    };
+  });
 }
 
 const BODY_LABELS: Record<string, string> = {

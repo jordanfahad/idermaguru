@@ -1,4 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+// Type-only. The SDK itself is a large package and every cold start of the
+// voice route was paying to load it, on a path that — with the optional model
+// enrichments off — usually never calls Anthropic at all. It is imported for
+// real the first time a request actually needs it.
+import type Anthropic from "@anthropic-ai/sdk";
 import {
   ESCALATION_MESSAGE,
   type IntakeProfileInput,
@@ -362,7 +366,15 @@ class AnthropicProvider implements LLMProvider {
   // Quality-first synthesis on Opus 4.8; fast/cheap chat + classification on Haiku 4.5 (spec §6.2).
   private readonly synthesisModel = SYNTHESIS_MODEL;
   private readonly chatModel = CHAT_MODEL;
-  private client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 1 });
+  private clientPromise?: Promise<Anthropic>;
+
+  /** Loads the SDK on first use, then hands back the same client. */
+  private client(): Promise<Anthropic> {
+    this.clientPromise ??= import("@anthropic-ai/sdk").then(
+      (module) => new module.default({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 1 }),
+    );
+    return this.clientPromise;
+  }
 
   async generateAssistantMessage(context: AssistantMessageContext) {
     // Red flags force the safe path regardless of the model (spec §3.2).
@@ -452,7 +464,8 @@ class AnthropicProvider implements LLMProvider {
     maxTokens: number,
   ): Promise<string> {
     try {
-      const response = await this.client.messages.create({
+      const client = await this.client();
+      const response = await client.messages.create({
         model,
         max_tokens: maxTokens,
         system,
@@ -470,10 +483,13 @@ class AnthropicProvider implements LLMProvider {
 }
 
 function toAnthropicProviderError(error: unknown, providerId: string): unknown {
-  if (error instanceof Anthropic.APIError) {
-    // APIConnectionError and friends have an undefined status → isUnavailableStatus(undefined) is true.
+  // Read structurally rather than with `instanceof Anthropic.APIError`, which
+  // would drag the SDK back into the module graph of every cold start purely to
+  // classify an error. APIConnectionError and friends carry no status, and
+  // isUnavailableStatus(undefined) is true, so a network fault still falls back.
+  if (error && typeof error === "object" && "status" in error && (error as { name?: string }).name?.includes("Error")) {
     const status = (error as { status?: number }).status;
-    if (isUnavailableStatus(status)) {
+    if (typeof status === "number" ? isUnavailableStatus(status) : true) {
       return new ProviderUnavailableError(providerId, status, error);
     }
   }

@@ -105,10 +105,18 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Everything except Next's internals and static files. The previous list
-    // named only /admin and the widget APIs, so the middleware never ran on a
-    // page route at all — which meant an advisor subdomain would have served
-    // the marketing homepage, with the admin login one path away.
-    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:js|css|map|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|mp3|txt|xml)$).*)",
+    // Everything except Next's internals, static files, and the speech route.
+    //
+    // The previous list named only /admin and the widget APIs, so the
+    // middleware never ran on a page route at all — which meant an advisor
+    // subdomain would have served the marketing homepage, with the admin login
+    // one path away.
+    //
+    // Speech is excluded deliberately. Those responses are `public, immutable`
+    // so they can be served from a point of presence near the shopper, and
+    // there is nothing to gain from waking middleware on an audio file that is
+    // already allowed on every host. Running on it risks the one cache that
+    // matters most for how fast the advisor feels.
+    "/((?!_next/static|_next/image|favicon\\.ico|api/voice-agent/speech|.*\\.(?:js|css|map|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|mp3|txt|xml)$).*)",
   ],
 };

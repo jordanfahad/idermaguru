@@ -26,6 +26,7 @@ export type RoutineStep =
   | "mask"
   | "shampoo"
   | "conditioner"
+  | "oil"
   | "scalp";
 
 /**
@@ -99,6 +100,22 @@ function faceStepIn(text: string): RoutineStep | null {
 }
 
 /**
+ * Which step of a hair routine a product occupies.
+ *
+ * A mask is not a conditioner and an oil is not a scalp tonic — a shopper with
+ * dandruff wants a shampoo, something to leave on, and something for the scalp,
+ * not four bottles of shampoo.
+ */
+function hairStepIn(text: string): RoutineStep | null {
+  if (/\b(shampoos?|anti[- ]?dandruff wash)\b/.test(text)) return "shampoo";
+  if (/\b(conditioners?|deep conditioning|leave[- ]?in|detangl\w*)\b/.test(text)) return "conditioner";
+  if (/\b(hair masks?|scalp masks?|hair treatments? masks?)\b/.test(text)) return "mask";
+  if (/\b(hair oils?|scalp oils?|argan oil|castor oil|coconut oil|hair serums?)\b/.test(text)) return "oil";
+  if (/\b(scalp|tonics?|lotions?|ampoules?|serums?|anti[- ]?hair ?loss|growth)\b/.test(text)) return "scalp";
+  return null;
+}
+
+/**
  * Which step of a routine a product occupies. Only meaningful for face and hair
  * products; everything else is filtered out before this is asked.
  *
@@ -111,11 +128,12 @@ export function routineStep(product: Pick<ProductCatalogItem, "category" | "name
   const label = labelOf(product);
   const text = textOf(product);
 
+  // Hair care has as many steps as face care does. Collapsing all of it into
+  // three — and folding masks in with conditioners — left the routine builder
+  // nothing to build a varied routine out of, so a dandruff answer came back as
+  // four shampoos.
   if (productKind(product) === "hair") {
-    const hair = `${label} ${text}`;
-    if (/\bshampoos?\b/.test(hair)) return "shampoo";
-    if (/\b(conditioners?|hair masks?|deep conditioning)\b/.test(hair)) return "conditioner";
-    return "scalp";
+    return hairStepIn(label) ?? hairStepIn(text) ?? "scalp";
   }
 
   // Serums, ampoules and spot treatments all land in "treatment", as does any

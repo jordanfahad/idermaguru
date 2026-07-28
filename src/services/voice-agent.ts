@@ -481,6 +481,10 @@ const COPY = {
       `I've had another look and I'd still put you on the same ${count} steps — nothing else here fits you better. Tell me what you'd change about it and I'll have another go.`,
     result: (count: number) =>
       `Here's a simple routine with ${count} product${count === 1 ? "" : "s"} matched from the store. I've kept it conservative — patch test anything new, and use sunscreen every morning.`,
+    // The face line told a shopper with dandruff to use sunscreen every
+    // morning: good advice, and nothing to do with what they asked about.
+    hairResult: (count: number) =>
+      `Here's a ${count}-step hair and scalp routine from the store. Scalps are slower than faces, so give it a few weeks of regular washes — and patch test anything new.`,
     bodyResult: (count: number, area: string) =>
       `Here's what the store has for ${area} — ${count} product${count === 1 ? "" : "s"}, kept gentle. Patch test on a small area first, and give it a couple of weeks before you judge it.`,
   },
@@ -536,6 +540,8 @@ const COPY = {
       `راجعت مرة أخرى وما زلت أقترح الخطوات الـ${count} نفسها — لا يوجد هنا ما يناسبك أكثر. أخبرني بما تريد تغييره وسأحاول مجدداً.`,
     result: (count: number) =>
       `هذا روتين بسيط يضم ${count} منتج مطابق من المتجر. أبقيته متحفظاً — جرّب المنتج على مساحة صغيرة أولاً، واستخدم واقي الشمس كل صباح.`,
+    hairResult: (count: number) =>
+      `هذا روتين للشعر وفروة الرأس من ${count} خطوات. فروة الرأس أبطأ من الوجه، فامنحه بضعة أسابيع من الغسل المنتظم — وجرّب أي منتج جديد على مساحة صغيرة أولاً.`,
     bodyResult: (count: number, area: string) =>
       `هذا ما يوفّره المتجر لـ${area} — ${count} منتج، اخترتها لطيفة. جرّبها على مساحة صغيرة أولاً، وامنحها أسبوعين قبل الحكم عليها.`,
   },
@@ -591,6 +597,7 @@ export function fixedLines(lang: AgentLang): string[] {
     copy.nothingStronger,
     ESCALATION_MESSAGE,
     ...COUNTS.map((count) => copy.result(count)),
+    ...COUNTS.map((count) => copy.hairResult(count)),
     ...COUNTS.map((count) => copy.sameAgain(count)),
     ...COUNTS.map((count) => copy.adjusted.fuller(count)),
     ...COUNTS.map((count) => copy.adjusted.simpler(count)),

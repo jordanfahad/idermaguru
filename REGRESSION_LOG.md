@@ -318,3 +318,18 @@ merchant catalogue of 876 in-stock products.
 - **Cause 3 — model calls in the blocking path.** The opening turn waited on an intake reading, and the result turn on a model phrasing. Both produce text no cache has ever seen, so each cost a model round trip *and* a fresh synthesis.
 - **Fix:** `vercel.json` pins `bom1` — same region as the database, and roughly 2,000 km from Dubai instead of 11,000. `fixedLines()` now enumerates all 83 deterministic lines per language, so they are fetched by URL and kept by the browser for an hour; 21 of them are prewarmed while the shopper is still reading the greeting. The three optional model enrichments are off unless `ADVISOR_RICH_REPLIES=1`. `readAnswer` is deliberately not gated — it only runs when the parser could not place an answer at all, and it is what catches "I have horns".
 - **Guarded by:** `tests/spoken-lines.test.ts` — a fixed line that is not cacheable fails the build.
+
+### R-031 — Four steps of dandruff routine, two of them the same shampoo
+- **Symptom:** a shopper asked about dandruff and got the same Vichy DERCOS anti-dandruff shampoo twice — 200ML and 390ML — as two separate steps of a four-step routine, with the rest also shampoo.
+- **Cause 1:** `pickHairProducts` is a separate function from the face builder and never got the `productFamily` guard that stops two sizes of one product reading as two products.
+- **Cause 2, the bigger one:** it had no concept of a step at all. It took the four best-scoring hair products, and for "dandruff" every high scorer is a shampoo.
+- **Cause 3:** the hair taxonomy had three steps and folded hair masks in with conditioners, so there was nothing to build a varied routine out of even if it had tried.
+- **Fix:** hair products classify into shampoo / conditioner / mask / oil / scalp, and the hair answer follows a plan — shampoo, conditioner, scalp care, hair oil, weekly mask — picking the best of each and never the same product twice.
+- **Also:** the hair reply used the face copy, so a shopper with dandruff was told to use sunscreen every morning. There is a hair line now, and it is cacheable like the rest.
+- **Guarded by:** `tests/hair-routine.test.ts`.
+
+### R-032 — Cold starts loaded a large SDK to not use it
+- **Symptom:** part of why the advisor still felt slow at low traffic, when most requests land on a cold instance.
+- **Cause:** `@anthropic-ai/sdk` was a static import of the LLM provider module, so every cold start of the voice route paid to load it — on a path that, with the optional model enrichments off, usually never calls Anthropic at all.
+- **Fix:** type-only import, with the SDK loaded on first real use. Error classification reads the status structurally rather than through `instanceof Anthropic.APIError`, which would have dragged the package back in purely to classify a failure.
+- **Also:** the middleware matcher no longer matches `/api/voice-agent/speech`. Those responses are `public, immutable` so they can serve from a point of presence near the shopper, and waking middleware on them risks the one cache that matters most for how fast the advisor feels.
