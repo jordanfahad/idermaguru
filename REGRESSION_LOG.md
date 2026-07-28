@@ -303,3 +303,10 @@ merchant catalogue of 876 in-stock products.
 - **Fix:** `awaitingArea` guards the classifier the same way `awaitingAllergens` does. Whatever is said while a question is open is an answer to that question.
 - **Why 258 tests missed it:** every dialogue test called `updateSlots` and `nextQuestion` directly. The route runs distress, triage, opening and tangent classifiers *in front* of those, and none of that was under test.
 - **Guarded by:** `tests/voice-agent-route.test.ts` — nine cases that drive whole conversations through the endpoint the browser calls. Verified to fail without the fix.
+
+### R-029 — An advisor subdomain would have served the marketing site and the admin login
+- **Symptom:** found while planning `advisor.cicabelle.com`, before any DNS was created. Two faults, either of which alone would have made the subdomain unusable.
+- **Cause 1:** the advisor lives at `/advisor`, so `advisor.cicabelle.com/` would have served DermaGuru's marketing homepage — on the merchant's brand.
+- **Cause 2:** the middleware matcher named only `/admin` and the widget APIs, so it never ran on a page route at all. Host-based routing was not possible and the whole site — pricing, login, dashboard, `/admin/login` — was reachable on the merchant's subdomain.
+- **Fix:** the matcher covers every non-static path, and an advisor host serves the advisor at `/` (rewritten, so the address bar stays clean), the APIs it calls, and the two legal pages its disclaimer links to. Everything else redirects to `/`. `ADVISOR_HOSTS` names the hosts explicitly; the default is any `advisor.*`.
+- **Guarded by:** `tests/advisor-host.test.ts`, including that nothing changes on `idermaguru.com`.

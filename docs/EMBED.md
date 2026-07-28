@@ -180,3 +180,38 @@ to a live consultation. That is the behaviour to keep.
   the parent page, or the subdomain setup plus a proxy. Neither exists today.
 - **A Shopify app listing.** This is a script tag and an iframe, not an app —
   nothing to submit and no review to pass, which is why it can go live today.
+
+---
+
+## Setting up `advisor.cicabelle.com`
+
+Do this **after** the advisor is live on production — the subdomain serves
+`/advisor`, and pointing DNS at a build that does not have that route yet gives
+you a 404 on the one page it exists for.
+
+1. **Vercel → the project → Settings → Domains → Add.** Enter
+   `advisor.cicabelle.com`. Vercel shows the record to create.
+2. **Wherever cicabelle.com's DNS lives** (Shopify admin → Domains → manage →
+   DNS settings, if Shopify holds it) add the CNAME Vercel gave you —
+   `advisor` → `cname.vercel-dns.com`.
+3. **Wait for the certificate.** Vercel issues it automatically, usually within
+   a few minutes of the record resolving.
+4. **Optional but tidier:** set `ADVISOR_HOSTS=advisor.cicabelle.com` in the
+   project's environment variables. Without it, any `advisor.*` host is treated
+   as an advisor host, which is the right default but less explicit.
+
+### What that host will and will not serve
+
+The middleware treats an advisor host as a single-purpose surface:
+
+| Path | Behaviour |
+|---|---|
+| `/` | **Is** the advisor. Rewritten internally, so the address bar stays `advisor.cicabelle.com` — no `/advisor` on the end. |
+| `/advisor`, `/api/*`, `/privacy-policy`, `/terms-of-use` | Served |
+| Anything else — `/admin`, `/dashboard`, `/pricing`, `/login`, the marketing site | Redirected to `/` |
+
+That last row is the point. Without it a Cicabelle-branded subdomain would also
+serve DermaGuru's marketing site, pricing page and **admin login**. Guarded by
+`tests/advisor-host.test.ts`.
+
+Nothing about `idermaguru.com` changes.
