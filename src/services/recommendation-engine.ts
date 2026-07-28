@@ -47,6 +47,13 @@ export function buildRecommendations(input: {
   safety: SafetyTriage;
   products: ProductCatalogItem[];
   sponsoredEnabled?: boolean;
+  /**
+   * Products the caller has since found the storefront will not sell. Passed as
+   * a rebuild rather than filtered out of the result, so a sold-out cleanser is
+   * replaced by the next-best cleanser instead of leaving the routine without
+   * one.
+   */
+  excludeProductIds?: Set<string>;
 }): RoutineRecommendation {
   if (!input.safety.recommendationAllowed) {
     return {
@@ -57,11 +64,13 @@ export function buildRecommendations(input: {
     };
   }
 
+  const excluded = input.excludeProductIds ?? new Set<string>();
   const safeProducts = input.products.filter(
     (product) =>
       // A face routine is built from face products only. Nothing else is a
       // near miss worth ranking — a shampoo is not a weaker serum.
       productKind(product) === "face" &&
+      !excluded.has(product.id) &&
       passesHardFilters(product, input.profile, input.tenantId, input.safety),
   );
 

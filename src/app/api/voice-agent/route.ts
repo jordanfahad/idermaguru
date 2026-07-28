@@ -6,6 +6,9 @@ import { getTenantBySlug, listTenantProducts } from "@/services/catalog";
 import { getLLMProvider, UNREADABLE_ANSWER } from "@/services/llm/provider";
 import { buildRecommendations, passesHardFilters } from "@/services/recommendation-engine";
 import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safety-triage";
+import { areaLabel, areaRoute, type BodyArea } from "@/services/body-area";
+import { classifyDistress, distressCopy, reactionTo, REACTION_PROMPT, usableReaction } from "@/services/empathy";
+import { soldOutProductIds } from "@/services/stock";
 import {
   agentCopy,
   classifyAside,
@@ -20,7 +23,7 @@ import {
   type AgentLang,
   type AgentSlots,
 } from "@/services/voice-agent";
-import { productKind, routineStep } from "@/services/product-taxonomy";
+import { derivedConcerns, productKind, routineStep } from "@/services/product-taxonomy";
 import { detectLanguage, isRtl, localise, type LanguageCode } from "@/services/language";
 import { jsonError, parseJson, RequestValidationError } from "../_shared";
 
@@ -31,13 +34,18 @@ const SlotsSchema = z.object({
   skinType: z.string().optional(),
   pregnantOrBreastfeeding: z.boolean().optional(),
   allergies: z.array(z.string()).optional(),
+  bodyArea: z
+    .enum(["face", "neck", "scalp", "hands", "underarms", "elbows-knees", "feet", "intimate", "body"])
+    .optional(),
   askedPregnancy: z.boolean().optional(),
   askedAllergies: z.boolean().optional(),
   askedSkinType: z.boolean().optional(),
+  askedBodyArea: z.boolean().optional(),
   askedAllergyNames: z.boolean().optional(),
   // Must be listed, or zod strips it from the round trip and the agent forgets
   // it gave up on the skin type — then asks for it again after the next answer.
   skinTypeUnknown: z.boolean().optional(),
+  bodyAreaUnknown: z.boolean().optional(),
   misses: z.number().optional(),
   offTopic: z.number().optional(),
 });
@@ -87,6 +95,27 @@ export async function POST(request: Request) {
     }
 
     const before = (input.slots ?? {}) as AgentSlots;
+
+    // SOMEONE IN TROUBLE GETS A HUMAN ANSWER BEFORE ANY OTHER RULE APPLIES.
+    //
+    // "I have a bullet wound" was answered with "Just to be clear, I only cover
+    // skin and hair here" — true, and a horrible thing to say to someone. The
+    // clinical triage below never saw it (no pattern in it mentions being shot)
+    // and the tangent classifier did exactly what it was built to do. This runs
+    // ahead of both: the reply is the same referral either way, but it opens by
+    // acknowledging what was actually said.
+    const distress = classifyDistress(input.utterance);
+    if (distress) {
+      return NextResponse.json({
+        reply: await say(distressCopy(distress, lang)),
+        phase: "referral",
+        slots: before,
+        products: [],
+        safetyLevel: distress === "urgent-care" ? "REFER_CLINIC" : "URGENT",
+        language: spoken,
+        rtl: isRtl(spoken),
+      });
+    }
 
     // SAFETY RUNS FIRST, ON EVERY TURN, BEFORE ANYTHING CAN SHORT-CIRCUIT IT.
     //
@@ -249,6 +278,21 @@ export async function POST(request: Request) {
       }
     }
 
+    // Intimate skin never reaches the product engine. Asked about often and
+    // answered badly everywhere, so the reply says so plainly, without
+    // embarrassment, and sends them to someone who can actually look.
+    if (slots.bodyArea === "intimate") {
+      return NextResponse.json({
+        reply: await say(copy.intimateArea),
+        phase: "referral",
+        slots,
+        products: [],
+        safetyLevel: "REFER_CLINIC",
+        language: spoken,
+        rtl: isRtl(spoken),
+      });
+    }
+
     // Still gathering the required intake -> ask the next question.
     const pending = nextQuestion(slots, lang);
     if (pending) {
@@ -271,13 +315,15 @@ export async function POST(request: Request) {
         !before.mainConcern && slots.mainConcern && slots.mainConcern.length <= 60
           ? copy.heardConcern(slots.mainConcern)
           : "";
-      const prefix = misheard
-        ? `${copy.repeat} `
-        : learned
-          ? `${copy.understood(learned)} `
-          : openingConcern
-            ? `${openingConcern} `
-            : "";
+      // React to what was said before asking the next thing. "I have a rash"
+      // used to be met with a flat "Got it." and a question about whether the
+      // shopper's skin is oily; a person would have said they were sorry first.
+      const reaction = misheard ? "" : await empathise(input.utterance, lang, !before.mainConcern);
+      const acknowledgement = learned ? copy.understood(learned) : openingConcern;
+      const leadIn = misheard
+        ? copy.repeat
+        : [reaction, reaction && !learned ? "" : acknowledgement].filter(Boolean).join(" ");
+      const prefix = leadIn ? `${leadIn} ` : "";
       // Never repeat the transcript back: speech-to-text mistakes ("I'm a man"
       // -> "I am a mad") turn a friendly echo into an insult.
       return NextResponse.json({
@@ -311,13 +357,16 @@ export async function POST(request: Request) {
     }
 
     const products = await listTenantProducts(input.tenantSlug);
+    const where = areaRoute(slots.bodyArea);
 
     // Hair and scalp concerns don't fit the face-routine slot model, so match
     // them directly against the catalogue instead of building an AM/PM routine.
     // If the merchant stocks nothing suitable we say so rather than selling a
     // face routine for dandruff.
-    if (isHairConcern(slots.mainConcern ?? "")) {
-      const hairMatches = pickHairProducts(products, slots.mainConcern ?? "", profile, tenant.id, safety);
+    if (where === "hair" || isHairConcern(slots.mainConcern ?? "")) {
+      const hairMatches = await inStockOnly(
+        pickHairProducts(products, slots.mainConcern ?? "", profile, tenant.id, safety),
+      );
       return NextResponse.json({
         reply: await say(hairMatches.length ? copy.result(hairMatches.length) : copy.noHairProducts),
         phase: hairMatches.length ? "result" : "referral",
@@ -328,7 +377,29 @@ export async function POST(request: Request) {
         products: hairMatches,
       });
     }
-    const recommendation = buildRecommendations({
+
+    // Knuckles, elbows, underarms, feet. A face routine is the wrong answer
+    // here and saying so is better than selling one: the products are formulated
+    // for facial skin, and body skin is thicker and behaves differently.
+    if (where === "body") {
+      const area = areaLabel(slots.bodyArea as BodyArea, lang);
+      const bodyMatches = await inStockOnly(
+        pickBodyProducts(products, slots.mainConcern ?? "", profile, tenant.id, safety),
+      );
+      return NextResponse.json({
+        reply: await say(
+          bodyMatches.length ? copy.bodyResult(bodyMatches.length, area) : copy.noBodyProducts(area),
+        ),
+        phase: bodyMatches.length ? "result" : "referral",
+        slots,
+        safetyLevel: safety.level,
+        language: spoken,
+        rtl: isRtl(spoken),
+        products: bodyMatches,
+      });
+    }
+
+    const recommendation = await inStockRoutine({
       tenantId: tenant.id,
       profile,
       safety,
@@ -404,6 +475,85 @@ export async function POST(request: Request) {
     if (error instanceof RequestValidationError) return jsonError(error.message);
     throw error;
   }
+}
+
+/**
+ * A routine containing nothing the storefront refuses to sell.
+ *
+ * A shopper reached checkout with a cleanser the shop then removed from their
+ * cart as SOLD OUT. The catalogue's `inStock` flag was not wrong so much as
+ * old — it is written at sync time and the merchant sells out between syncs.
+ *
+ * Sold-out items are excluded and the routine is REBUILT rather than trimmed,
+ * so the next-best cleanser takes the missing cleanser's place instead of the
+ * shopper being handed a routine with no cleanser in it. Bounded to three
+ * attempts; the availability lookups are cached, so the later passes are
+ * usually free.
+ */
+async function inStockRoutine(base: Parameters<typeof buildRecommendations>[0]) {
+  const excluded = new Set<string>();
+  let routine = buildRecommendations(base);
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (!routine.items.length) break;
+    const soldOut = await soldOutProductIds(
+      routine.items.map((item) => ({ id: item.product.id, url: item.product.url })),
+    );
+    if (!soldOut.size) break;
+    soldOut.forEach((id) => excluded.add(id));
+    routine = buildRecommendations({ ...base, excludeProductIds: excluded });
+  }
+
+  return routine;
+}
+
+/** The same check for the hair and body lists, which are picked, not built. */
+async function inStockOnly<T extends { id: string; url: string }>(picks: T[]): Promise<T[]> {
+  if (!picks.length) return picks;
+  const soldOut = await soldOutProductIds(picks);
+  return soldOut.size ? picks.filter((pick) => !soldOut.has(pick.id)) : picks;
+}
+
+/**
+ * The sentence a person would say before getting on with the question.
+ *
+ * The deterministic reaction covers the cases worth being sure about — pain,
+ * frustration, embarrassment, worry — and returns nothing when the utterance
+ * carries no feeling, because inventing sympathy for "I want a glow routine"
+ * is worse than saying "Got it.".
+ *
+ * When a model is configured it gets one attempt at something better, on the
+ * opening turn only: that is where warmth is worth a round trip, and later
+ * turns are one-word answers with no feeling in them. Whatever it writes is
+ * checked for questions, advice, products and diagnoses before it is used.
+ */
+async function empathise(utterance: string, lang: AgentLang, opening: boolean): Promise<string> {
+  const deterministic = reactionTo(utterance, lang);
+  if (deterministic) return deterministic;
+  // English only: the models are not prompted in Arabic, and the authored
+  // Arabic reactions above already cover the cases that matter.
+  if (!opening || lang !== "en" || utterance.trim().split(/\s+/).length < 3) return "";
+
+  const provider = getLLMProvider();
+  if ((provider.lastUsedId ?? provider.id) === "mock") return "";
+
+  const safe = { level: "LOW" as const, reasons: [], recommendationAllowed: true };
+  const written = await withBudget(
+    provider.generateAssistantMessage({
+      messages: [
+        { role: "system", content: REACTION_PROMPT },
+        { role: "user", content: utterance },
+      ],
+      approvedProducts: [],
+      safety: safe,
+    }),
+    1200,
+    "",
+  );
+
+  const reaction = usableReaction(written);
+  if (!reaction) return "";
+  return validateAssistantTextForSafety(reaction, safe).recommendationAllowed ? reaction : "";
 }
 
 /**
@@ -506,6 +656,82 @@ function pickHairProducts(
       cautions: ["Patch test before first use.", "Follow the label directions."],
       sponsored: false,
     }));
+}
+
+const BODY_LABELS: Record<string, string> = {
+  cleanser: "wash",
+  moisturizer: "moisturiser",
+  sunscreen: "sunscreen",
+  exfoliant: "weekly exfoliant",
+  treatment: "targeted step",
+};
+
+/**
+ * Body, hand and foot matching.
+ *
+ * A dark-knuckles or rough-elbows question used to be answered with a facial
+ * routine, because a face routine was the only thing the agent could build.
+ * Body skin is thicker and tolerates different things, and the products made
+ * for it are a different part of the catalogue — so this reads that part, under
+ * the same hard safety filters as everything else.
+ *
+ * The reasons stay cosmetic. "Evens tone" is a claim about how skin looks;
+ * "lightens" and "whitens" are claims this advisor does not make.
+ */
+function pickBodyProducts(
+  products: ProductCatalogItem[],
+  concern: string,
+  profile: IntakeProfileInput,
+  tenantId: string,
+  safety: SafetyTriage,
+) {
+  const text = concern.toLowerCase();
+  const wants = [
+    { term: "dark spots", match: /dark|pigment|discolou?r|uneven|tone|melasma/ },
+    { term: "dryness", match: /dry|crack|flak|peel|rough|scal/ },
+    { term: "texture", match: /texture|bump|smooth|thick|callus|ingrown/ },
+    { term: "redness", match: /red|irritat|itch|rash|sensitiv|chaf/ },
+  ]
+    .filter((entry) => entry.match.test(text))
+    .map((entry) => entry.term);
+
+  return products
+    .filter((product) => passesHardFilters(product, profile, tenantId, safety))
+    .filter((product) => productKind(product) === "body")
+    .map((product) => {
+      const tags = [...product.concernsJson, ...derivedConcerns(product)].map((tag) => tag.toLowerCase());
+      const haystack = `${product.name} ${product.category} ${product.description}`.toLowerCase();
+      const specific = wants.filter((want) => tags.includes(want) || haystack.includes(want)).length;
+      return { product, score: specific * 10 + product.merchantPriority / 100 };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4)
+    .map(({ product }) => {
+      const step = routineStep(product);
+      return {
+        id: product.id,
+        name: product.name,
+        brand: product.brand,
+        category: product.category,
+        price: product.price,
+        currency: product.currency,
+        imageUrl: product.imageUrl ?? null,
+        url: product.url,
+        step,
+        slot: BODY_LABELS[step] ?? "body care",
+        reason: wants.length
+          ? `Chosen for the ${wants.slice(0, 2).join(" and ")} you described.`
+          : "A gentle body step for what you described.",
+        expectedResults:
+          "Body skin is slower than facial skin — most people give this six to eight weeks of daily use before judging it.",
+        cautions: [
+          "Patch test on a small area before first use.",
+          "Stop use if severe irritation occurs.",
+          "Follow the label directions.",
+        ],
+        sponsored: false,
+      };
+    });
 }
 
 /**

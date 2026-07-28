@@ -228,3 +228,31 @@ merchant catalogue of 876 in-stock products.
 - **Cause:** the visual pill size was used as the hit area.
 - **Fix:** the pill stays 28px; a pseudo-element gives it a 44px hit area. Mode, skin and restart buttons raised to a 44px minimum.
 - **Verified:** a click 17px outside the visual circle toggles the button.
+
+### R-016 — "I have a bullet wound" → "Just to be clear, I only cover skin and hair here."
+- **Symptom:** a shopper describing a serious injury was answered with a canned redirect to skincare.
+- **Cause:** the clinical triage has no pattern for being shot, stabbed or breaking a bone, so the utterance fell through to the tangent classifier — which did exactly what it was built to do.
+- **Fix:** `services/empathy.ts` classifies distress (emergency / urgent care / crisis) ahead of everything else on every turn, and answers with concern first and a place to go second.
+- **Guarded by:** `tests/empathy.test.ts` — "someone in trouble", plus "not an emergency" for the skin complaints that share a word with one.
+
+### R-017 — "I have a rashes" → "How would you describe your skin — oily, dry, combination, or sensitive?"
+- **Symptom:** a symptom that could be anywhere on the body was answered with a question about a face, then a face routine.
+- **Cause:** the dialogue had no concept of where the concern was; the face routine was the only thing it could build.
+- **Fix:** a `bodyArea` slot, asked before the skin-type question when the concern is location-dependent and the shopper has not already said where. Face and neck take the existing routine, scalp takes the hair path, hands/underarms/elbows/knees/feet/body build from body products, and intimate skin is answered by a person rather than a product.
+- **Guarded by:** `tests/body-area.test.ts`.
+
+### R-018 — "dark knuckles" was off-topic
+- **Symptom:** dark knuckles, dark elbows and darkening underarms — three of the most-asked questions in the market this ships to — were all answered with "I only cover skin and hair here".
+- **Cause:** none of those phrases contains a word from the skin vocabulary, which listed conditions and body parts but no words for how skin *looks*.
+- **Fix:** a separate appearance vocabulary (dark, uneven, ashy, blotchy, rough…). Body parts still do not count on their own, so "my elbow hurts" is still not a skincare concern.
+
+### R-019 — "dry patches" recorded as a dry skin type
+- **Symptom:** the agent read back "dry skin" to a shopper who had said no such thing, and — believing it was talking about a face — skipped the question about where the patches were.
+- **Cause:** the inline slot harvester ran the skin-type reader over the whole sentence, and "dry patches" contains "dry".
+- **Fix:** an inline skin type is only taken when the word is attached to the skin ("dry skin", "my skin is dry") or the whole utterance is the answer.
+
+### R-020 — A sold-out product recommended through to checkout
+- **Symptom:** a shopper reached Shopify checkout and had the cleanser removed from their cart: "La Roche-Posay Toleriane Face Wash Cleanser, 400ml — SOLD OUT".
+- **Cause:** `Product.inStock` is written at sync time and nothing re-reads it; the merchant sold out in between.
+- **Fix:** `services/stock.ts` checks the storefront's own public `/products/<handle>.js` for the handful of products about to be shown. Sold-out items are excluded and the routine is **rebuilt**, so the next-best cleanser replaces the missing one instead of the routine losing a step. Fails open — a network fault is not evidence a product is unavailable.
+- **Guarded by:** `tests/stock.test.ts`.

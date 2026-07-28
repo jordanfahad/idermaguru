@@ -126,8 +126,11 @@ export const IMAGE_CONSENT_TEXT =
 export const SPONSORED_DISCLOSURE =
   "Some recommendations may include sponsored partner products. They are shown only after passing safety and suitability checks.";
 
+// Written to sound like a person who was listening. The old version opened
+// "Based on what you shared, this may need a clinician's review" — accurate, and
+// a cold thing to read when you have just described something frightening.
 export const ESCALATION_MESSAGE =
-  "Based on what you shared, this may need a clinician's review. AI Derma Guru can help with general OTC skincare guidance, but it can't diagnose or treat this here. Please contact a dermatologist or doctor. If you have trouble breathing, swelling of the lips, tongue, or face, fever, rapidly spreading redness, severe pain, or eye involvement, seek urgent care.";
+  "Thanks for telling me — and I'd rather be straight with you: what you're describing is one for a real clinician, not a shop's advisor. I can help with everyday over-the-counter skincare, but I can't diagnose this or work out what's behind it, and guessing wouldn't be fair to you. Please get it looked at by a dermatologist or doctor. If there's trouble breathing, swelling of the lips, tongue or face, a fever, redness spreading quickly, severe pain, or anything involving your eyes, don't wait for an appointment — go to urgent care.";
 
 // Replaces assistant output that slips a diagnostic conclusion, a treat/cure/prevent
 // claim, or a guaranteed-result claim through the model (output gate, spec §3.3).
