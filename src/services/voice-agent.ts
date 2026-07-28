@@ -813,7 +813,7 @@ export function slotsToProfile(slots: AgentSlots, sessionId?: string): IntakePro
     sensitivity: slots.gentle ? "very high" : slots.skinType === "sensitive" ? "high" : "low",
     pregnantOrBreastfeeding: slots.pregnantOrBreastfeeding ?? false,
     allergies: slots.allergies ?? [],
-    routinePreference: slots.routineShape === "full" ? "balanced" : "simple",
+    routinePreference: slots.routineShape === "full" ? "full" : "simple",
     secondaryConcerns: [],
     currentProducts: [],
     currentActives: [],

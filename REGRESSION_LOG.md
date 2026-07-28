@@ -268,3 +268,14 @@ merchant catalogue of 876 in-stock products.
 - **Cause:** the dialogue had no post-result state. `routinePreference` was hardcoded to "simple" and nothing ever read a follow-up.
 - **Fix:** `readAdjustment` reads fuller / simpler / gentler, carried in the slots as `routineShape` and `gentle`. Gentler is matched *before* stronger, because "too strong" is a request for less and contains the word the stronger patterns look for. Gentler sets sensitivity to "very high", which is what the hard filter reads — so the strong acids are actually removed rather than merely re-ranked. The reply names what changed. Asking for stronger having just said it stings says so instead of silently putting the actives back.
 - **Also:** the routine on screen is carried in the slots, so when a rebuild produces the identical list the advisor says so — "I'd still put you on the same 4 steps" — rather than replaying the result line. And "make it stronger" no longer trips the off-topic classifier, which it did because it mentions nothing in the skincare vocabulary.
+
+### R-023 — "more intense" added a step, not products
+- **Symptom:** asking for a more intense routine switched from the four-step plan to the balanced one — five or six items. A shopper asking for something serious means more products.
+- **Cause:** there were only two plans, and the longer one capped at six.
+- **Fix:** a third plan. Up to nine: the optional steps promoted to real ones, a **second serum** so a morning active and an evening active can both be in the routine, and a **weekly mask** — the mask step existed in the taxonomy and appeared in no plan, so masks had never been recommended to anyone. The plan now carries the shopper-facing label, so the second serum is called "second serum" rather than a duplicate "serum".
+- **Guarded by:** `tests/routine-followup.test.ts` — "an intense routine is a longer one".
+
+### R-024 — Two serums, both labelled "use in the morning"
+- **Symptom:** caught while verifying R-023. A two-serum routine told the shopper to use both serums in the morning — the exact thing the guidance existed to prevent.
+- **Cause:** each card decided its own timing, so every serum that was not obviously nocturnal claimed the morning.
+- **Fix:** the split is decided once for the routine. A vitamin C or niacinamide serum takes the morning, a retinoid never does, and the other serum is named on both cards as the one for the other end of the day.

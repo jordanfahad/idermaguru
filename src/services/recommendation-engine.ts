@@ -39,6 +39,31 @@ const FACE_ROUTINE: { step: RoutineStep; label: string; optional?: boolean }[] =
 
 const SIMPLE_ROUTINE: RoutineStep[] = ["cleanser", "treatment", "moisturizer", "sunscreen"];
 
+/**
+ * What "give me something more intense" actually asks for.
+ *
+ * Switching from the four-step routine to the balanced one added a step or
+ * two, which is not what a shopper means. An intense routine is a longer one:
+ * a second serum so a morning active and an evening active can both be in it, a
+ * mask, and the optional steps promoted to real ones.
+ *
+ * The mask step existed in the taxonomy and appeared in no plan, so masks were
+ * never recommended to anybody. Two entries share the "treatment" step on
+ * purpose — the picker skips a product it has already chosen, so the second one
+ * resolves to the next-best serum.
+ */
+const FULL_ROUTINE: { step: RoutineStep; label: string; optional?: boolean }[] = [
+  { step: "cleanser", label: "cleanser" },
+  { step: "toner", label: "toner" },
+  { step: "treatment", label: "serum" },
+  { step: "treatment", label: "second serum" },
+  { step: "eye", label: "eye care" },
+  { step: "moisturizer", label: "moisturiser" },
+  { step: "sunscreen", label: "sunscreen" },
+  { step: "exfoliant", label: "weekly exfoliant" },
+  { step: "mask", label: "weekly mask" },
+];
+
 const MAX_ROUTINE_ITEMS = 6;
 
 export function buildRecommendations(input: {
@@ -244,10 +269,14 @@ function scoreProduct(
  * one. A four-step routine the shopper can actually follow beats six items.
  */
 function chooseRoutine(candidates: RecommendationCandidate[], profile: IntakeProfileInput) {
-  const simple = profile.routinePreference === "simple";
-  const wanted = simple
-    ? FACE_ROUTINE.filter((entry) => SIMPLE_ROUTINE.includes(entry.step))
-    : FACE_ROUTINE;
+  const preference = normalize(profile.routinePreference);
+  const wanted =
+    preference === "full"
+      ? FULL_ROUTINE
+      : preference === "simple"
+        ? FACE_ROUTINE.filter((entry) => SIMPLE_ROUTINE.includes(entry.step))
+        : FACE_ROUTINE;
+  const limit = preference === "full" ? FULL_ROUTINE.length : MAX_ROUTINE_ITEMS;
 
   // Merchant catalogues carry the same product more than once — a re-import
   // that inserts instead of updating leaves two rows with different ids and
@@ -262,7 +291,9 @@ function chooseRoutine(candidates: RecommendationCandidate[], profile: IntakePro
         item.step === entry.step &&
         !chosen.some((picked) => picked.product.id === item.product.id || identity(picked) === identity(item)),
     );
-    if (candidate) chosen.push(candidate);
+    // The plan carries the label, not the step: a routine with two serums in it
+    // needs to call the second one something other than "serum".
+    if (candidate) chosen.push({ ...candidate, slot: entry.label });
   }
 
   // A routine where every single item is paid-for reads as an advert. Swap the
@@ -283,7 +314,7 @@ function chooseRoutine(candidates: RecommendationCandidate[], profile: IntakePro
   // Trim to a routine a shopper will actually keep up with, dropping the steps
   // marked optional before any of the ones that carry the result.
   const optional = new Set<string>(FACE_ROUTINE.filter((entry) => entry.optional).map((entry) => entry.step));
-  while (chosen.length > MAX_ROUTINE_ITEMS) {
+  while (chosen.length > limit) {
     const cut = chosen.map((item, index) => ({ item, index })).reverse().find(({ item }) => optional.has(item.step));
     chosen.splice(cut ? cut.index : chosen.length - 1, 1);
   }
@@ -294,6 +325,8 @@ function chooseRoutine(candidates: RecommendationCandidate[], profile: IntakePro
 const RETINOID = /retinol|retinoid|retinal|tretinoin|adapalene|granactive/i;
 const EXFOLIATING_ACID = /glycolic|lactic|mandelic|salicylic|azelaic|\baha\b|\bbha\b|\bpha\b/i;
 const POTENT = /vitamin c|ascorbic|benzoyl peroxide/i;
+/** Actives that belong to the morning, so a two-serum routine can be split. */
+const MORNING_ACTIVE = /vitamin c|ascorbic|niacinamide|antioxidant/i;
 
 const activesOf = (item: RecommendationCandidate) => item.product.activeIngredientsJson.join(" ");
 
@@ -309,6 +342,19 @@ const activesOf = (item: RecommendationCandidate) => item.product.activeIngredie
 function flagIngredientConflicts(items: RecommendationCandidate[], profile: IntakeProfileInput) {
   const retinoids = items.filter((item) => RETINOID.test(activesOf(item)));
   const acids = items.filter((item) => EXFOLIATING_ACID.test(activesOf(item)));
+  // A fuller routine carries two serums, and the first question anybody has is
+  // whether to use both at once. The answer is no, and which goes when is
+  // decided by what is in them — so it belongs on the card, not in a footnote.
+  const serums = items.filter((item) => item.step === "treatment");
+  // Decided once for the routine, not per card. Judged independently, every
+  // serum that was not obviously nocturnal called itself the morning one — so a
+  // two-serum routine told the shopper to use both in the morning, which is the
+  // one thing it was there to stop them doing. A retinoid is never the morning
+  // one; failing any other signal, the better-ranked serum takes the morning.
+  const morningSerum =
+    serums.find((serum) => MORNING_ACTIVE.test(activesOf(serum)) && !RETINOID.test(activesOf(serum))) ??
+    serums.find((serum) => !RETINOID.test(activesOf(serum))) ??
+    serums[0];
   const sensitive =
     normalize(profile.sensitivity).includes("sensitive") ||
     normalize(profile.skinType).includes("sensitive") ||
@@ -330,6 +376,18 @@ function flagIngredientConflicts(items: RecommendationCandidate[], profile: Inta
     }
     if (sensitive && (isRetinoid || isAcid || POTENT.test(activesOf(item)))) {
       leading.push("Start twice a week and build up, since you told me your skin reacts easily.");
+    }
+    if (serums.length > 1 && item.step === "treatment") {
+      const other = serums.find((serum) => serum.product.id !== item.product.id);
+      const morning = item.product.id === morningSerum?.product.id;
+      const when = morning
+        ? "Use this one in the morning, after cleansing and before sunscreen"
+        : "Use this one in the evening";
+      leading.push(
+        other
+          ? `${when}, and keep ${other.product.name} for the other end of the day — layering both in one go is what causes stinging.`
+          : `${when}.`,
+      );
     }
     return leading.length ? { ...item, cautions: [...leading, ...item.cautions] } : item;
   });
@@ -415,7 +473,12 @@ function buildSummary(profile: IntakeProfileInput, safety: SafetyTriage, items: 
     return safety.referralMessage ?? "No suitable OTC products were found after safety filtering.";
   }
 
-  const shape = profile.routinePreference === "simple" ? "simple" : "balanced";
+  const shape =
+    normalize(profile.routinePreference) === "simple"
+      ? "simple"
+      : normalize(profile.routinePreference) === "full"
+        ? "fuller"
+        : "balanced";
   // A shopper who skipped the question, or picked "none of the above", used to
   // be told "Here is a balanced OTC routine for ." — naming the concern only
   // works when there is one.

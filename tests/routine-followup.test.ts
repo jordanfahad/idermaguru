@@ -148,3 +148,96 @@ describe("the conversation does not end at the routine", () => {
     expect(agentCopy("en").adjusted.fullerAfterGentle(6)).toMatch(/stinging|slowly/i);
   });
 });
+
+/**
+ * "More intense" means more products, not a step or two more. Switching to the
+ * balanced plan took a four-step routine to five or six, which is not what a
+ * shopper is asking for when they say they want something serious.
+ */
+describe("an intense routine is a longer one", () => {
+  const catalogue = (() => {
+    const base = seedProducts.filter((product) => product.tenantId === seedTenant.id);
+    const extra = (
+      [
+        ["Hydrating Toner", "toner", ["niacinamide"]],
+        ["Retinol Night Serum", "serum", ["retinol"]],
+        ["Vitamin C Brightening Serum", "serum", ["vitamin c"]],
+        ["Peptide Eye Cream", "eye cream", ["peptides"]],
+        ["Overnight Hydrating Mask", "mask", ["hyaluronic acid"]],
+        ["AHA Weekly Exfoliant", "exfoliant", ["glycolic acid"]],
+      ] as [string, string, string[]][]
+    ).map(([name, category, actives], index) => ({
+      ...base[0],
+      id: `extra-${index}`,
+      sku: `extra-${index}`,
+      name,
+      category,
+      description: `${name} for fine lines and dullness, all skin types`,
+      url: `https://example.com/products/extra-${index}`,
+      activeIngredientsJson: actives,
+      concernsJson: ["fine lines", "dullness"],
+      skinTypesJson: ["combination"],
+      sensitiveSkinSuitable: false,
+    }));
+    return [...base, ...extra];
+  })();
+
+  const routineFor = (routinePreference?: string) => {
+    const profile = {
+      mainConcern: "fine lines and dullness",
+      skinType: "combination",
+      routinePreference,
+      pregnantOrBreastfeeding: false,
+      allergies: [],
+    };
+    return buildRecommendations({
+      tenantId: seedTenant.id,
+      profile,
+      safety: runSafetyTriage(profile),
+      products: catalogue,
+      sponsoredEnabled: false,
+    }).items;
+  };
+
+  it("adds products rather than a step or two", () => {
+    expect(routineFor("simple").length).toBe(4);
+    expect(routineFor("full").length).toBeGreaterThan(routineFor(undefined).length);
+    expect(routineFor("full").length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("carries a second serum, labelled as one", () => {
+    const slots = routineFor("full").map((item) => item.slot);
+    expect(slots).toContain("serum");
+    expect(slots).toContain("second serum");
+  });
+
+  it("can finally recommend a mask", () => {
+    // The mask step existed in the taxonomy and appeared in no plan, so masks
+    // were never recommended to anybody.
+    expect(routineFor("full").map((item) => item.slot)).toContain("weekly mask");
+    expect(routineFor("simple").map((item) => item.slot)).not.toContain("weekly mask");
+  });
+
+  it("splits the two serums across the day instead of stacking them", () => {
+    const serums = routineFor("full").filter((item) => item.step === "treatment");
+    expect(serums.length).toBe(2);
+
+    const morning = serums.filter((item) => /in the morning/i.test(item.cautions[0]));
+    const evening = serums.filter((item) => /in the evening/i.test(item.cautions.join(" ")));
+    // Judged per card, every serum that was not obviously nocturnal called
+    // itself the morning one — and the shopper was told to use both at once.
+    expect(morning.length).toBe(1);
+    expect(evening.length).toBe(1);
+    // and the retinoid is never the morning one
+    expect(morning[0].product.activeIngredientsJson.join(" ")).not.toMatch(/retino/i);
+  });
+
+  it("leaves the shorter routines exactly as they were", () => {
+    expect(routineFor("simple").map((item) => item.slot)).toEqual([
+      "cleanser",
+      "serum",
+      "moisturiser",
+      "sunscreen",
+    ]);
+  });
+});
