@@ -43,7 +43,21 @@ function instructionsFor(language?: "en" | "ar") {
  * between turns, so the upstream body is piped straight to the browser and a
  * tee'd copy fills the cache in the background.
  */
-async function synthesise(text: string, language?: "en" | "ar") {
+/**
+ * How long a line the browser and the CDN may keep.
+ *
+ * The text is in the URL, so a URL identifies exactly one recording and that
+ * recording never changes — which is what makes `immutable` safe. It also means
+ * an edited line is a new URL, so nothing has to be purged on deploy.
+ *
+ * This used to be `private`, which tells Vercel's CDN not to store it at all.
+ * Every shopper in every session therefore reached the function in Mumbai for
+ * audio that is identical for all of them. Public caching puts it on a point of
+ * presence near the shopper instead — no function, no speech API, no Mumbai.
+ */
+const FOREVER = "public, max-age=31536000, immutable";
+
+async function synthesise(text: string, language: "en" | "ar" | undefined, cacheable: boolean) {
   const apiKey = process.env.OPENAI_COMPATIBLE_API_KEY ?? process.env.OPENAI_API_KEY;
   if (!apiKey) {
     // Not an error state: the client speaks with the browser voice instead.
@@ -63,8 +77,7 @@ async function synthesise(text: string, language?: "en" | "ar") {
       status: 200,
       headers: {
         "content-type": "audio/mpeg",
-        // The audio for a given line never changes; let the browser keep it.
-        "cache-control": "private, max-age=3600",
+        "cache-control": cacheable ? FOREVER : "no-store",
         "x-cache": "hit",
       },
     });
@@ -95,9 +108,12 @@ async function synthesise(text: string, language?: "en" | "ar") {
       return jsonError("Speech synthesis unavailable.", 502);
     }
 
-    // Cache the fixed lines only. Personalised results are said once, so
-    // keeping them would grow the map without ever being reused.
-    if (text.length > 200) {
+    // Cache the fixed lines only — but decided by which door the request came
+    // through, not by how long the line is. A 200-character rule meant the
+    // longest fixed lines were the ones never cached: the referral, the
+    // emergency message, the intimate-area answer. Those are said to a shopper
+    // who is worried, and they were the slowest lines in the product.
+    if (!cacheable) {
       return new NextResponse(response.body, {
         status: 200,
         headers: { "content-type": "audio/mpeg", "cache-control": "no-store", "x-cache": "miss" },
@@ -107,7 +123,8 @@ async function synthesise(text: string, language?: "en" | "ar") {
     const [toClient, toCache] = response.body.tee();
     void collect(toCache)
       .then((audio) => {
-        if (speechCache.size >= 64) speechCache.delete(speechCache.keys().next().value as string);
+        // 83 fixed lines per language, so 64 evicted the set it exists to hold.
+        if (speechCache.size >= 256) speechCache.delete(speechCache.keys().next().value as string);
         speechCache.set(cacheKey, audio);
       })
       .catch(() => {
@@ -118,7 +135,7 @@ async function synthesise(text: string, language?: "en" | "ar") {
       status: 200,
       headers: {
         "content-type": "audio/mpeg",
-        "cache-control": "private, max-age=3600",
+        "cache-control": FOREVER,
         "x-cache": "miss",
       },
     });
@@ -170,7 +187,8 @@ export async function POST(request: Request) {
     if (error instanceof RequestValidationError) return jsonError(error.message);
     throw error;
   }
-  return synthesise(input.text, input.language);
+  // POST carries whatever a model wrote, so it is never cached anywhere.
+  return synthesise(input.text, input.language, false);
 }
 
 export async function GET(request: Request) {
@@ -178,5 +196,6 @@ export async function GET(request: Request) {
   const text = url.searchParams.get("text")?.trim() ?? "";
   const language = url.searchParams.get("lang") === "ar" ? "ar" : "en";
   if (!text || text.length > 400) return jsonError("A short line of text is required.");
-  return synthesise(text, language);
+  // GET only ever carries a line we wrote ourselves — see fixedLines().
+  return synthesise(text, language, true);
 }
