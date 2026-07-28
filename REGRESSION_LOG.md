@@ -256,3 +256,15 @@ merchant catalogue of 876 in-stock products.
 - **Cause:** `Product.inStock` is written at sync time and nothing re-reads it; the merchant sold out in between.
 - **Fix:** `services/stock.ts` checks the storefront's own public `/products/<handle>.js` for the handful of products about to be shown. Sold-out items are excluded and the routine is **rebuilt**, so the next-best cleanser replaces the missing one instead of the routine losing a step. Fails open — a network fault is not evidence a product is unavailable.
 - **Guarded by:** `tests/stock.test.ts`.
+
+### R-021 — "yes salicylic acid" → straight to the routine
+- **Symptom:** the shopper named an allergy and the very next sentence was "Here's a simple routine with 4 products", with no acknowledgement. The allergen *was* recorded and *was* filtered out — the shopper simply had no way of knowing.
+- **Cause:** the result preface only ran when the shopper had volunteered everything up front (`skippedAhead`); answering the questions one at a time produced no preface at all.
+- **Fix:** an allergy named this turn is always read back — "Noted — I'll keep salicylic acid out of everything I suggest." The allergen vocabulary also carries the full names ("salicylic acid") alongside the stems, so the readback is the whole ingredient rather than a truncation; the existing most-specific-match filter keeps only one of the pair.
+- **Guarded by:** `tests/routine-followup.test.ts`.
+
+### R-022 — "I need it more intense routine" → the identical routine, the identical sentence
+- **Symptom:** every turn after the routine bounced off it. The request was folded into the concern text, the same four products were rebuilt, and the same line was read out again.
+- **Cause:** the dialogue had no post-result state. `routinePreference` was hardcoded to "simple" and nothing ever read a follow-up.
+- **Fix:** `readAdjustment` reads fuller / simpler / gentler, carried in the slots as `routineShape` and `gentle`. Gentler is matched *before* stronger, because "too strong" is a request for less and contains the word the stronger patterns look for. Gentler sets sensitivity to "very high", which is what the hard filter reads — so the strong acids are actually removed rather than merely re-ranked. The reply names what changed. Asking for stronger having just said it stings says so instead of silently putting the actives back.
+- **Also:** the routine on screen is carried in the slots, so when a rebuild produces the identical list the advisor says so — "I'd still put you on the same 4 steps" — rather than replaying the result line. And "make it stronger" no longer trips the off-topic classifier, which it did because it mentions nothing in the skincare vocabulary.

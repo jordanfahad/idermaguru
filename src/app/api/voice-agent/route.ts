@@ -17,6 +17,7 @@ import {
   extractSkinType,
   isHairConcern,
   nextQuestion,
+  readAdjustment,
   slotsToProfile,
   summariseSlots,
   updateSlots,
@@ -48,6 +49,13 @@ const SlotsSchema = z.object({
   bodyAreaUnknown: z.boolean().optional(),
   misses: z.number().optional(),
   offTopic: z.number().optional(),
+  // Without these the conversation resets at the routine: the shopper asks for
+  // something stronger, the slots come back without the request, and the same
+  // routine is read out again.
+  gaveRoutine: z.boolean().optional(),
+  lastRoutine: z.array(z.string()).optional(),
+  routineShape: z.enum(["simple", "full"]).optional(),
+  gentle: z.boolean().optional(),
 });
 
 const AgentSchema = z.object({
@@ -167,7 +175,11 @@ export async function POST(request: Request) {
     // While waiting for the allergen list, whatever they say IS the answer -
     // an ingredient name must never be mistaken for a tangent.
     const awaitingAllergens = Boolean(before.askedAllergyNames) && before.allergies === undefined;
-    const aside = before.mainConcern && !awaitingAllergens ? classifyAside(input.utterance) : null;
+    // "make it stronger" mentions nothing this advisor's vocabulary knows, so
+    // once a routine is on screen it read as a tangent and got the off-topic
+    // bridge. It is an instruction about the routine, and it is handled below.
+    const adjusting = Boolean(before.gaveRoutine) && readAdjustment(input.utterance) !== null;
+    const aside = before.mainConcern && !awaitingAllergens && !adjusting ? classifyAside(input.utterance) : null;
     if (aside) {
       const pendingAside = nextQuestion(before, lang);
       const offTopicRun = aside === "offtopic" ? (before.offTopic ?? 0) + 1 : 0;
@@ -370,7 +382,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         reply: await say(hairMatches.length ? copy.result(hairMatches.length) : copy.noHairProducts),
         phase: hairMatches.length ? "result" : "referral",
-        slots,
+        slots: { ...slots, gaveRoutine: true, lastRoutine: hairMatches.map((match) => match.id) },
         safetyLevel: safety.level,
         language: spoken,
         rtl: isRtl(spoken),
@@ -391,7 +403,7 @@ export async function POST(request: Request) {
           bodyMatches.length ? copy.bodyResult(bodyMatches.length, area) : copy.noBodyProducts(area),
         ),
         phase: bodyMatches.length ? "result" : "referral",
-        slots,
+        slots: { ...slots, gaveRoutine: true, lastRoutine: bodyMatches.map((match) => match.id) },
         safetyLevel: safety.level,
         language: spoken,
         rtl: isRtl(spoken),
@@ -419,6 +431,29 @@ export async function POST(request: Request) {
       });
     }
 
+    const count = recommendation.items.length;
+    const routineIds = recommendation.items.map((item) => item.product.id);
+
+    // Did anything we just did actually change what they are looking at? The
+    // routine that was on screen is carried in the slots, so this is an exact
+    // comparison rather than a guess — and it is what stops the advisor reading
+    // the identical sentence out a second time.
+    const sameAsBefore =
+      Boolean(before.gaveRoutine) &&
+      before.lastRoutine?.length === routineIds.length &&
+      before.lastRoutine.every((id, index) => id === routineIds[index]);
+
+    // Which adjustment, if any, this turn applied.
+    const adjusted: "fuller" | "simpler" | "gentler" | null = !before.gaveRoutine
+      ? null
+      : Boolean(slots.gentle) && !before.gentle
+        ? "gentler"
+        : slots.routineShape !== before.routineShape
+          ? slots.routineShape === "full"
+            ? "fuller"
+            : "simpler"
+          : null;
+
     // Let the model phrase the result, but re-run the safety gate over whatever
     // it produced and fall back to fixed copy if it drifts.
     const provider = getLLMProvider();
@@ -427,29 +462,52 @@ export async function POST(request: Request) {
     // straight to products reads as if it ignored them.
     const understood = summariseSlots(slots, lang);
     const skippedAhead = !before.askedSkinType && !before.askedPregnancy && !before.askedAllergies;
-    const preface = skippedAhead && understood ? `${copy.understood(understood)} ` : "";
-    let spokenReply = `${preface}${copy.result(recommendation.items.length)}`;
-    // The mock provider emits a fixed, ungrammatical string that splices the raw
-    // concern ("For I have a dandruff, ..."), so only ask a real model to phrase
-    // the result. English only for now: the models are not prompted in Arabic.
-    const usingRealModel = (provider.lastUsedId ?? provider.id) !== "mock";
-    if (usingRealModel && lang === "en") {
-      // Provider unavailable or slow: the deterministic summary above is
-      // already correct, and the shopper hears it a lot sooner.
-      const explanation = await withBudget(
-        provider.explainRecommendations(profile, recommendation, safety),
-        2500,
-        "",
-      );
-      if (explanation.trim() && validateAssistantTextForSafety(explanation, safety).recommendationAllowed) {
-        spokenReply = `${preface}${shorten(explanation, 420)}`;
+    // An allergy just named is the one thing that has to be repeated back.
+    // "yes salicylic acid" went straight to "here's your routine", which gives
+    // the shopper no way of knowing it was heard — and it is precisely the
+    // answer they need to know was heard.
+    const namedAllergies = before.allergies === undefined && slots.allergies?.length ? slots.allergies : null;
+    const preface = namedAllergies
+      ? `${copy.avoiding(namedAllergies)} `
+      : skippedAhead && understood
+        ? `${copy.understood(understood)} `
+        : "";
+
+    let spokenReply: string;
+    if (sameAsBefore) {
+      // Nothing moved. Say so, instead of replaying the same line at them.
+      spokenReply = adjusted === "fuller" ? copy.nothingStronger : copy.sameAgain(count);
+    } else if (adjusted) {
+      // Name the change. "Here's a simple routine with 4 products" after a
+      // request for something stronger reads as if nobody was listening.
+      spokenReply =
+        adjusted === "fuller" && before.gentle
+          ? copy.adjusted.fullerAfterGentle(count)
+          : copy.adjusted[adjusted](count);
+    } else {
+      spokenReply = `${preface}${copy.result(count)}`;
+      // The mock provider emits a fixed, ungrammatical string that splices the raw
+      // concern ("For I have a dandruff, ..."), so only ask a real model to phrase
+      // the result. English only for now: the models are not prompted in Arabic.
+      const usingRealModel = (provider.lastUsedId ?? provider.id) !== "mock";
+      if (usingRealModel && lang === "en") {
+        // Provider unavailable or slow: the deterministic summary above is
+        // already correct, and the shopper hears it a lot sooner.
+        const explanation = await withBudget(
+          provider.explainRecommendations(profile, recommendation, safety),
+          2500,
+          "",
+        );
+        if (explanation.trim() && validateAssistantTextForSafety(explanation, safety).recommendationAllowed) {
+          spokenReply = `${preface}${shorten(explanation, 420)}`;
+        }
       }
     }
 
     return NextResponse.json({
       reply: await say(spokenReply),
       phase: "result",
-      slots,
+      slots: { ...slots, gaveRoutine: true, lastRoutine: routineIds },
       safetyLevel: safety.level,
       language: spoken,
         rtl: isRtl(spoken),

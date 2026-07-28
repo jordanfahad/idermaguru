@@ -19,7 +19,9 @@ describe("allergy answers", () => {
     expect(extractAllergies("I'm allergic to fragrance and nickel")).toEqual(
       expect.arrayContaining(["fragrance", "nickel"]),
     );
-    expect(extractAllergies("salicylic acid makes me break out")).toContain("salicylic");
+    // The whole name, not the stem: the advisor now reads the allergy back to
+    // the shopper, and "I'll keep salicylic out of everything" is not English.
+    expect(extractAllergies("salicylic acid makes me break out")).toContain("salicylic acid");
   });
 
   it("believes an ingredient it has never heard of when it is named explicitly", () => {

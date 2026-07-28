@@ -34,7 +34,42 @@ export type AgentSlots = {
   misses?: number;
   /** Consecutive off-topic turns, so the agent stops nagging and lets go. */
   offTopic?: number;
+  /** Set once a routine has been given, so the next turn is a follow-up. */
+  gaveRoutine?: boolean;
+  /** What was in that routine, so we can tell whether a rebuild changed it. */
+  lastRoutine?: string[];
+  /** Adjustments the shopper asked for after seeing the routine. */
+  routineShape?: "simple" | "full";
+  gentle?: boolean;
 };
+
+/**
+ * What the shopper wants changed about the routine they are looking at.
+ *
+ * "I need it more intense routine" was answered by rebuilding the identical
+ * routine and reading out the identical sentence — the conversation simply
+ * ended at the result and every further turn bounced off it.
+ *
+ * Gentler is read before stronger on purpose: "too strong" is a request for
+ * less, and it contains the word the stronger patterns look for.
+ */
+export type RoutineAdjustment = "fuller" | "simpler" | "gentler";
+
+const WANT_GENTLER =
+  /\b(gentler|too harsh|too strong|too much for|milder|softer|less harsh|less aggressive|irritat\w*|stings?|burning|too intense)\b/;
+const WANT_SIMPLER =
+  /\b(simpler|simplest|fewer steps|less steps|too many|too complicated|shorter|minimal|bare minimum|just the essentials|cut it down|trim it)\b/;
+const WANT_FULLER =
+  /\b(more intense|intense|stronger|strong|advanced|serious|aggressive|full routine|complete routine|more steps|extra steps|add more|more thorough|deeper|go harder|maximum)\b/;
+
+export function readAdjustment(input: string): RoutineAdjustment | null {
+  const text = normaliseTranscript(input);
+  if (!text) return null;
+  if (WANT_GENTLER.test(text)) return "gentler";
+  if (WANT_SIMPLER.test(text)) return "simpler";
+  if (WANT_FULLER.test(text)) return "fuller";
+  return null;
+}
 
 /**
  * A question is asked at most twice. Voice transcription is imperfect and a
@@ -328,6 +363,11 @@ const KNOWN_ALLERGENS = [
   "alcohol", "paraben", "sulfate", "sls", "formaldehyde", "lanolin", "propylene glycol", "peg",
   "nickel", "latex", "silicone", "dimethicone", "shea", "coconut", "almond", "nut", "peanut",
   "soy", "gluten", "wheat", "dairy", "milk", "lactic acid", "salicylic", "aspirin", "benzoyl",
+  // The full name as well as the stem. The most-specific-match filter below
+  // keeps only one of them, so a shopper who says "salicylic acid" hears
+  // "salicylic acid" back rather than a truncated "salicylic".
+  "salicylic acid", "glycolic acid", "azelaic acid", "kojic acid", "hyaluronic acid",
+  "ascorbic acid", "benzoyl peroxide", "mandelic acid",
   "retinol", "retinoid", "tretinoin", "vitamin c", "ascorbic", "niacinamide", "glycolic", "aha",
   "bha", "urea", "sunscreen", "avobenzone", "oxybenzone", "octocrylene", "zinc", "titanium",
   "tea tree", "aloe", "honey", "propolis", "beeswax", "collagen", "hyaluronic", "menthol",
@@ -417,6 +457,27 @@ const COPY = {
     // but the answer is still a person, not a product from a shelf.
     intimateArea:
       "Thanks for telling me — genuinely, that's one of the most common things I get asked about and there's nothing awkward about it. It's also the one place I won't pick products for you. The skin there is thin and easily irritated, and a lot of what's sold for it can leave things worse. Please see a doctor or a pharmacist who can actually look — they'll have something safe. In the meantime: wash with something plain and unfragranced, skip the scrubs and acids, and loose cotton helps more than people expect.",
+    // An allergy is the one answer a shopper needs to hear repeated back. Going
+    // straight from "yes salicylic acid" to "here's your routine" gives them no
+    // way of knowing whether it was heard at all.
+    avoiding: (items: string[]) =>
+      `Noted — I'll keep ${items.join(" and ")} out of everything I suggest.`,
+    adjusted: {
+      fuller: (count: number) =>
+        `Right — opened it up to ${count} steps. Bring them in one at a time, a week or so apart, or if your skin reacts you won't know which one did it.`,
+      simpler: (count: number) =>
+        `Fair enough — back down to ${count} steps. These are the ones carrying the result; the rest was optional.`,
+      gentler: (count: number) =>
+        `Understood — I've taken out the strong acids and rebuilt it from what tends to suit easily-irritated skin. ${count} steps.`,
+      // They asked for gentler a moment ago and are now asking for stronger.
+      // Doing it silently would quietly undo something they told us hurt.
+      fullerAfterGentle: (count: number) =>
+        `Alright — ${count} steps, and the actives are back in. You did say it was stinging, so go slowly with them: one new thing a week, and stop the one that bites.`,
+    },
+    nothingStronger:
+      "That's genuinely as far as I can take it with what this store stocks and still keep it safe for you — there's nothing further to add. If you want to go harder than this, a pharmacist or a dermatologist can offer things I'm not allowed to suggest.",
+    sameAgain: (count: number) =>
+      `I've had another look and I'd still put you on the same ${count} steps — nothing else here fits you better. Tell me what you'd change about it and I'll have another go.`,
     result: (count: number) =>
       `Here's a simple routine with ${count} product${count === 1 ? "" : "s"} matched from the store. I've kept it conservative — patch test anything new, and use sunscreen every morning.`,
     bodyResult: (count: number, area: string) =>
@@ -454,6 +515,21 @@ const COPY = {
     heardConcern: (concern: string) => `${concern} — فهمت.`,
     intimateArea:
       "شكراً لأنك أخبرتني — بصدق، هذا من أكثر ما يُسألني عنه ولا حرج فيه إطلاقاً. وهو أيضاً المكان الوحيد الذي لن أختار لك منتجات له. الجلد هناك رقيق وسريع التهيّج، وكثير مما يُباع لهذا الغرض قد يزيد الأمر سوءاً. راجع طبيباً أو صيدلياً يستطيع الفحص فعلاً — لديه ما هو آمن. وفي الأثناء: اغسل بمنتج بسيط خالٍ من العطر، وتجنّب المقشّرات والأحماض، والملابس القطنية الفضفاضة تساعد أكثر مما يتوقع الناس.",
+    avoiding: (items: string[]) => `سُجّل — سأستبعد ${items.join(" و")} من كل ما أقترحه.`,
+    adjusted: {
+      fuller: (count: number) =>
+        `تمام — وسّعته إلى ${count} خطوات. أدخِلها واحدة تلو الأخرى بفارق أسبوع تقريباً، وإلا لن تعرف أيها سبّب التهيّج إن حدث.`,
+      simpler: (count: number) =>
+        `لا بأس — اختصرته إلى ${count} خطوات. هذه هي التي تحقق النتيجة، والباقي كان اختيارياً.`,
+      gentler: (count: number) =>
+        `مفهوم — أزلت الأحماض القوية وأعدت بناءه مما يناسب البشرة سريعة التهيّج. ${count} خطوات.`,
+      fullerAfterGentle: (count: number) =>
+        `تمام — ${count} خطوات، وأعدت المكونات الفعّالة. لكنك ذكرت أنها كانت تسبب حرقة، فتدرّج ببطء: منتج جديد كل أسبوع، وأوقف ما يزعجك.`,
+    },
+    nothingStronger:
+      "هذا أقصى ما أستطيع الوصول إليه بما يوفّره هذا المتجر مع الحفاظ على سلامتك — لا يوجد ما أضيفه. إن أردت أقوى من ذلك، يمكن لصيدلي أو طبيب جلدية تقديم ما لا يُسمح لي باقتراحه.",
+    sameAgain: (count: number) =>
+      `راجعت مرة أخرى وما زلت أقترح الخطوات الـ${count} نفسها — لا يوجد هنا ما يناسبك أكثر. أخبرني بما تريد تغييره وسأحاول مجدداً.`,
     result: (count: number) =>
       `هذا روتين بسيط يضم ${count} منتج مطابق من المتجر. أبقيته متحفظاً — جرّب المنتج على مساحة صغيرة أولاً، واستخدم واقي الشمس كل صباح.`,
     bodyResult: (count: number, area: string) =>
@@ -657,6 +733,27 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
     return next;
   }
 
+  // Past the routine, "make it stronger" is an instruction about the routine,
+  // not more detail about the concern. Folding it into the concern text put
+  // "more intense routine" into what the ranking reads, and changed nothing.
+  if (next.gaveRoutine) {
+    const adjustment = readAdjustment(text);
+    if (adjustment === "fuller") {
+      next.routineShape = "full";
+      next.gentle = false;
+      return next;
+    }
+    if (adjustment === "simpler") {
+      next.routineShape = "simple";
+      return next;
+    }
+    if (adjustment === "gentler") {
+      next.gentle = true;
+      next.routineShape = "simple";
+      return next;
+    }
+  }
+
   // Otherwise it is more detail about the concern.
   next.mainConcern = `${next.mainConcern}. ${text}`;
   return next;
@@ -711,10 +808,12 @@ export function slotsToProfile(slots: AgentSlots, sessionId?: string): IntakePro
     // should win for a hand concern, and nothing else told it that.
     freeText: slots.bodyArea ? slots.bodyArea.replace("-", " and ") : undefined,
     skinType: slots.skinType,
-    sensitivity: slots.skinType === "sensitive" ? "high" : "low",
+    // "very high" is what the hard filter reads, so asking for gentler actually
+    // removes the strong acids rather than merely re-ranking around them.
+    sensitivity: slots.gentle ? "very high" : slots.skinType === "sensitive" ? "high" : "low",
     pregnantOrBreastfeeding: slots.pregnantOrBreastfeeding ?? false,
     allergies: slots.allergies ?? [],
-    routinePreference: "simple",
+    routinePreference: slots.routineShape === "full" ? "balanced" : "simple",
     secondaryConcerns: [],
     currentProducts: [],
     currentActives: [],
