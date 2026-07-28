@@ -1,4 +1,5 @@
-import type { IntakeProfileInput } from "@/domain/skincare";
+import { ESCALATION_MESSAGE, type IntakeProfileInput } from "@/domain/skincare";
+import { distressCopy, feelingCopy } from "./empathy";
 import { areaRoute, extractBodyArea, namesSkinType, needsBodyArea, type BodyArea } from "./body-area";
 import { normaliseTranscript, type AgentLang } from "./text";
 
@@ -512,7 +513,10 @@ const COPY = {
     },
     offTopicBridge: (topic: string) => `يبدو أنك تسأل عن ${topic} — هذا خارج مجالي للأسف. البشرة والشعر هما ما أعرفه.`,
     offTopicLetGo: "لا بأس — سأترك هذا الأمر. إن كان لديك سؤال عن البشرة أو الشعر فأنا هنا.",
-    heardConcern: (concern: string) => `${concern} — فهمت.`,
+    // Matches the English: never repeat the shopper's words back. Speech-to-text
+    // mistakes turn a friendly echo into an insult, and a line with the
+    // transcript spliced into it can never be spoken from cache either.
+    heardConcern: () => "فهمت.",
     intimateArea:
       "شكراً لأنك أخبرتني — بصدق، هذا من أكثر ما يُسألني عنه ولا حرج فيه إطلاقاً. وهو أيضاً المكان الوحيد الذي لن أختار لك منتجات له. الجلد هناك رقيق وسريع التهيّج، وكثير مما يُباع لهذا الغرض قد يزيد الأمر سوءاً. راجع طبيباً أو صيدلياً يستطيع الفحص فعلاً — لديه ما هو آمن. وفي الأثناء: اغسل بمنتج بسيط خالٍ من العطر، وتجنّب المقشّرات والأحماض، والملابس القطنية الفضفاضة تساعد أكثر مما يتوقع الناس.",
     avoiding: (items: string[]) => `سُجّل — سأستبعد ${items.join(" و")} من كل ما أقترحه.`,
@@ -558,6 +562,63 @@ export function scriptedLines(lang: AgentLang): string[] {
     copy.askPregnancy,
     copy.askAllergies,
     copy.askAllergyNames,
+  ];
+}
+
+/** Routine lengths worth pre-rendering. Nine is the longest plan there is. */
+const COUNTS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+/**
+ * Every line the advisor can say that is not written by a model.
+ *
+ * This is the set that can be spoken from a cache instead of a round trip to
+ * the speech API. Production logs showed the opposite: only the seven questions
+ * above were treated as cacheable, so every acknowledgement, reaction and
+ * result line went over POST and was synthesised from scratch, every turn, for
+ * every shopper — seconds of silence before the advisor said anything.
+ *
+ * Nothing here contains anything about the shopper beyond a step count, so it
+ * is safe to fetch by URL and let the browser keep it.
+ */
+export function fixedLines(lang: AgentLang): string[] {
+  const copy = COPY[lang];
+  return [
+    ...scriptedLines(lang),
+    ...acknowledgements(lang),
+    copy.noProducts,
+    copy.noHairProducts,
+    copy.intimateArea,
+    copy.nothingStronger,
+    ESCALATION_MESSAGE,
+    ...COUNTS.map((count) => copy.result(count)),
+    ...COUNTS.map((count) => copy.sameAgain(count)),
+    ...COUNTS.map((count) => copy.adjusted.fuller(count)),
+    ...COUNTS.map((count) => copy.adjusted.simpler(count)),
+    ...COUNTS.map((count) => copy.adjusted.gentler(count)),
+    ...COUNTS.map((count) => copy.adjusted.fullerAfterGentle(count)),
+    ...(["emergency", "urgent-care", "crisis"] as const).map((kind) => distressCopy(kind, lang)),
+  ];
+}
+
+/**
+ * The short lines that open a turn. Small, said constantly, and worth having in
+ * the browser before the shopper has finished their first sentence.
+ */
+export function acknowledgements(lang: AgentLang): string[] {
+  const copy = COPY[lang];
+  return [
+    copy.heardConcern(),
+    copy.repeat,
+    copy.didNotFollow,
+    copy.aside.greeting,
+    copy.aside.identity,
+    copy.aside.thanks,
+    copy.aside.offtopic,
+    copy.aside.elsewhere,
+    copy.offTopicLetGo,
+    ...(["sore", "frustrated", "self-conscious", "worried", "amused"] as const).map((feeling) =>
+      feelingCopy(feeling, lang),
+    ),
   ];
 }
 

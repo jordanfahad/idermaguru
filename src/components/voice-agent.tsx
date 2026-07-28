@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, Clock, ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Sparkles, Square } from "lucide-react";
 import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
 import { speechLocale } from "@/services/language";
-import { scriptedLines } from "@/services/voice-agent";
+import { acknowledgements, fixedLines, scriptedLines } from "@/services/voice-agent";
 import "./voice-agent.css";
 
 /** GET endpoint for a fixed line, so <audio> streams it from the browser cache. */
@@ -16,7 +16,16 @@ function speechUrl(text: string, language: string) {
 const MAX_SILENT_RESTARTS = 4;
 
 /** Every line the interview can say verbatim — these are the ones worth caching. */
-const SCRIPTED = new Set([...scriptedLines("en"), ...scriptedLines("ar")]);
+/**
+ * Every line that is written by us rather than by a model.
+ *
+ * These go over GET, so the browser keeps the audio for an hour and the server
+ * keeps it for the life of the instance. Only the seven questions used to
+ * qualify, which meant every acknowledgement, reaction and result line was
+ * synthesised from scratch on every turn of every session — the single biggest
+ * source of silence between the shopper speaking and the advisor answering.
+ */
+const SCRIPTED = new Set([...fixedLines("en"), ...fixedLines("ar")]);
 function isScriptedLine(text: string) {
   return SCRIPTED.has(text.trim());
 }
@@ -331,8 +340,16 @@ export function VoiceAgent({
 
     const [greeting, ...questions] = scriptedLines(lang);
     void warm(greeting);
-    const id = window.setTimeout(() => questions.forEach((line) => void warm(line)), 1500);
-    return () => window.clearTimeout(id);
+    // The questions next — one of them is always what comes after the greeting.
+    const askId = window.setTimeout(() => questions.forEach((line) => void warm(line)), 1200);
+    // Then the short lines that open a turn. By the time the shopper has
+    // finished their first sentence these are in the browser, so the reply
+    // starts speaking immediately instead of waiting on the speech API.
+    const ackId = window.setTimeout(() => acknowledgements(lang).forEach((line) => void warm(line)), 3500);
+    return () => {
+      window.clearTimeout(askId);
+      window.clearTimeout(ackId);
+    };
   }, [lang]);
 
   useEffect(() => {

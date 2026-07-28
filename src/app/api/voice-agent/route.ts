@@ -236,7 +236,7 @@ export async function POST(request: Request) {
     // very first thing the shopper says.
     const firstDescription = !before.mainConcern && Boolean(slots.mainConcern);
     const [intake, openingReaction] = await Promise.all([
-      firstDescription && !slots.skinType
+      RICH_REPLIES && firstDescription && !slots.skinType
         ? withBudget(
             getLLMProvider().summarizeIntake([{ role: "user", content: input.utterance }]),
             READING_BUDGET_MS,
@@ -339,7 +339,7 @@ export async function POST(request: Request) {
       // we parsed into the profile is reflected back.
       const openingConcern =
         !before.mainConcern && slots.mainConcern && slots.mainConcern.length <= 60
-          ? copy.heardConcern(slots.mainConcern)
+          ? copy.heardConcern()
           : "";
       // React to what was said before asking the next thing. "I have a rash"
       // used to be met with a flat "Got it." and a question about whether the
@@ -444,7 +444,7 @@ export async function POST(request: Request) {
     const draftRoutine = buildRecommendations(plan);
     const [{ routine: recommendation, rebuilt }, explanation] = await Promise.all([
       inStockRoutine(plan, draftRoutine),
-      usingRealModel && lang === "en" && draftRoutine.items.length
+      RICH_REPLIES && usingRealModel && lang === "en" && draftRoutine.items.length
         ? withBudget(provider.explainRecommendations(profile, draftRoutine, safety), EXPLAIN_BUDGET_MS, "")
         : Promise.resolve(""),
     ]);
@@ -597,9 +597,29 @@ async function inStockRoutine(
  * The deterministic answer is ready immediately in every case; these numbers
  * are how long it is worth holding it back for something better.
  */
-const STOCK_BUDGET_MS = 700;
+const STOCK_BUDGET_MS = 500;
 const EXPLAIN_BUDGET_MS = 1300;
 const READING_BUDGET_MS = 800;
+
+/**
+ * Whether the optional model enrichments run at all.
+ *
+ * Three of them exist: a model-written reaction to the opening line, a model
+ * reading of the intake, and a model phrasing of the result. Each is a nicety
+ * over an answer the deterministic backbone already has — and each costs twice.
+ * Once for the call, and again because what a model writes is unique, so the
+ * speech API has to synthesise it from scratch while the shopper waits. The
+ * fixed copy is already in their browser.
+ *
+ * Off by default. `ADVISOR_RICH_REPLIES=1` turns them back on for anyone who
+ * would rather have the phrasing than the seconds.
+ *
+ * The one model call NOT gated here is `readAnswer`, which decides whether an
+ * utterance was nonsense. That one earns its round trip: it only runs when the
+ * parser could not place the answer at all, and it is the difference between
+ * "I have horns" being questioned and being absorbed as a skin type.
+ */
+const RICH_REPLIES = process.env.ADVISOR_RICH_REPLIES === "1";
 
 /** The same check for the hair and body lists, which are picked, not built. */
 async function inStockOnly<T extends { id: string; url: string }>(picks: T[]): Promise<T[]> {
@@ -626,7 +646,7 @@ async function empathise(utterance: string, lang: AgentLang, opening: boolean): 
   if (deterministic) return deterministic;
   // English only: the models are not prompted in Arabic, and the authored
   // Arabic reactions above already cover the cases that matter.
-  if (!opening || lang !== "en" || utterance.trim().split(/\s+/).length < 3) return "";
+  if (!RICH_REPLIES || !opening || lang !== "en" || utterance.trim().split(/\s+/).length < 3) return "";
 
   const provider = getLLMProvider();
   if ((provider.lastUsedId ?? provider.id) === "mock") return "";
