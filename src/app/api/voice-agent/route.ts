@@ -175,11 +175,20 @@ export async function POST(request: Request) {
     // While waiting for the allergen list, whatever they say IS the answer -
     // an ingredient name must never be mistaken for a tangent.
     const awaitingAllergens = Boolean(before.askedAllergyNames) && before.allergies === undefined;
+    // Same trap as the allergen list, and it swallowed the answer to the
+    // question this release added: "on my hands" contains no word the skin
+    // vocabulary knows, so asking "whereabouts is it?" and being told "on my
+    // hands" produced "That one's outside my world, I'm afraid." Whatever is
+    // said while a question is open is an answer to that question.
+    const awaitingArea = Boolean(before.askedBodyArea) && !before.bodyArea && !before.bodyAreaUnknown;
     // "make it stronger" mentions nothing this advisor's vocabulary knows, so
     // once a routine is on screen it read as a tangent and got the off-topic
     // bridge. It is an instruction about the routine, and it is handled below.
     const adjusting = Boolean(before.gaveRoutine) && readAdjustment(input.utterance) !== null;
-    const aside = before.mainConcern && !awaitingAllergens && !adjusting ? classifyAside(input.utterance) : null;
+    const aside =
+      before.mainConcern && !awaitingAllergens && !awaitingArea && !adjusting
+        ? classifyAside(input.utterance)
+        : null;
     if (aside) {
       const pendingAside = nextQuestion(before, lang);
       const offTopicRun = aside === "offtopic" ? (before.offTopic ?? 0) + 1 : 0;

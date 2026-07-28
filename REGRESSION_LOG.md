@@ -296,3 +296,10 @@ merchant catalogue of 876 in-stock products.
 - **Symptom:** found while writing the integration guide. `dermaguru-widget.js` mounts `SkinAdvisorWidget` against `/api/chat/*`; its iframe fallback points at `/embed`, which is the same older build. None of the recent work is on that path, so the documented install would have put the old advisor on a merchant's storefront.
 - **Fix:** a new `/advisor` route — the voice advisor with no site chrome, for embedding — and `data-mode="voice"` on the widget script, which mounts a launcher whose frame carries `allow="microphone"` and is built on first open rather than on page load. Without that attribute the advisor loads, looks right, and cannot hear anybody, with no error shown.
 - **Documented in:** `docs/EMBED.md`.
+
+### R-028 — "on my hands" was answered with "That one's outside my world"
+- **Symptom:** the advisor asked "whereabouts is it?", the shopper answered, and the answer was rejected as off-topic. The question was then asked again, the next two answers were consumed retrying it, and the advisor gave up and asked a pair of hands whether they were oily.
+- **Cause:** "on my hands" contains no word in the skin vocabulary, so the tangent classifier claimed it. The route guards that classifier while the allergen list is open — the same guard was never added for the body-area question introduced in R-017.
+- **Fix:** `awaitingArea` guards the classifier the same way `awaitingAllergens` does. Whatever is said while a question is open is an answer to that question.
+- **Why 258 tests missed it:** every dialogue test called `updateSlots` and `nextQuestion` directly. The route runs distress, triage, opening and tangent classifiers *in front* of those, and none of that was under test.
+- **Guarded by:** `tests/voice-agent-route.test.ts` — nine cases that drive whole conversations through the endpoint the browser calls. Verified to fail without the fix.
