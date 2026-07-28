@@ -305,17 +305,58 @@ function translateSkinType(value: string) {
   );
 }
 
-/** Allergy list from a spoken answer. "no"/"none" yields an empty list. */
+/**
+ * Things people are actually allergic to in skincare.
+ *
+ * Not exhaustive, and not meant to be: it exists to tell a named allergen from
+ * a stray word. Anything the shopper introduces with "allergic to" is taken at
+ * face value regardless, so an ingredient missing from this list is still heard.
+ */
+const KNOWN_ALLERGENS = [
+  "fragrance", "perfume", "parfum", "essential oil", "lavender", "citrus", "limonene", "linalool",
+  "alcohol", "paraben", "sulfate", "sls", "formaldehyde", "lanolin", "propylene glycol", "peg",
+  "nickel", "latex", "silicone", "dimethicone", "shea", "coconut", "almond", "nut", "peanut",
+  "soy", "gluten", "wheat", "dairy", "milk", "lactic acid", "salicylic", "aspirin", "benzoyl",
+  "retinol", "retinoid", "tretinoin", "vitamin c", "ascorbic", "niacinamide", "glycolic", "aha",
+  "bha", "urea", "sunscreen", "avobenzone", "oxybenzone", "octocrylene", "zinc", "titanium",
+  "tea tree", "aloe", "honey", "propolis", "beeswax", "collagen", "hyaluronic", "menthol",
+  "camphor", "sulfur", "iodine", "penicillin", "steroid", "hydroquinone", "chamomile", "argan",
+  "jojoba", "castor", "mineral oil", "petrolatum", "charcoal", "clay", "kojic", "azelaic",
+];
+
+/**
+ * Allergy list from a spoken answer. "no"/"none" yields an empty list;
+ * undefined means "that was not an answer" and the question is asked again.
+ *
+ * This used to strip a few filler words and keep whatever was left, so
+ * "yes I do have period of energy" was recorded as an allergy to "have",
+ * "period" and "energy" — and, the profile being complete, the shopper went
+ * straight to a routine built around it. A word only counts as an allergen if
+ * it reads like one, or if they explicitly said "allergic to" it.
+ */
 export function extractAllergies(input: string): string[] | undefined {
   if (readYesNo(input) === false) return [];
-  const cleaned = normaliseTranscript(input)
-    .replace(/\b(yes|yeah|i am|i'm|allergic|to|allergy|allergies|and)\b/gi, " ")
-    .replace(/حساسية|من|و/g, " ")
-    .replace(/[.,؛;!؟?]/g, " ")
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 2);
-  return cleaned.length ? Array.from(new Set(cleaned)).slice(0, 6) : undefined;
+  const text = normaliseTranscript(input);
+
+  // Explicitly named: believe them, whatever the ingredient is.
+  const named = ALLERGIC_TO.exec(text)?.[1] ?? ALLERGIC_TO_AR.exec(input)?.[1];
+  if (named?.trim()) {
+    const list = named
+      .split(/\s*(?:,|and|&|\u0648)\s*/i)
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => entry.length > 1);
+    if (list.length) return Array.from(new Set(list)).slice(0, 6);
+  }
+
+  // Otherwise only recognisable allergens count. A bare "yes" carries no
+  // allergen at all, which is what askedAllergyNames is for.
+  const matched = KNOWN_ALLERGENS.filter((allergen) => text.includes(allergen));
+  // "peanut" contains "nut", so a bare peanut allergy matched both and read back
+  // as "allergic to nut, peanut". Keep only the most specific match.
+  const specific = matched.filter(
+    (allergen) => !matched.some((other) => other !== allergen && other.includes(allergen)),
+  );
+  return specific.length ? Array.from(new Set(specific)).slice(0, 6) : undefined;
 }
 
 const COPY = {

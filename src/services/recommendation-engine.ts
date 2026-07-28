@@ -12,6 +12,7 @@ import { expandSearchText } from "@/data/search-keywords";
 import {
   derivedConcerns,
   derivedSkinTypes,
+  productFamily,
   productKind,
   routineStep,
   type RoutineStep,
@@ -64,10 +65,23 @@ export function buildRecommendations(input: {
       passesHardFilters(product, input.profile, input.tenantId, input.safety),
   );
 
-  const candidates = safeProducts
+  const ranked = safeProducts
     .map((product) => createCandidate(product, input.profile, input.safety, Boolean(input.sponsoredEnabled)))
     .filter((candidate) => candidate.score.finalScore > 0.18)
     .sort((a, b) => b.score.finalScore - a.score.finalScore);
+
+  // One product per routine, not one row per routine. Two sizes of the same
+  // shampoo are two legitimate catalogue rows and one product to a shopper;
+  // offering both as separate steps reads as a broken recommendation. Ranked
+  // order is already best-first, so the first of a family is the one to keep.
+  const seenFamilies = new Set<string>();
+  const candidates = ranked.filter((candidate) => {
+    const family = productFamily(candidate.product.name);
+    if (!family) return true;
+    if (seenFamilies.has(family)) return false;
+    seenFamilies.add(family);
+    return true;
+  });
 
   const items = flagIngredientConflicts(chooseRoutine(candidates, input.profile), input.profile);
 
@@ -145,6 +159,7 @@ function createCandidate(
     slot: slotLabel(step),
     score,
     reason: reasonFor(product, profile, step),
+    expectedResults: expectedResultsFor(product, step),
     usageGuidance: usageFor(product),
     cautions: cautionsFor(product, profile, safety),
     sponsored,
@@ -340,6 +355,32 @@ function reasonFor(product: ProductCatalogItem, profile: IntakeProfileInput, ste
     return `Your ${slotLabel(step)} step, built around ${actives.join(" and ")}.`;
   }
   return `Your ${slotLabel(step)} step${profile.skinType ? `, suited to ${normalize(profile.skinType)} skin` : ""}.`;
+}
+
+/**
+ * When a shopper can reasonably expect to notice something.
+ *
+ * The routine panel gave four products and no sense of what any of them would
+ * do or when, which is the question a shopper actually has. Worded as what
+ * people typically notice, never as a promise, and never as treating anything.
+ */
+function expectedResultsFor(product: ProductCatalogItem, step: RoutineStep): string {
+  const actives = product.activeIngredientsJson.map(normalize).join(" ");
+  const slow = /retino|azelaic|kojic|arbutin|vitamin c|ascorbic|niacinamide|hydroquinone|peptide/.test(actives);
+
+  if (step === "sunscreen") {
+    return "Works from day one, but as prevention — you feel nothing change, which is the point.";
+  }
+  if (step === "cleanser") {
+    return "Comfort and less tightness usually show within the first week or two.";
+  }
+  if (step === "moisturizer") {
+    return "Hydration and less tightness are usually noticeable within days.";
+  }
+  if (slow) {
+    return "Tone and texture shift slowly — most people look for a change around 8 to 12 weeks of steady use.";
+  }
+  return "Most people give a new step 4 to 6 weeks of consistent use before judging it.";
 }
 
 function usageFor(product: ProductCatalogItem) {

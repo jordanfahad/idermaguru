@@ -103,6 +103,8 @@ export type RecommendationCandidate = {
   slot: string;
   score: ScoreBreakdown;
   reason: string;
+  /** Roughly when this step tends to show, and what "showing" looks like. */
+  expectedResults: string;
   usageGuidance: string;
   cautions: string[];
   sponsored: boolean;

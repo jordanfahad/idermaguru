@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Sparkles, Square } from "lucide-react";
+import { Camera, Clock, ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Sparkles, Square } from "lucide-react";
 import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
 import { speechLocale } from "@/services/language";
 import { scriptedLines } from "@/services/voice-agent";
@@ -37,6 +37,7 @@ type AgentProduct = {
   step?: string;
   slot: string;
   reason: string;
+  expectedResults?: string;
   cautions?: string[];
   sponsored?: boolean;
 };
@@ -927,6 +928,12 @@ export function VoiceAgent({
                         </span>
                         <strong>{product.name}</strong>
                         <p className="va-rx-reason">{product.reason}</p>
+                        {product.expectedResults ? (
+                          <p className="va-rx-timing">
+                            <Clock size={12} aria-hidden />
+                            <span>{product.expectedResults}</span>
+                          </p>
+                        ) : null}
                         {product.cautions?.length ? <p className="va-rx-caution">{product.cautions[0]}</p> : null}
                         <div className="va-rx-foot">
                           <span className="va-price">

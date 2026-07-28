@@ -199,3 +199,20 @@ export function slugify(value: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
 }
+
+/**
+ * A product without its size, so two sizes of one product read as one thing.
+ *
+ * A routine that offered the same anti-dandruff shampoo in 200ML and 390ML as
+ * two of its four steps looked broken, and it was: they are separate catalogue
+ * rows with separate handles, correctly, but a shopper is being shown one
+ * product twice.
+ */
+export function productFamily(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:ml|mls|g|gm|gr|grams?|kg|l|oz|fl\s?oz)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}

@@ -468,3 +468,20 @@
   .va-routine { max-height: 300px; }
   .va-interim { font-size: 17px; }
 }
+
+/* When a step tends to show. A routine of four products and no sense of what
+   any of them does, or when, is the question a shopper is actually asking. */
+.va-rx-timing {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.34rem;
+  margin: 0.3rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--va-muted, #6b7280);
+}
+.va-rx-timing svg {
+  flex: none;
+  margin-top: 0.14rem;
+  opacity: 0.75;
+}

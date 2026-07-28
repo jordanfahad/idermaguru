@@ -10,6 +10,30 @@ that now guards it. An entry without a guarding test is a bug waiting to return.
 
 ---
 
+## 2026-07-28 — Reported from a live consultation
+
+### R-030 — "yes I do have period of energy" was recorded as three allergies
+- **Symptom:** the answer was accepted, the profile completed, and the shopper went straight to a routine.
+- **Cause:** `extractAllergies` stripped a few filler words and kept whatever was left, so it returned `["have","period","energy"]` as allergens. The routine was then built while filtering against them.
+- **Why the model did not catch it:** the model reader added in R-028 only runs when the deterministic parser places *nothing*. Here "yes" matched, slots changed, and `misheard` was false — so it was never consulted. The gate guards against silence, not against confident misreading.
+- **Fix:** a word only counts as an allergen if it reads like one, or if the shopper said "allergic to" it explicitly — an unknown ingredient named that way is still believed. A bare "yes" now carries no allergen and the agent asks which ones.
+- **Also:** "peanut" contains "nut", so both matched and it read back "allergic to nut, peanut". Only the most specific match is kept.
+- **Guarded by:** `tests/routine-quality.test.ts`.
+
+### R-031 — The same shampoo was offered twice, in two sizes
+- **Symptom:** a 4-step routine spent two steps on Vichy DERCOS anti-dandruff shampoo, 200ML and 390ML.
+- **Cause:** they are two catalogue rows with two handles — correctly, after R-029 — but one product to a shopper. Nothing collapsed them at recommendation time.
+- **Fix:** the routine keeps one product per family, where the family is the name with its size stripped. Ranked order is best-first, so the survivor is the better-scoring size.
+- **Guarded by:** `tests/routine-quality.test.ts`, including that different formulations sharing a name stay separate.
+
+### R-032 — Four products, no sense of what they do or when
+- **Symptom:** every card read "Chosen for the dandruff and dry you described." — the same sentence four times, with no indication of when anything would show.
+- **Cause:** the reason falls back to concerns alone when a product carries no active ingredients, which is most of a CSV-imported catalogue. Nothing ever expressed a timeframe.
+- **Fix:** each step now carries what a shopper can reasonably expect and roughly when, worded as what people typically notice rather than as a promise, and never as treating anything. Sunscreen says it prevents rather than shows.
+- **Note:** the reason line is still generic for products with no actives. Populating actives on the catalogue is the real fix.
+
+---
+
 ## 2026-07-27 — The catalogue carried 964 rows for 461 products
 
 ### R-029 — Every re-import created a fresh copy of the whole catalogue

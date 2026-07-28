@@ -394,6 +394,7 @@ export async function POST(request: Request) {
         step: item.step,
         slot: item.slot,
         reason: item.reason,
+        expectedResults: item.expectedResults,
         cautions: item.cautions,
         sponsored: item.sponsored,
       })),
