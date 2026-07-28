@@ -131,10 +131,52 @@ pays nothing on page views that ignore it.
   wrapping it — DermaGuru is a cosmetic advisor under UAE Federal Decree-Law
   No. 38 of 2024.
 
+## What the shopper actually sees
+
+Where they end up depends on which setup, and the difference is worth being
+deliberate about.
+
+**Own page framing the advisor (Option 1).** They click *Skin Advisor* in the
+Cicabelle nav and land on `cicabelle.com/pages/skin-advisor`. The Shopify
+header, menu and cart icon are still there; the advisor sits in the middle of
+that page. **The URL bar still says `cicabelle.com`. They have not left the
+store.** This is the recommended setup precisely because of that.
+
+**Linking straight at the subdomain.** They click *Skin Advisor* and the browser
+navigates to `advisor.cicabelle.com`. The URL bar changes and the Shopify
+header, menu and cart go with it — the advisor is the whole page. The
+microphone is first-party and nothing can block it, which is the appeal, but
+the shopper is off the storefront until they come back. Worth it only if you
+want the advisor to be its own destination, e.g. as an ad landing page.
+
+**Bubble.** They stay exactly where they are and a panel opens over the page.
+
+Note the subdomain is used *inside* the frame in Option 1 — the shopper never
+sees it in the URL bar, but the microphone prompt says `advisor.cicabelle.com`
+rather than `idermaguru.com`, which is the whole point of pointing it. A
+subdomain is still a different origin from `cicabelle.com`, so
+`allow="microphone"` is still required.
+
+### Clicking a product, and the cart
+
+Both already work and neither breaks out of the frame:
+
+- **A product card** opens the Cicabelle product page in a **new tab**
+  (`target="_blank"`). The consultation stays open in the original tab.
+- **"Add routine to cart"** hits `/api/cart/cicabelle`, which resolves each
+  product to its Shopify variant id and redirects to a cart permalink —
+  `cicabelle.com/cart/<variant>:1,<variant>:1,…` — so the whole routine lands in
+  the real Shopify cart in one go, with UTM tags attached. Also a new tab.
+
+Because both open a new tab, a shopper can add the routine and still come back
+to a live consultation. That is the behaviour to keep.
+
 ## What is not built yet
 
-- **Add-to-cart straight into the Shopify cart from inside the frame.** Product
-  links open the product page. Cross-origin cart writes need either the
-  subdomain setup above or a `postMessage` bridge; neither exists today.
+- **Adding to the cart without leaving the frame.** The button above works, but
+  it hands the shopper to Shopify's cart page in a new tab rather than
+  incrementing the cart badge in place. Doing it silently needs the AJAX Cart
+  API called from the storefront origin — so either a `postMessage` bridge to
+  the parent page, or the subdomain setup plus a proxy. Neither exists today.
 - **A Shopify app listing.** This is a script tag and an iframe, not an app —
   nothing to submit and no review to pass, which is why it can go live today.
