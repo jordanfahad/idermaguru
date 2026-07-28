@@ -476,6 +476,68 @@
     document.body.appendChild(root);
   }
 
+  // ---- voice advisor (data-mode="voice") ----------------------------------
+  /*
+   * The talking advisor, in a launcher the shopper opens.
+   *
+   * Three things this does that the chat modes above do not, and each of them
+   * is the difference between working and not:
+   *
+   *  - allow="microphone" on the frame. A cross-origin iframe gets no
+   *    microphone unless the host page delegates it, and the failure is silent:
+   *    the shopper taps the mic and nothing at all happens.
+   *  - The frame is built on first open, not on page load. The advisor is a
+   *    React application; loading it on every page view of a storefront is a
+   *    cost the merchant pays on traffic that never opens it.
+   *  - A real launcher button. The plain iframe mode pins an open panel to the
+   *    corner of every page, which is a lot of storefront to give up.
+   */
+  function mountVoice(origin, cfg) {
+    var side = cfg.position === "bottom-left" ? "left:20px" : "right:20px";
+    var loc = cfg.locale === "ar" ? "ar" : "en";
+    var open = false;
+    var frame = null;
+
+    var root = el("div", {});
+    root.style.cssText = "position:fixed;z-index:2147483647;bottom:20px;" + side;
+
+    var panel = el("div", {});
+    panel.style.cssText =
+      "display:none;overflow:hidden;margin-bottom:12px;border-radius:20px;" +
+      "width:min(420px,calc(100vw - 32px));height:min(680px,calc(100vh - 120px));" +
+      "box-shadow:0 30px 80px rgba(20,17,15,.28);background:#fff";
+
+    var button = el("button", { type: "button" });
+    button.setAttribute("aria-label", t(loc, "launch"));
+    button.setAttribute("aria-expanded", "false");
+    button.style.cssText =
+      "display:block;margin-" + (cfg.position === "bottom-left" ? "right" : "left") + ":auto;cursor:pointer;" +
+      "border:0;border-radius:999px;padding:14px 20px;font:600 15px/1 system-ui,sans-serif;" +
+      "background:" + (cfg.primary || "#1f6f5c") + ";color:" + (cfg.onPrimary || "#fff") + ";" +
+      "box-shadow:0 12px 30px rgba(20,17,15,.22)";
+    button.textContent = t(loc, "launch");
+
+    button.addEventListener("click", function () {
+      open = !open;
+      if (open && !frame) {
+        frame = el("iframe", { title: t(loc, "launch") });
+        // Without this the advisor loads, looks right, and cannot hear anybody.
+        frame.setAttribute("allow", "microphone; autoplay; clipboard-write");
+        frame.src = origin + "/advisor?lang=" + encodeURIComponent(loc);
+        frame.style.cssText = "border:0;width:100%;height:100%;display:block";
+        panel.appendChild(frame);
+      }
+      panel.style.display = open ? "block" : "none";
+      button.textContent = open ? t(loc, "close") : t(loc, "launch");
+      button.setAttribute("aria-label", open ? t(loc, "close") : t(loc, "launch"));
+      button.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+
+    root.appendChild(panel);
+    root.appendChild(button);
+    document.body.appendChild(root);
+  }
+
   // ---- register + auto-mount ----------------------------------------------
   var supportsCE = "customElements" in window && "attachShadow" in Element.prototype;
   if (supportsCE) customElements.define(TAG, DermaGuruWidget);
@@ -502,6 +564,16 @@
     var tenant = script.getAttribute("data-tenant") || "ai-derma-guru";
     var position = script.getAttribute("data-position") || "bottom-right";
     var mode = script.getAttribute("data-mode");
+
+    if (mode === "voice") {
+      mountVoice(origin, {
+        position: position,
+        locale: script.getAttribute("data-locale") || "en",
+        primary: script.getAttribute("data-primary"),
+        onPrimary: script.getAttribute("data-on-primary"),
+      });
+      return;
+    }
 
     if (!supportsCE || mode === "iframe") {
       mountIframe(origin, tenant, position);

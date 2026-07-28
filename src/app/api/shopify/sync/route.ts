@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getAdminSessionCookieName, verifyAdminSession } from "@/lib/admin-auth";
 import { fetchShopifyProducts, normaliseShopDomain } from "@/lib/shopify";
+import { invalidateCatalogue } from "@/services/catalog";
 import { mapShopifyProduct, writeCatalogue } from "@/services/shopify-sync";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { getPrisma } from "@/server/db";
@@ -66,6 +67,9 @@ async function sync(request: Request) {
     .filter((product): product is NonNullable<typeof product> => product !== null);
 
   const written = await writeCatalogue(prisma, mapped);
+  // The advisor holds the catalogue in memory for a moment; a sync is exactly
+  // the event that should make it read again.
+  invalidateCatalogue();
 
   await supabase
     .from("shopify_shops")

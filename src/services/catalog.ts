@@ -22,7 +22,28 @@ function seedFallback(tenantId: string): ProductCatalogItem[] {
   return tenantId === seedTenant.id ? seedProducts.filter((product) => product.tenantId === seedTenant.id) : [];
 }
 
+/**
+ * The catalogue, kept in memory for a moment.
+ *
+ * Every turn that produces a routine reads the whole catalogue — 461 rows for
+ * the live merchant — and pays a round trip to another region for it. The
+ * catalogue changes when a merchant syncs or edits a product, which is not
+ * something that happens between two turns of one conversation, so a short TTL
+ * costs nothing and takes a visible pause out of every result.
+ */
+const catalogueCache = new Map<string, { at: number; products: ProductCatalogItem[] }>();
+const CATALOGUE_TTL_MS = 45_000;
+
+/** Called after a sync or an edit, so the next read is fresh. */
+export function invalidateCatalogue(slug?: string) {
+  if (slug) catalogueCache.delete(slug);
+  else catalogueCache.clear();
+}
+
 export async function listTenantProducts(slug = seedTenant.slug): Promise<ProductCatalogItem[]> {
+  const cached = catalogueCache.get(slug);
+  if (cached && Date.now() - cached.at < CATALOGUE_TTL_MS) return cached.products;
+
   const tenant = await getTenantBySlug(slug);
   if (!tenant) return slug === seedTenant.slug ? seedFallback(seedTenant.id) : [];
 
@@ -35,7 +56,9 @@ export async function listTenantProducts(slug = seedTenant.slug): Promise<Produc
       }),
     );
     if (!products) return seedFallback(tenant.id);
-    return products.map(mapPrismaProduct);
+    const mapped = products.map(mapPrismaProduct);
+    catalogueCache.set(slug, { at: Date.now(), products: mapped });
+    return mapped;
   } catch {
     return seedFallback(tenant.id);
   }
@@ -61,6 +84,7 @@ export async function createProductForTenant(tenantSlug: string, input: Omit<Pro
     }),
   );
 
+  invalidateCatalogue(tenantSlug);
   if (!product) return { ...input, id: crypto.randomUUID(), tenantId: tenant.id };
   return mapPrismaProduct(product);
 }
@@ -103,6 +127,7 @@ export async function importProductForTenant(
     return tx.product.update({ where: { id: existing.id }, data: { ...input, url } });
   });
 
+  invalidateCatalogue(tenantSlug);
   if (!product) return { ...input, id: crypto.randomUUID(), tenantId: tenant.id };
   return mapPrismaProduct(product);
 }
@@ -124,6 +149,7 @@ export async function markMissingOutOfStock(tenantSlug: string, seenUrls: string
       data: { inStock: false },
     }),
   );
+  invalidateCatalogue(tenantSlug);
   return result?.count ?? 0;
 }
 
@@ -164,6 +190,7 @@ export async function updateProductForTenant(productId: string, tenantSlug: stri
       },
     });
 
+    invalidateCatalogue(tenantSlug);
     return mapPrismaProduct(product);
   });
 }
@@ -180,6 +207,7 @@ export async function deleteProductForTenant(productId: string, tenantSlug: stri
     return true;
   });
 
+  invalidateCatalogue(tenantSlug);
   return { deleted: true };
 }
 

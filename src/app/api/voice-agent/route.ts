@@ -195,7 +195,7 @@ export async function POST(request: Request) {
       } else {
         // Name what they actually raised before redirecting, so the bridge
         // reads as listening rather than a canned refusal.
-        const topic = await withBudget(summariseTopic(input.utterance, lang), 1200, "");
+        const topic = await withBudget(summariseTopic(input.utterance, lang), READING_BUDGET_MS, "");
         leadIn = topic ? copy.offTopicBridge(topic) : copy.aside.offtopic;
       }
       const line = question ? `${leadIn} ${question}` : leadIn;
@@ -220,20 +220,25 @@ export async function POST(request: Request) {
     // Only on the opening description. Later turns are short answers ("yes",
     // "oily") that the patterns already handle, and calling the model on every
     // one of them added a round trip per turn for nothing.
+    //
+    // It runs alongside the empathy call rather than before it. Both are opening
+    // -turn enrichments of the same sentence and neither needs the other's
+    // answer, so waiting for one and then the other doubled the pause on the
+    // very first thing the shopper says.
     const firstDescription = !before.mainConcern && Boolean(slots.mainConcern);
+    const [intake, openingReaction] = await Promise.all([
+      firstDescription && !slots.skinType
+        ? withBudget(
+            getLLMProvider().summarizeIntake([{ role: "user", content: input.utterance }]),
+            READING_BUDGET_MS,
+            null,
+          )
+        : Promise.resolve(null),
+      empathise(input.utterance, lang, firstDescription),
+    ]);
     if (firstDescription && !slots.skinType) {
-      const provider = getLLMProvider();
-      if ((provider.lastUsedId ?? provider.id) !== "mock") {
-        // Understanding is a bonus; the scripted question still covers it, so
-        // it never gets more than a moment of the shopper's time.
-        const intake = await withBudget(
-          provider.summarizeIntake([{ role: "user", content: input.utterance }]),
-          1200,
-          null,
-        );
-        const guess = typeof intake?.skinType === "string" ? extractSkinType(intake.skinType) : undefined;
-        if (guess) slots = { ...slots, skinType: guess };
-      }
+      const guess = typeof intake?.skinType === "string" ? extractSkinType(intake.skinType) : undefined;
+      if (guess) slots = { ...slots, skinType: guess };
     }
     // Nothing new was understood from a non-empty answer -> we are about to ask
     // the same question again, so acknowledge the mishearing.
@@ -253,7 +258,7 @@ export async function POST(request: Request) {
       const asked = nextQuestion(before, lang)?.question ?? copy.askConcern;
       const reading = await withBudget(
         provider.readAnswer(asked, input.utterance),
-        900,
+        READING_BUDGET_MS,
         UNREADABLE_ANSWER,
       );
 
@@ -330,7 +335,7 @@ export async function POST(request: Request) {
       // React to what was said before asking the next thing. "I have a rash"
       // used to be met with a flat "Got it." and a question about whether the
       // shopper's skin is oily; a person would have said they were sorry first.
-      const reaction = misheard ? "" : await empathise(input.utterance, lang, !before.mainConcern);
+      const reaction = misheard ? "" : openingReaction;
       const acknowledgement = learned ? copy.understood(learned) : openingConcern;
       const leadIn = misheard
         ? copy.repeat
@@ -411,13 +416,29 @@ export async function POST(request: Request) {
       });
     }
 
-    const recommendation = await inStockRoutine({
+    const plan = {
       tenantId: tenant.id,
       profile,
       safety,
       products,
       sponsoredEnabled: true,
-    });
+    };
+    // The stock check and the model's phrasing of the result are independent,
+    // and each used to wait for the other. Run them together: the turn now
+    // costs the slower of the two rather than the sum.
+    //
+    // The explanation names products, so it is only usable if the stock check
+    // did not swap any of them out. A rebuild is rare, and the deterministic
+    // copy it falls back to was always going to be correct.
+    const provider = getLLMProvider();
+    const usingRealModel = (provider.lastUsedId ?? provider.id) !== "mock";
+    const draftRoutine = buildRecommendations(plan);
+    const [{ routine: recommendation, rebuilt }, explanation] = await Promise.all([
+      inStockRoutine(plan, draftRoutine),
+      usingRealModel && lang === "en" && draftRoutine.items.length
+        ? withBudget(provider.explainRecommendations(profile, draftRoutine, safety), EXPLAIN_BUDGET_MS, "")
+        : Promise.resolve(""),
+    ]);
 
     if (!recommendation.items.length) {
       return NextResponse.json({
@@ -454,9 +475,6 @@ export async function POST(request: Request) {
             : "simpler"
           : null;
 
-    // Let the model phrase the result, but re-run the safety gate over whatever
-    // it produced and fall back to fixed copy if it drifts.
-    const provider = getLLMProvider();
     // If the shopper volunteered everything up front we never asked a question,
     // so restate what was understood before recommending - otherwise jumping
     // straight to products reads as if it ignored them.
@@ -486,21 +504,15 @@ export async function POST(request: Request) {
           : copy.adjusted[adjusted](count);
     } else {
       spokenReply = `${preface}${copy.result(count)}`;
-      // The mock provider emits a fixed, ungrammatical string that splices the raw
-      // concern ("For I have a dandruff, ..."), so only ask a real model to phrase
-      // the result. English only for now: the models are not prompted in Arabic.
-      const usingRealModel = (provider.lastUsedId ?? provider.id) !== "mock";
-      if (usingRealModel && lang === "en") {
-        // Provider unavailable or slow: the deterministic summary above is
-        // already correct, and the shopper hears it a lot sooner.
-        const explanation = await withBudget(
-          provider.explainRecommendations(profile, recommendation, safety),
-          2500,
-          "",
-        );
-        if (explanation.trim() && validateAssistantTextForSafety(explanation, safety).recommendationAllowed) {
-          spokenReply = `${preface}${shorten(explanation, 420)}`;
-        }
+      // The model's phrasing names products, so it is only safe to use when the
+      // stock check left the routine alone. It is also re-run through the safety
+      // gate, and dropped if it drifts.
+      if (
+        !rebuilt &&
+        explanation.trim() &&
+        validateAssistantTextForSafety(explanation, safety).recommendationAllowed
+      ) {
+        spokenReply = `${preface}${shorten(explanation, 420)}`;
       }
     }
 
@@ -548,22 +560,37 @@ export async function POST(request: Request) {
  * attempts; the availability lookups are cached, so the later passes are
  * usually free.
  */
-async function inStockRoutine(base: Parameters<typeof buildRecommendations>[0]) {
-  const excluded = new Set<string>();
-  let routine = buildRecommendations(base);
+async function inStockRoutine(
+  base: Parameters<typeof buildRecommendations>[0],
+  routine: ReturnType<typeof buildRecommendations>,
+) {
+  if (!routine.items.length) return { routine, rebuilt: false };
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (!routine.items.length) break;
-    const soldOut = await soldOutProductIds(
-      routine.items.map((item) => ({ id: item.product.id, url: item.product.url })),
-    );
-    if (!soldOut.size) break;
-    soldOut.forEach((id) => excluded.add(id));
-    routine = buildRecommendations({ ...base, excludeProductIds: excluded });
-  }
+  const soldOut = await soldOutProductIds(
+    routine.items.map((item) => ({ id: item.product.id, url: item.product.url })),
+    STOCK_BUDGET_MS,
+  );
+  if (!soldOut.size) return { routine, rebuilt: false };
 
-  return routine;
+  // One rebuild, not a loop. Verifying the replacements too meant up to three
+  // sequential round trips to the storefront on the slowest turn in the whole
+  // conversation; a second sold-out product in the same routine is rare, and
+  // the cost of missing it is one dud card, not a broken routine.
+  return { routine: buildRecommendations({ ...base, excludeProductIds: soldOut }), rebuilt: true };
 }
+
+/**
+ * How long the reply may wait on anything optional.
+ *
+ * Every one of these had a budget generous enough to be invisible on a fast
+ * network and ruinous on a slow one — and they ran one after another, so the
+ * turn that produces a routine could spend seven seconds before saying a word.
+ * The deterministic answer is ready immediately in every case; these numbers
+ * are how long it is worth holding it back for something better.
+ */
+const STOCK_BUDGET_MS = 700;
+const EXPLAIN_BUDGET_MS = 1300;
+const READING_BUDGET_MS = 800;
 
 /** The same check for the hair and body lists, which are picked, not built. */
 async function inStockOnly<T extends { id: string; url: string }>(picks: T[]): Promise<T[]> {
@@ -605,7 +632,7 @@ async function empathise(utterance: string, lang: AgentLang, opening: boolean): 
       approvedProducts: [],
       safety: safe,
     }),
-    1200,
+    READING_BUDGET_MS,
     "",
   );
 

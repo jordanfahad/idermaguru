@@ -458,8 +458,14 @@
   .va-picks { flex-direction: row; flex-wrap: wrap; justify-content: center; }
   .va-side-live { width: 100%; max-width: 560px; margin: 0 auto; }
   .va-transcript { max-height: 300px; }
-  /* The routine is an answer, not a prompt, so stacked it belongs last. */
-  .va-side-routine { order: 3; width: 100%; max-width: 560px; margin: 0 auto; }
+  /* The routine is the answer, so stacked it goes directly under the orb —
+     ahead of the transcript, which is history the shopper has already read.
+     It used to sit last, below both, which is how a shopper on a phone got a
+     screen that looked unchanged and had to go hunting for their routine. */
+  .va-side-routine { order: -1; width: 100%; max-width: 560px; margin: 0 auto; }
+  /* Room above it when it is scrolled into view, so it does not sit flush
+     against the top of the screen. */
+  .va-side-routine { scroll-margin-top: 14px; }
   .va-routine { max-height: 320px; }
 }
 

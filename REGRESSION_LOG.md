@@ -279,3 +279,20 @@ merchant catalogue of 876 in-stock products.
 - **Symptom:** caught while verifying R-023. A two-serum routine told the shopper to use both serums in the morning — the exact thing the guidance existed to prevent.
 - **Cause:** each card decided its own timing, so every serum that was not obviously nocturnal claimed the morning.
 - **Fix:** the split is decided once for the routine. A vitamin C or niacinamide serum takes the morning, a retinoid never does, and the other serum is named on both cards as the one for the other end of the day.
+
+### R-025 — A reply could spend seven seconds before saying anything
+- **Symptom:** the advisor felt slow, worst on the turn that produces a routine.
+- **Cause:** every optional model call had a generous budget and they ran one after another. On a result turn: the catalogue read, then up to three sequential storefront stock checks (3 × 1500ms), then the model's phrasing (2500ms). On the opening turn, intake reading (1200ms) then the empathy line (1200ms).
+- **Fix:** the stock check and the model's phrasing now run **concurrently** — the turn costs the slower of the two rather than the sum — and the stock check does one verification and at most one rebuild rather than looping. The opening turn's two model calls also run concurrently. Budgets cut to 700ms (stock), 1300ms (phrasing) and 800ms (everything else). Worst case per turn: ~7.3s → ~1.3s on a result, ~2.4s → ~0.8s on the opening.
+- **Also:** the catalogue is held in memory for 45s, so a conversation does not re-read 461 rows from another region on every turn. Every write path invalidates it.
+- **Correctness note:** the model's phrasing names products, so it is only used when the stock check did not swap any of them out.
+
+### R-026 — On a phone the routine arrived off-screen
+- **Symptom:** the shopper answers four questions, the routine is built, and the screen looks unchanged — they have to scroll down to find it.
+- **Cause:** stacked, `.va-side-routine` was ordered last, below the orb *and* the transcript.
+- **Fix:** the routine now sits directly under the orb, ahead of the transcript, and scrolls itself into view when it changes. Keyed on which products are showing rather than how many, so an adjusted routine of the same length is also brought into view. Desktop is untouched — the routine is already beside the orb there — and `prefers-reduced-motion` gets an instant jump instead of a smooth scroll.
+
+### R-027 — The one-line install shipped the wrong advisor
+- **Symptom:** found while writing the integration guide. `dermaguru-widget.js` mounts `SkinAdvisorWidget` against `/api/chat/*`; its iframe fallback points at `/embed`, which is the same older build. None of the recent work is on that path, so the documented install would have put the old advisor on a merchant's storefront.
+- **Fix:** a new `/advisor` route — the voice advisor with no site chrome, for embedding — and `data-mode="voice"` on the widget script, which mounts a launcher whose frame carries `allow="microphone"` and is built on first open rather than on page load. Without that attribute the advisor loads, looks right, and cannot hear anybody, with no error shown.
+- **Documented in:** `docs/EMBED.md`.

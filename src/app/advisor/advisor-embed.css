@@ -1,0 +1,30 @@
+/*
+ * Chrome-free host for the advisor when it is embedded in a merchant's page.
+ *
+ * Deliberately almost nothing: the iframe is sized by the host, so this only
+ * has to fill it, centre the advisor, and stay out of the way. Background is
+ * transparent so a merchant's own page colour shows through rather than a white
+ * rectangle sitting on a cream storefront.
+ */
+.advisor-embed {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 3vw, 28px);
+  background: transparent;
+}
+
+.advisor-embed > * {
+  width: 100%;
+  max-width: 1180px;
+}
+
+/* On a phone the advisor scrolls inside the frame rather than the frame
+   growing, so the host page never has a second scrollbar inside its own. */
+@media (max-width: 1080px) {
+  .advisor-embed {
+    align-items: flex-start;
+    min-height: 100%;
+  }
+}

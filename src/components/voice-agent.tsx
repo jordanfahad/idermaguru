@@ -257,6 +257,7 @@ export function VoiceAgent({
   const orbRef = useRef<OrbAudio | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const routineRef = useRef<HTMLElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const continueRef = useRef(false);
   // How many times recognition has restarted without hearing anything. A
@@ -264,6 +265,32 @@ export function VoiceAgent({
   const silentRestartsRef = useRef(0);
   const restartTimerRef = useRef<number | null>(null);
   const t = UI[lang];
+
+  /**
+   * Bring the routine to the shopper on a phone.
+   *
+   * Stacked, the columns run orb, routine, transcript — so the answer somebody
+   * has just spent four questions waiting for renders below the fold, and the
+   * screen looks like nothing happened. On desktop the routine is already in
+   * view beside the orb, so this only fires where the layout stacks.
+   *
+   * Keyed on which products are showing, not how many: an adjusted routine of
+   * the same length is still a new answer worth being shown.
+   */
+  const routineKey = products.map((product) => product.id).join(",");
+  useEffect(() => {
+    if (!routineKey) return;
+    const node = routineRef.current;
+    if (!node || typeof window.matchMedia !== "function") return;
+    if (!window.matchMedia("(max-width: 1080px)").matches) return;
+
+    const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // A frame late, so the panel has been laid out and lands where we scroll to.
+    const id = window.requestAnimationFrame(() => {
+      node.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [routineKey]);
 
   // Drive --level from real audio every frame.
   useEffect(() => {
@@ -882,7 +909,10 @@ export function VoiceAgent({
       {/* The right column is contextual: common concerns until the advisor has
           something to show, then the routine itself — so results never push the
           orb or the transcript off the screen. */}
-      <aside className={products.length ? "va-side va-side-picks va-side-routine" : "va-side va-side-picks"}>
+      <aside
+        ref={routineRef}
+        className={products.length ? "va-side va-side-picks va-side-routine" : "va-side va-side-picks"}
+      >
         {products.length ? (
           <div className="va-panel" key="routine">
             <p className="va-side-title">
