@@ -370,3 +370,10 @@ merchant catalogue of 876 in-stock products.
 - **The trap avoided:** speech-to-text renders "I dyed my hair" as "I died my hair" constantly, so a bare "died" can never qualify — the thing that died has to be a person or a pet.
 - **The other trap:** "I have scars after the accident" is bad news *and* a question this advisor can answer. Diverting it would be its own kind of not listening, so when the utterance also mentions skin or hair it gets a short condolence in front of the ordinary flow instead of a redirect.
 - **Guarded by:** `tests/empathy.test.ts`.
+
+### R-039 — Three things that only worked for one merchant in one country
+- **Context:** this ships as a SaaS. Found while removing the UAE emergency number.
+- **`999` in the emergency copy.** Right in the UAE, wrong nearly everywhere. A shopper in Berlin told to call 999 is worse off than one told nothing. The copy now names no digits by default and says "emergency services"; `ADVISOR_EMERGENCY_NUMBER` takes the whole phrase ("999 in the UAE", "112", "911") and appends it as its own sentence when a deployment serves one country.
+- **`currency: "AED"` hardcoded in the Shopify importer.** Every merchant's catalogue was relabelled into a currency they may not trade in. The sync now reads the shop's own currency from Shopify and passes it through; the call failing leaves the previous behaviour rather than silently relabelling a catalogue.
+- **`/api/cart/cicabelle` hardcoded `cicabelle.com`.** A second merchant's shoppers would have been sent to Cicabelle's cart. The store is now resolved from the tenant's own catalogue.
+- **Security note on that last one:** the obvious fix — deriving the origin from `items[].url` — would be an open redirect, since anyone could hand the endpoint a link to any domain and have us send a shopper there under our own name. The redirect target is built only from product URLs already stored for that tenant; the query string names *which* products, never *where*.

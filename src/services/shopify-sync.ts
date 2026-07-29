@@ -73,6 +73,11 @@ export function mapShopifyProduct(
   product: ShopifyProduct,
   tenantId: string,
   shopDomain: string,
+  // The shop's own currency, read from the Shopify shop endpoint at sync time.
+  // This used to be hardcoded to AED, which is right for one merchant in Dubai
+  // and wrong for every other store this is sold to — their prices would have
+  // been relabelled into a currency they do not trade in.
+  currency = "AED",
 ): ProductCatalogItem | null {
   const variant = product.variants?.[0];
   const price = Number.parseFloat(variant?.price ?? "");
@@ -93,7 +98,7 @@ export function mapShopifyProduct(
     url: `https://${shopDomain.replace(".myshopify.com", "")}.myshopify.com/products/${product.handle}`,
     imageUrl: product.images?.[0]?.src ?? null,
     price,
-    currency: "AED",
+    currency,
     // Draft/archived products are never sellable; treat unknown inventory as available.
     inStock: product.status === "active" && (inventory === undefined || inventory === null || inventory > 0),
     ingredientsJson: [],

@@ -124,6 +124,26 @@ export type ShopifyProduct = {
   variants?: { id: number; price: string; sku?: string | null; inventory_quantity?: number }[];
 };
 
+/**
+ * The shop's own currency, so synced prices carry the right symbol.
+ *
+ * Returns null rather than guessing when the call fails; the caller keeps
+ * whatever it was already using instead of silently relabelling a catalogue.
+ */
+export async function fetchShopCurrency(shop: string, accessToken: string): Promise<string | null> {
+  try {
+    const response = await fetch(`https://${shop}/admin/api/2024-10/shop.json`, {
+      headers: { "X-Shopify-Access-Token": accessToken, accept: "application/json" },
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { shop?: { currency?: string } };
+    const currency = payload.shop?.currency?.trim().toUpperCase();
+    return currency && /^[A-Z]{3}$/.test(currency) ? currency : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Pages through the Admin REST catalogue. Capped so one sync cannot run away. */
 export async function fetchShopifyProducts(
   shop: string,

@@ -181,14 +181,30 @@ export function sorrowLead(kind: Sorrow, lang: AgentLang): string {
   return SORROW_LEAD[lang][kind];
 }
 
-const DISTRESS_COPY: Record<AgentLang, Record<Distress, string>> = {
+/**
+ * What to dial, when the operator knows.
+ *
+ * 999 is right in the UAE and wrong nearly everywhere else, and this is sold as
+ * a SaaS — a merchant in Berlin whose shopper is told to call 999 is worse off
+ * than one who was told nothing. So the number is a setting, the copy works
+ * without it, and the default names no digits at all.
+ *
+ * Set the whole phrase, not just the digits: ADVISOR_EMERGENCY_NUMBER="999 in
+ * the UAE" or "112" or "911". It is appended as its own short sentence.
+ */
+function emergencyDial(): string {
+  const configured = (process.env.ADVISOR_EMERGENCY_NUMBER ?? "").trim();
+  return configured ? ` ${configured.replace(/\.$/, "")}.` : "";
+}
+
+const DISTRESS_COPY_BASE: Record<AgentLang, Record<Distress, string>> = {
   en: {
     // Shock first, then the instruction. Somebody reading this is frightened,
     // and a sentence that opens by explaining our scope reads as indifference.
     bystander:
-      "Oh no — please call emergency services right now, before anything else. 999 in the UAE. I'm only a shop's skin advisor and I'm not who you need for this. If you can, stay with them until help gets there.",
+      "Oh no — please call emergency services right now, before anything else.{DIAL} I'm only a shop's skin advisor and I'm not who you need for this. If you can, stay with them until help gets there.",
     emergency:
-      "Oh no — I'm so sorry, that sounds serious. Please call emergency services now — 999 in the UAE — or get to the nearest hospital. This is well past anything I can help with, and it shouldn't wait on me.",
+      "Oh no — I'm so sorry, that sounds serious. Please call emergency services now, or get to the nearest hospital.{DIAL} This is well past anything I can help with, and it shouldn't wait on me.",
     "urgent-care":
       "Oh no — I'm really sorry to hear that. That's not something I can help with, I'm afraid. The best thing you can do is call emergency services, or get to a hospital or a clinic near you and have it looked at properly.",
     crisis:
@@ -196,9 +212,9 @@ const DISTRESS_COPY: Record<AgentLang, Record<Distress, string>> = {
   },
   ar: {
     bystander:
-      "يا إلهي — اتصل بالطوارئ الآن قبل أي شيء آخر. الرقم 999 في الإمارات. أنا مجرد مستشار بشرة في متجر ولستُ من تحتاجه هنا. وإن استطعت، ابقَ معه حتى تصل المساعدة.",
+      "يا إلهي — اتصل بالطوارئ الآن قبل أي شيء آخر.{DIAL} أنا مجرد مستشار بشرة في متجر ولستُ من تحتاجه هنا. وإن استطعت، ابقَ معه حتى تصل المساعدة.",
     emergency:
-      "يؤسفني ذلك حقاً — ما تصفه خطير. اتصل بالطوارئ الآن — 999 في الإمارات — أو توجّه إلى أقرب مستشفى. هذا يتجاوز ما يمكنني المساعدة فيه، ولا يجب أن ينتظرني.",
+      "يؤسفني ذلك حقاً — ما تصفه خطير. اتصل بالطوارئ الآن أو توجّه إلى أقرب مستشفى.{DIAL} هذا يتجاوز ما يمكنني المساعدة فيه، ولا يجب أن ينتظرني.",
     "urgent-care":
       "يؤسفني سماع ذلك حقاً. للأسف هذا ليس شيئاً أستطيع مساعدتك فيه. الأفضل أن تتصل بالطوارئ أو تزور مستشفى أو عيادة قريبة ليفحصه مختص.",
     crisis:
@@ -207,7 +223,7 @@ const DISTRESS_COPY: Record<AgentLang, Record<Distress, string>> = {
 };
 
 export function distressCopy(kind: Distress, lang: AgentLang): string {
-  return DISTRESS_COPY[lang][kind];
+  return DISTRESS_COPY_BASE[lang][kind].replace("{DIAL}", emergencyDial());
 }
 
 /**

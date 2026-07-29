@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getAdminSessionCookieName, verifyAdminSession } from "@/lib/admin-auth";
-import { fetchShopifyProducts, normaliseShopDomain } from "@/lib/shopify";
+import { fetchShopCurrency, fetchShopifyProducts, normaliseShopDomain } from "@/lib/shopify";
 import { invalidateCatalogue } from "@/services/catalog";
 import { mapShopifyProduct, writeCatalogue } from "@/services/shopify-sync";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -61,9 +61,12 @@ async function sync(request: Request) {
   if (!prisma) return jsonError("Database is not configured.", 503);
 
   const limit = 1000;
-  const products = await fetchShopifyProducts(shop, connection.access_token, limit);
+  const [products, currency] = await Promise.all([
+    fetchShopifyProducts(shop, connection.access_token, limit),
+    fetchShopCurrency(shop, connection.access_token),
+  ]);
   const mapped = products
-    .map((product) => mapShopifyProduct(product, connection.tenant_id, shop))
+    .map((product) => mapShopifyProduct(product, connection.tenant_id, shop, currency ?? undefined))
     .filter((product): product is NonNullable<typeof product> => product !== null);
 
   const written = await writeCatalogue(prisma, mapped);

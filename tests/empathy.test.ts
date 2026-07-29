@@ -90,8 +90,18 @@ describe("someone in trouble", () => {
     // frightened person reads as indifference.
     expect(reply.split(/[.—]/)[0]).toMatch(/oh no/i);
     expect(reply).toMatch(/emergency services/i);
-    expect(reply).toMatch(/999/);
     expect(reply).not.toMatch(/skin or hair concern|outside my world/i);
+  });
+
+  it("names no country's emergency number by default", () => {
+    // This is sold as a SaaS. A shopper in Berlin told to call 999 is worse
+    // off than one told nothing, so digits only appear when a deployment has
+    // been configured with them.
+    for (const kind of ["emergency", "bystander"] as const) {
+      expect(distressCopy(kind, "en")).not.toMatch(/\b(999|911|112)\b/);
+      expect(distressCopy(kind, "en")).not.toMatch(/UAE|Emirates/i);
+      expect(distressCopy(kind, "en")).toMatch(/emergency services/i);
+    }
   });
 
   it("answers self-harm as a person rather than as a shop", () => {

@@ -829,7 +829,9 @@ export function VoiceAgent({
   }
 
   function cartUrl(items: AgentProduct[]) {
-    const payload = items.map((p) => ({ id: p.id, name: p.name, url: p.url }));
+    // Ids, not URLs: the cart endpoint resolves the store from its own
+    // catalogue rather than trusting a link handed to it in a query string.
+    const payload = items.map((p) => ({ id: p.id, url: p.url }));
     return `/api/cart/cicabelle?items=${encodeURIComponent(JSON.stringify(payload))}`;
   }
 
