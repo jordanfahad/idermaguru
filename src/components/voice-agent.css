@@ -510,3 +510,27 @@
   margin-top: 0.14rem;
   opacity: 0.75;
 }
+
+/* ---------------------------------------------------------------------------
+   The orb stops breathing while nobody is talking to it.
+
+   Killing the per-frame JavaScript that drove --level was only half of it: the
+   CSS kept going regardless. `.va-field` is a blurred layer whose opacity and
+   scale animate forever, and a blurred layer that changes has to be re-blurred;
+   `.va-halo` is a masked layer rotating forever. Both cost paint on every frame
+   of every scroll, for the whole life of the page.
+
+   Paused only while idle, and only where it hurts. Idle is exactly when the
+   shopper is reading their routine and dragging a thumb down the screen; while
+   the advisor is listening or speaking the orb is the thing they are looking at
+   and nobody is scrolling.
+--------------------------------------------------------------------------- */
+@media (max-width: 1080px) {
+  .va-idle .va-field,
+  .va-idle .va-halo,
+  .va-idle .va-bloom,
+  .va-thinking .va-field,
+  .va-thinking .va-halo {
+    animation-play-state: paused;
+  }
+}

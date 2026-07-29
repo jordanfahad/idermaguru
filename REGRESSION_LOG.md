@@ -377,3 +377,12 @@ merchant catalogue of 876 in-stock products.
 - **`currency: "AED"` hardcoded in the Shopify importer.** Every merchant's catalogue was relabelled into a currency they may not trade in. The sync now reads the shop's own currency from Shopify and passes it through; the call failing leaves the previous behaviour rather than silently relabelling a catalogue.
 - **`/api/cart/cicabelle` hardcoded `cicabelle.com`.** A second merchant's shoppers would have been sent to Cicabelle's cart. The store is now resolved from the tenant's own catalogue.
 - **Security note on that last one:** the obvious fix — deriving the origin from `items[].url` — would be an open redirect, since anyone could hand the endpoint a link to any domain and have us send a shopper there under our own name. The redirect target is built only from product URLs already stored for that tenant; the query string names *which* products, never *where*.
+
+### R-040 — Scrolling still stuck: what a phone pays per scrolled frame
+- **Symptom:** reported again after R-036. Removing the nested scrollers and the per-frame JavaScript was only half of it — the CSS never stopped.
+- **Cause 1, and the big one: `backdrop-filter: blur(10px)` on a `position: sticky` bar.** The browser has to re-blur everything behind that bar every time the page moves under it. This is charged *per scrolled frame*, which is exactly the shape of the complaint.
+- **Cause 2:** two `filter: blur(90px)` glows on 460px and 380px boxes, sitting directly under that bar — so they are what it re-reads.
+- **Cause 3:** `.cc-dot` animated `box-shadow`, which is a paint property and is never composited, so it repainted forever whether or not anything was moving.
+- **Cause 4:** `.va-halo` (blurred, breathing) and `.va-field` (masked, rotating) animate for the life of the page. A blurred or masked layer that changes has to be re-rasterised.
+- **Fix:** below 1080px the sticky bar is opaque, the glows are painted gradients rather than filtered boxes, the pulsing dot is still, and the orb's ambient motion is paused while idle — which is precisely when a shopper is reading their routine and dragging a thumb.
+- **Measured** in a real browser at 390x800, scrolling a finished consultation: worst frame 116.7ms → 33.3ms, average 27.7ms → 17.0ms, and the browser rendered 92 frames over the same scroll where it had managed 59.

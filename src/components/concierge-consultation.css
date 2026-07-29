@@ -99,3 +99,43 @@
 .cc-alt-toggle:hover { color: var(--cc-ink); border-color: rgba(27, 26, 23, 0.4); }
 .cc-rot { transform: rotate(180deg); }
 .cc-form-host { border-top: 1px solid var(--cc-line); }
+
+/* ---------------------------------------------------------------------------
+   WHAT A PHONE PAYS FOR ON EVERY SCROLL FRAME.
+
+   Three ambient effects here are cheap on a desktop GPU and expensive on a
+   phone, and one of them is charged per scrolled frame rather than once:
+
+   - `backdrop-filter` on a sticky bar. The browser has to re-blur everything
+     behind it every time the page moves under it. This is the single most
+     common cause of a page that scrolls in steps instead of smoothly.
+   - Two 90px blurs on 460px and 380px boxes, sitting directly under that bar,
+     so they are what it re-reads.
+   - A `box-shadow` animation. Box-shadow is a paint property and never
+     composited, so that dot repaints forever, scrolling or not.
+
+   All three are decoration. None of them survives contact with a mid-range
+   Android, and the shopper came here for a routine.
+--------------------------------------------------------------------------- */
+@media (max-width: 1080px) {
+  .cc-bar {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--cc-cream);
+  }
+
+  /* The same soft wash, painted rather than filtered. */
+  .cc-glow {
+    filter: none;
+  }
+  .cc-glow-1 {
+    background: radial-gradient(circle, rgba(47, 143, 131, 0.16) 0%, rgba(47, 143, 131, 0) 68%);
+  }
+  .cc-glow-2 {
+    background: radial-gradient(circle, rgba(196, 149, 106, 0.16) 0%, rgba(196, 149, 106, 0) 68%);
+  }
+
+  .cc-dot {
+    animation: none;
+  }
+}
