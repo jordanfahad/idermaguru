@@ -18,6 +18,7 @@ import {
   usableReaction,
 } from "@/services/empathy";
 import { soldOutProductIds } from "@/services/stock";
+import { childCopy, isChild, readsAge } from "@/services/audience";
 import {
   agentCopy,
   classifyAside,
@@ -66,6 +67,8 @@ const SlotsSchema = z.object({
   lastRoutine: z.array(z.string()).optional(),
   routineShape: z.enum(["simple", "full"]).optional(),
   gentle: z.boolean().optional(),
+  ageYears: z.number().optional(),
+  forSomeoneElse: z.boolean().optional(),
 });
 
 const AgentSchema = z.object({
@@ -162,6 +165,22 @@ export async function POST(request: Request) {
       });
     }
 
+    // Once a child's age is known it holds for the rest of the session. Without
+    // this, every later turn fell through to the generic clinical referral —
+    // a shopper who answered "no" twice got a wall of text about breathing
+    // difficulties instead of the answer they had already been given.
+    if (isChild(before.ageYears)) {
+      return NextResponse.json({
+        reply: await say(childCopy(before.ageYears!, lang, Boolean(before.forSomeoneElse))),
+        phase: "referral",
+        slots: before,
+        products: [],
+        safetyLevel: "REFER_CLINIC",
+        language: spoken,
+        rtl: isRtl(spoken),
+      });
+    }
+
     // SAFETY RUNS FIRST, ON EVERY TURN, BEFORE ANYTHING CAN SHORT-CIRCUIT IT.
     //
     // It used to run last, on the assembled profile. Two ways that failed: an
@@ -222,8 +241,12 @@ export async function POST(request: Request) {
     // once a routine is on screen it read as a tangent and got the off-topic
     // bridge. It is an instruction about the routine, and it is handled below.
     const adjusting = Boolean(before.gaveRoutine) && readAdjustment(input.utterance) !== null;
+    // "She's four years old" mentions nothing in the skin vocabulary, so the
+    // tangent classifier took it — the single most important fact in that
+    // conversation, discarded as small talk.
+    const statesAge = readsAge(input.utterance) !== undefined;
     const aside =
-      before.mainConcern && !awaitingAllergens && !awaitingArea && !adjusting
+      before.mainConcern && !awaitingAllergens && !awaitingArea && !adjusting && !statesAge
         ? classifyAside(input.utterance)
         : null;
     if (aside) {
@@ -339,6 +362,24 @@ export async function POST(request: Request) {
           rtl: isRtl(spoken),
         });
       }
+    }
+
+    // A CHILD'S AGE STOPS THE SALE.
+    //
+    // "My neighbor's daughter has dandruff" / "She's four years old" ended with
+    // the four-year-old treated as a tangent and the routine built anyway. The
+    // triage has always had an under-18 rule, and nothing ever gave it an age,
+    // so it could not fire. This is that rule, reachable.
+    if (isChild(slots.ageYears)) {
+      return NextResponse.json({
+        reply: await say(childCopy(slots.ageYears!, lang, Boolean(slots.forSomeoneElse))),
+        phase: "referral",
+        slots,
+        products: [],
+        safetyLevel: "REFER_CLINIC",
+        language: spoken,
+        rtl: isRtl(spoken),
+      });
     }
 
     // Intimate skin never reaches the product engine. Asked about often and

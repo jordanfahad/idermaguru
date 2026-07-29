@@ -1,6 +1,7 @@
 import { ESCALATION_MESSAGE, type IntakeProfileInput } from "@/domain/skincare";
 import { distressCopy, feelingCopy, sorrowCopy } from "./empathy";
 import { areaRoute, extractBodyArea, namesSkinType, needsBodyArea, type BodyArea } from "./body-area";
+import { readsAge, readsThirdParty } from "./audience";
 import { normaliseTranscript, type AgentLang } from "./text";
 
 /**
@@ -42,6 +43,10 @@ export type AgentSlots = {
   /** Adjustments the shopper asked for after seeing the routine. */
   routineShape?: "simple" | "full";
   gentle?: boolean;
+  /** How old the person using the product is, when they have said. */
+  ageYears?: number;
+  /** True when the shopper is asking on somebody else's behalf. */
+  forSomeoneElse?: boolean;
 };
 
 /**
@@ -214,6 +219,12 @@ export function extractInlineSlots(input: string): Partial<AgentSlots> {
   const statesType = namesSkinType(text) || BARE_SKIN_TYPE.test(text);
   const skinType = statesType ? extractSkinType(text) : undefined;
   if (skinType) found.skinType = skinType;
+
+  // "She's four years old" was thrown away as a tangent. An age is an answer
+  // wherever it turns up, and it is the one fact that can stop the sale.
+  const age = readsAge(text);
+  if (age !== undefined) found.ageYears = age;
+  if (readsThirdParty(text)) found.forSomeoneElse = true;
 
   // Pregnancy: only an explicit statement counts.
   const pregnant = readsPregnant(text);
@@ -452,6 +463,8 @@ const COPY = {
     // hears it. Skipped entirely when they have said it does not apply.
     askPregnancy:
       "One safety check — a few ingredients aren't advised in pregnancy or breastfeeding. Does either apply to you?",
+    askPregnancyOther:
+      "One safety check — a few ingredients aren't advised in pregnancy or breastfeeding. Does either apply to the person this is for?",
     askAllergies: "And do you have any product or ingredient allergies? Say no if none.",
     askAllergyNames: "Which ingredients or products are you allergic to?",
     // Asked before the skin-type question, because the skin-type question is
@@ -524,6 +537,8 @@ const COPY = {
     askConcern: "أخبرني بمشكلتك الأساسية في البشرة أو الشعر.",
     askSkinType: "كيف تصف بشرتك — دهنية أم جافة أم مختلطة أم حساسة؟",
     askPregnancy: "شكراً. قبل أن أقترح أي شيء: هل أنتِ حامل أو مرضعة؟",
+    askPregnancyOther:
+      "فحص سلامة واحد — بعض المكونات لا يُنصح بها أثناء الحمل أو الرضاعة. هل ينطبق ذلك على الشخص المعني؟",
     askAllergies: "وهل لديك أي حساسية من منتجات أو مكونات؟ قل لا إذا لم يكن هناك.",
     askAllergyNames: "ما المكونات أو المنتجات التي لديك حساسية منها؟",
     askBodyArea:
@@ -597,6 +612,7 @@ export function scriptedLines(lang: AgentLang): string[] {
     copy.askBodyArea,
     copy.askSkinType,
     copy.askPregnancy,
+    copy.askPregnancyOther,
     copy.askAllergies,
     copy.askAllergyNames,
   ];
@@ -707,6 +723,14 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
   }
   if (volunteered.allergies !== undefined && next.allergies === undefined) {
     next.allergies = volunteered.allergies;
+    gained = true;
+  }
+  if (volunteered.ageYears !== undefined && next.ageYears === undefined) {
+    next.ageYears = volunteered.ageYears;
+    gained = true;
+  }
+  if (volunteered.forSomeoneElse && !next.forSomeoneElse) {
+    next.forSomeoneElse = true;
     gained = true;
   }
 
@@ -893,7 +917,12 @@ export function nextQuestion(slots: AgentSlots, lang: AgentLang): { question: st
 
   if (next.pregnantOrBreastfeeding === undefined) {
     next.askedPregnancy = true;
-    return { question: copy.askPregnancy, slots: next };
+    // "Does either apply to you?" is the wrong question when the product is for
+    // somebody else — it was asked about a neighbour's four-year-old.
+    return {
+      question: next.forSomeoneElse ? copy.askPregnancyOther : copy.askPregnancy,
+      slots: next,
+    };
   }
 
   if (next.allergies === undefined) {
@@ -911,6 +940,8 @@ export function slotsToProfile(slots: AgentSlots, sessionId?: string): IntakePro
   return {
     sessionId,
     mainConcern: slots.mainConcern ?? "general routine building",
+    // The triage has always had an under-18 rule; nothing ever gave it an age.
+    ageRange: slots.ageYears !== undefined ? `${slots.ageYears} years old` : undefined,
     // Where it is belongs in the text the engine ranks against: a hand cream
     // should win for a hand concern, and nothing else told it that.
     freeText: slots.bodyArea ? slots.bodyArea.replace("-", " and ") : undefined,

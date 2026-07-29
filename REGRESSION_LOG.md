@@ -386,3 +386,19 @@ merchant catalogue of 876 in-stock products.
 - **Cause 4:** `.va-halo` (blurred, breathing) and `.va-field` (masked, rotating) animate for the life of the page. A blurred or masked layer that changes has to be re-rasterised.
 - **Fix:** below 1080px the sticky bar is opaque, the glows are painted gradients rather than filtered boxes, the pulsing dot is still, and the orb's ambient motion is paused while idle — which is precisely when a shopper is reading their routine and dragging a thumb.
 - **Measured** in a real browser at 390x800, scrolling a finished consultation: worst frame 116.7ms → 33.3ms, average 27.7ms → 17.0ms, and the browser rendered 92 frames over the same scroll where it had managed 59.
+
+### R-041 — A four-year-old was sold an adult routine (safety)
+- **Symptom:**
+  ```
+  You      My neighbor's daughter has dandruff
+  Advisor  Got it. One safety check — a few ingredients aren't advised in
+           pregnancy or breastfeeding. Does either apply to you?
+  You      She's four years old
+  Advisor  That one's outside my world, I'm afraid — skin and hair are what I know.
+  ```
+- **Cause 1, the safety one:** `runSafetyTriage` has always had an under-18 rule, and the voice dialogue never populated `ageRange` — so it could not fire, ever. A stated age of four was invisible to it.
+- **Cause 2:** "She's four years old" mentions nothing in the skin vocabulary, so the tangent classifier took the single most important fact in that conversation and discarded it as small talk.
+- **Cause 3:** every question is written in the second person. "Does either apply to **you**?" is the wrong question when the person using the product is somebody else's child.
+- **Fix:** `services/audience.ts` reads an age and whether the advice is for a third party. A child's age ends the session with an age-appropriate referral and holds for the rest of it — without that, later turns fell through to the generic clinical escalation and a shopper answering "no" got a wall of text about breathing difficulties. The pregnancy question is reworded when buying for someone else. The age is also passed to the triage, so its own rule finally works.
+- **Care taken:** an age is only read where the sentence is plainly about one. "a simple glow routine under AED 200", "I use it 3 times a week" and "my routine is 4 steps" all read no age.
+- **Guarded by:** `tests/audience.test.ts`.
