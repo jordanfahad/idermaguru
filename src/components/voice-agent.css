@@ -457,7 +457,29 @@
   .va-side-picks { order: -1; justify-self: center; max-width: 100%; }
   .va-picks { flex-direction: row; flex-wrap: wrap; justify-content: center; }
   .va-side-live { width: 100%; max-width: 560px; margin: 0 auto; }
-  .va-transcript { max-height: 300px; }
+
+  /* ONE SCROLLER ON A PHONE: THE PAGE.
+     Stacked, the transcript and the routine were both boxes with their own
+     max-height and their own overflow — so a 390px screen had three nested
+     scrollers, and the routine sat at the top filling most of it. Almost any
+     swipe landed on an inner box and moved that instead of the page, which is
+     what made it so hard to scroll. It also clipped the last product card
+     behind the cart button.
+
+     Inner scrolling is right on a desktop, where the panels sit side by side in
+     a fixed viewport and must not lengthen the page. On a phone the page IS the
+     panel. */
+  .va-transcript,
+  .va-routine {
+    max-height: none;
+    overflow: visible;
+  }
+  /* The fade exists to say "there is more below the clip". With nothing
+     clipped it just dims real content. */
+  .va-routine {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
   /* The routine is the answer, so stacked it goes directly under the orb —
      ahead of the transcript, which is history the shopper has already read.
      It used to sit last, below both, which is how a shopper on a phone got a
@@ -466,12 +488,9 @@
   /* Room above it when it is scrolled into view, so it does not sit flush
      against the top of the screen. */
   .va-side-routine { scroll-margin-top: 14px; }
-  .va-routine { max-height: 320px; }
 }
 
 @media (max-width: 620px) {
-  .va-transcript { max-height: 260px; }
-  .va-routine { max-height: 300px; }
   .va-interim { font-size: 17px; }
 }
 

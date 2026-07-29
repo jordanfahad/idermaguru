@@ -301,24 +301,53 @@ export function VoiceAgent({
     return () => window.cancelAnimationFrame(id);
   }, [routineKey]);
 
-  // Drive --level from real audio every frame.
+  /**
+   * Drive --level from real audio — but only while there is audio.
+   *
+   * This ran every frame for the whole life of the page, and --level feeds the
+   * colour stops of several radial gradients. A gradient whose stops change
+   * cannot be composited, so every frame forced a repaint of the orb: while
+   * idle, while reading, and while the shopper was trying to scroll. On a phone
+   * that is exactly what makes a page feel heavy and stuttery under the thumb.
+   *
+   * Now it runs while listening or speaking, and stops otherwise.
+   */
+  const pulsing = phase === "listening" || phase === "speaking";
   useEffect(() => {
+    const still = () => stageRef.current?.style.setProperty("--level", "0");
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    if (!pulsing || reduced) {
+      still();
+      return;
+    }
+
+    // Two decimal places is finer than the eye resolves in a gradient, and it
+    // keeps a repaint from being queued for a change nobody can see.
+    let last = -1;
     const tick = () => {
       const orb = orbRef.current;
       const stage = stageRef.current;
-      if (orb && stage) stage.style.setProperty("--level", orb.level().toFixed(3));
+      if (orb && stage) {
+        const level = Math.round(orb.level() * 100) / 100;
+        if (level !== last) {
+          last = level;
+          stage.style.setProperty("--level", level.toFixed(2));
+        }
+      }
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      still();
     };
-  }, []);
+  }, [pulsing]);
 
-  // Keep the newest turn in view inside the panel, never by growing the page.
+  // Keep the newest turn in view inside the panel. A no-op on a phone, where
+  // the panel is no longer a scroller and the page carries the transcript.
   useEffect(() => {
     const panel = transcriptRef.current;
-    if (panel) panel.scrollTop = panel.scrollHeight;
+    if (panel && panel.scrollHeight > panel.clientHeight) panel.scrollTop = panel.scrollHeight;
   }, [turns, interim]);
 
   // Rotate the example prompts while the shopper hasn't started.
