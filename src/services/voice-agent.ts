@@ -1,5 +1,5 @@
 import { ESCALATION_MESSAGE, type IntakeProfileInput } from "@/domain/skincare";
-import { distressCopy, feelingCopy } from "./empathy";
+import { distressCopy, feelingCopy, sorrowCopy } from "./empathy";
 import { areaRoute, extractBodyArea, namesSkinType, needsBodyArea, type BodyArea } from "./body-area";
 import { normaliseTranscript, type AgentLang } from "./text";
 
@@ -305,6 +305,20 @@ export type Aside = "greeting" | "identity" | "thanks" | "offtopic";
  * Safety triage runs before this, so anything alarming has already been sent to
  * a clinician by the time we get here.
  */
+/**
+ * Does this utterance mention skin or hair at all?
+ *
+ * Used to tell "my dog died" from "I have scars after the accident". The first
+ * is bad news and nothing else; the second is bad news *and* a question this
+ * advisor can answer, and diverting it would be its own kind of not listening.
+ */
+export function mentionsSkinOrHair(input: string): boolean {
+  const text = normaliseTranscript(input);
+  return (
+    SKIN_TERMS.test(text) || SKIN_LOOK.test(text) || INGREDIENT_TERMS.test(text) || SKIN_TERMS_AR.test(input)
+  );
+}
+
 export function classifyOpening(input: string): "elsewhere" | "offtopic" | null {
   const text = normaliseTranscript(input);
   if (!text) return null;
@@ -620,7 +634,8 @@ export function fixedLines(lang: AgentLang): string[] {
     ...COUNTS.map((count) => copy.adjusted.simpler(count)),
     ...COUNTS.map((count) => copy.adjusted.gentler(count)),
     ...COUNTS.map((count) => copy.adjusted.fullerAfterGentle(count)),
-    ...(["emergency", "urgent-care", "crisis"] as const).map((kind) => distressCopy(kind, lang)),
+    ...(["emergency", "urgent-care", "crisis", "bystander"] as const).map((kind) => distressCopy(kind, lang)),
+    ...(["grief", "misfortune"] as const).map((kind) => sorrowCopy(kind, lang)),
   ];
 }
 

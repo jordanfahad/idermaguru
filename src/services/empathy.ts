@@ -67,7 +67,30 @@ const CRISIS = [
   /\bself[- ]harm\w*\b/,
 ];
 
-export type Distress = "emergency" | "urgent-care" | "crisis";
+/**
+ * Somebody else is in danger, and the shopper is the one who can call for help.
+ *
+ * Every pattern above is written in the first person — "I have", "kill myself"
+ * — so "My friend just jumped out of the balcony" matched none of them and was
+ * answered with "That one's outside my world, I'm afraid." A person reporting
+ * someone else's emergency needs the same answer as a person in one, aimed at
+ * the right patient.
+ */
+const RELATION =
+  "(?:friend|mum|mother|dad|father|son|daughter|wife|husband|brother|sister|baby|child|kid|neighbou?r|colleague|partner|nan|grandmother|grandfather|granddad|cousin)";
+
+const BYSTANDER = [
+  // From a height. "my hair fell out" must not match, so a fall needs somewhere
+  // to have fallen from.
+  /\bjump(?:ed|ing)?\s+(?:out of|off|from|over)\b/,
+  /\bfell\s+(?:out of|off|from)\s+(?:a |the |my |his |her |their )?(?:balcony|window|roof|ladder|stairs|staircase|building|bridge|scaffold)/,
+  /\b(?:balcony|window|roof|bridge|building)\b[^.]{0,20}\bjump/,
+  new RegExp(`\\b(?:someone|somebody|he|she|they|my ${RELATION})\\b[^.]{0,40}\\b(?:jumped|collapsed|unconscious|not breathing|stopped breathing|overdosed|drowning|is bleeding|been stabbed|been shot|was hit by)\\b`),
+  new RegExp(`\\bmy ${RELATION}\\b[^.]{0,30}\\b(?:fell|is hurt|is injured|had an accident|had a fall)\\b`),
+  /\b(?:he|she|they|someone|somebody)\s+(?:has |just |is )?collapsed\b/,
+];
+
+export type Distress = "emergency" | "urgent-care" | "crisis" | "bystander";
 
 /**
  * Something that needs a person, not a product. Returns null for everything
@@ -78,23 +101,104 @@ export function classifyDistress(input: string): Distress | null {
   const text = normaliseTranscript(input);
   if (!text) return null;
   if (CRISIS.some((pattern) => pattern.test(text))) return "crisis";
+  // Before the first-person tiers: "my friend was shot" is about the friend.
+  if (BYSTANDER.some((pattern) => pattern.test(text))) return "bystander";
   if (EMERGENCY.some((pattern) => pattern.test(text))) return "emergency";
   if (URGENT_CARE.some((pattern) => pattern.test(text))) return "urgent-care";
   return null;
 }
 
+/**
+ * Bad news that is not an emergency and is not about skin.
+ *
+ * "My dog died" was answered "That one's outside my world, I'm afraid — skin
+ * and hair are what I know." Nothing about that is wrong and all of it is
+ * horrible. This is not a referral and does not end the conversation; it is the
+ * sentence a person says before carrying on.
+ */
+export type Sorrow = "grief" | "misfortune";
+
+/**
+ * Written so speech-to-text cannot manufacture it. "I dyed my hair" transcribes
+ * as "I died my hair" constantly, so a bare "died" is not enough — the thing
+ * that died has to be somebody.
+ */
+const GRIEF = new RegExp(
+  `\\b(?:passed away|passed on|funeral|lost my ${RELATION}|lost my (?:dog|cat|pet))\\b` +
+    `|\\bmy (?:${RELATION}|dog|cat|pet)\\b[^.]{0,20}\\b(?:died|dying|passed)\\b`,
+);
+
+const MISFORTUNE =
+  /\b(?:after the accident|had an accident|car crash|in hospital|in the hospital|got (?:mugged|robbed|attacked)|house (?:fire|burned)|lost my job|going through a divorce|really tough time)\b/;
+
+export function readsSorrow(input: string): Sorrow | null {
+  const text = normaliseTranscript(input);
+  if (!text) return null;
+  if (GRIEF.test(text)) return "grief";
+  if (MISFORTUNE.test(text)) return "misfortune";
+  return null;
+}
+
+const SORROW_COPY: Record<AgentLang, Record<Sorrow, string>> = {
+  en: {
+    grief:
+      "Oh no — I'm so sorry. That's a horrible thing to happen, and I'm sorry you're carrying it. I'm only a shop's skin advisor so I'm no use for that part, but I'm here whenever you want to talk about your skin or hair.",
+    misfortune:
+      "I'm sorry — that sounds like a lot to be dealing with. I can't help with the bigger part of it, but I'm here for the skin and hair side whenever you want.",
+  },
+  ar: {
+    grief:
+      "يؤسفني ذلك حقاً. هذا أمر مؤلم، وآسف لأنك تمرّ به. أنا مجرد مستشار بشرة في متجر ولا أفيدك في هذا الجانب، لكنني هنا متى أردت الحديث عن بشرتك أو شعرك.",
+    misfortune:
+      "يؤسفني ذلك — يبدو أنك تتحمّل الكثير. لا أستطيع المساعدة في الجزء الأكبر، لكنني هنا لما يخص البشرة والشعر متى شئت.",
+  },
+};
+
+export function sorrowCopy(kind: Sorrow, lang: AgentLang): string {
+  return SORROW_COPY[lang][kind];
+}
+
+/**
+ * The short version, for when the shopper mentioned the bad thing AND what they
+ * want help with in the same breath — "I have scars after the accident".
+ *
+ * The full line above says "I can't help with the bigger part of it", which is
+ * the wrong answer to somebody who has just asked a question we can answer. So
+ * this acknowledges it and gets on with helping.
+ */
+const SORROW_LEAD: Record<AgentLang, Record<Sorrow, string>> = {
+  en: {
+    grief: "I'm so sorry.",
+    misfortune: "I'm sorry you've been through that.",
+  },
+  ar: {
+    grief: "يؤسفني ذلك حقاً.",
+    misfortune: "يؤسفني ما مررت به.",
+  },
+};
+
+export function sorrowLead(kind: Sorrow, lang: AgentLang): string {
+  return SORROW_LEAD[lang][kind];
+}
+
 const DISTRESS_COPY: Record<AgentLang, Record<Distress, string>> = {
   en: {
+    // Shock first, then the instruction. Somebody reading this is frightened,
+    // and a sentence that opens by explaining our scope reads as indifference.
+    bystander:
+      "Oh no — please call emergency services right now, before anything else. 999 in the UAE. I'm only a shop's skin advisor and I'm not who you need for this. If you can, stay with them until help gets there.",
     emergency:
-      "I'm so sorry — that sounds serious, and it's well past anything I can help with. Please call emergency services now, or get to the nearest hospital. Don't wait on me.",
+      "Oh no — I'm so sorry, that sounds serious. Please call emergency services now — 999 in the UAE — or get to the nearest hospital. This is well past anything I can help with, and it shouldn't wait on me.",
     "urgent-care":
       "Oh no — I'm really sorry to hear that. That's not something I can help with, I'm afraid. The best thing you can do is call emergency services, or get to a hospital or a clinic near you and have it looked at properly.",
     crisis:
       "I'm really glad you said something, and I'm sorry you're carrying that. I'm only a shop's skin advisor, so I'm not the right help here — but please talk to someone who is, today: a doctor, a crisis line, or someone close to you. You shouldn't have to sit with it on your own.",
   },
   ar: {
+    bystander:
+      "يا إلهي — اتصل بالطوارئ الآن قبل أي شيء آخر. الرقم 999 في الإمارات. أنا مجرد مستشار بشرة في متجر ولستُ من تحتاجه هنا. وإن استطعت، ابقَ معه حتى تصل المساعدة.",
     emergency:
-      "أنا آسف جداً — ما تصفه خطير ويتجاوز ما يمكنني المساعدة فيه. اتصل بالطوارئ الآن أو توجّه إلى أقرب مستشفى. لا تنتظرني.",
+      "يؤسفني ذلك حقاً — ما تصفه خطير. اتصل بالطوارئ الآن — 999 في الإمارات — أو توجّه إلى أقرب مستشفى. هذا يتجاوز ما يمكنني المساعدة فيه، ولا يجب أن ينتظرني.",
     "urgent-care":
       "يؤسفني سماع ذلك حقاً. للأسف هذا ليس شيئاً أستطيع مساعدتك فيه. الأفضل أن تتصل بالطوارئ أو تزور مستشفى أو عيادة قريبة ليفحصه مختص.",
     crisis:

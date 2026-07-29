@@ -7,7 +7,16 @@ import { getLLMProvider, UNREADABLE_ANSWER } from "@/services/llm/provider";
 import { buildRecommendations, passesHardFilters } from "@/services/recommendation-engine";
 import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safety-triage";
 import { areaLabel, areaRoute, type BodyArea } from "@/services/body-area";
-import { classifyDistress, distressCopy, reactionTo, REACTION_PROMPT, usableReaction } from "@/services/empathy";
+import {
+  classifyDistress,
+  distressCopy,
+  reactionTo,
+  readsSorrow,
+  REACTION_PROMPT,
+  sorrowCopy,
+  sorrowLead,
+  usableReaction,
+} from "@/services/empathy";
 import { soldOutProductIds } from "@/services/stock";
 import {
   agentCopy,
@@ -16,6 +25,7 @@ import {
   detectLang,
   extractSkinType,
   isHairConcern,
+  mentionsSkinOrHair,
   nextQuestion,
   readAdjustment,
   slotsToProfile,
@@ -120,6 +130,33 @@ export async function POST(request: Request) {
         slots: before,
         products: [],
         safetyLevel: distress === "urgent-care" ? "REFER_CLINIC" : "URGENT",
+        language: spoken,
+        rtl: isRtl(spoken),
+      });
+    }
+
+    // BAD NEWS THAT IS NOT AN EMERGENCY.
+    //
+    // "My dog died" was answered "That one's outside my world, I'm afraid —
+    // skin and hair are what I know." Every word of that is true and all of it
+    // is horrible. Grief is not a tangent to be redirected; it is a sentence to
+    // be answered. Unlike distress this does not end the session — the open
+    // question still follows, so a shopper who wants to carry on can.
+    // Only when the bad news is ALL they said. "I have scars after the accident"
+    // is bad news and a question we can answer, and diverting it would be its
+    // own kind of not listening — that one gets a short condolence in front of
+    // the ordinary flow instead, further down.
+    const sorrow = readsSorrow(input.utterance);
+    if (sorrow && !mentionsSkinOrHair(input.utterance)) {
+      const pendingSorrow = nextQuestion(before, lang);
+      const leadIn = sorrowCopy(sorrow, lang);
+      const question = pendingSorrow?.question;
+      return NextResponse.json({
+        reply: await say(question ? `${leadIn} ${question}` : leadIn),
+        speech: speakable(spoken, leadIn, question),
+        phase: "asking",
+        slots: pendingSorrow?.slots ?? before,
+        products: [],
         language: spoken,
         rtl: isRtl(spoken),
       });
@@ -344,7 +381,10 @@ export async function POST(request: Request) {
       // React to what was said before asking the next thing. "I have a rash"
       // used to be met with a flat "Got it." and a question about whether the
       // shopper's skin is oily; a person would have said they were sorry first.
-      const reaction = misheard ? "" : openingReaction;
+      // A condolence outranks the ordinary reaction: somebody who mentioned a
+      // bereavement or an accident alongside their concern should hear that
+      // first, not "Got it."
+      const reaction = misheard ? "" : sorrow ? sorrowLead(sorrow, lang) : openingReaction;
       const acknowledgement = learned ? copy.understood(learned) : openingConcern;
       const leadIn = misheard
         ? copy.repeat

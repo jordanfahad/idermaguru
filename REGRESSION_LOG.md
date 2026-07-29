@@ -357,3 +357,16 @@ merchant catalogue of 876 in-stock products.
 - **Cause 2 — a repaint every frame, forever.** The orb's `requestAnimationFrame` loop ran for the life of the page and wrote `--level`, which feeds the colour stops of several radial gradients. A gradient whose stops change cannot be composited, so every frame forced a repaint of the orb — while idle, while reading, and while the shopper was trying to scroll. On a phone that is what makes a page feel heavy under the thumb.
 - **Fix:** below 1080px the panels are not scrollers; the page is. Inner scrolling stays on desktop, where the columns sit side by side in a fixed viewport and must not lengthen the page. The animation loop runs only while listening or speaking, skips a write when the value has not visibly changed, and does not run at all under `prefers-reduced-motion`.
 - **Verified:** driven in a real browser at 390x800 after a full consultation — nested scrollers 0 (was 2), routine no longer clipped, `--level` idle at 0.
+
+### R-037 — "My friend just jumped out of the balcony" → "That one's outside my world, I'm afraid"
+- **Symptom:** three transcripts, each answered with the canned off-topic line: a bereavement, an accident, and a person falling from a balcony.
+- **Cause:** every distress pattern was written in the FIRST PERSON — "I have a bullet wound", "kill myself". A shopper reporting somebody *else's* emergency matched none of them and fell through to the tangent classifier. The crisis tier covered the shopper wanting to hurt themselves, not a friend who had already fallen.
+- **Fix:** a `bystander` tier, matched before the first-person ones, covering falls from height, someone jumping, a collapse, and a named relation who is hurt, unconscious, bleeding, stabbed or shot. Its reply opens with shock and sends them to emergency services with the UAE number — a sentence that opens by explaining our scope reads as indifference to a frightened person.
+
+### R-038 — Grief was treated as a tangent
+- **Symptom:** "My dog died" → "That one's outside my world, I'm afraid — skin and hair are what I know."
+- **Cause:** nothing in the product had a concept of bad news that is not an emergency and not about skin.
+- **Fix:** `readsSorrow` reads grief and misfortune. Unlike distress it does *not* end the session — a condolence is said and the open question still follows, so a shopper who wants to carry on can.
+- **The trap avoided:** speech-to-text renders "I dyed my hair" as "I died my hair" constantly, so a bare "died" can never qualify — the thing that died has to be a person or a pet.
+- **The other trap:** "I have scars after the accident" is bad news *and* a question this advisor can answer. Diverting it would be its own kind of not listening, so when the utterance also mentions skin or hair it gets a short condolence in front of the ordinary flow instead of a redirect.
+- **Guarded by:** `tests/empathy.test.ts`.

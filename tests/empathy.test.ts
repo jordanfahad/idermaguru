@@ -3,10 +3,13 @@ import {
   classifyDistress,
   distressCopy,
   readFeeling,
+  readsSorrow,
   reactionTo,
+  sorrowCopy,
+  sorrowLead,
   usableReaction,
 } from "../src/services/empathy";
-import { classifyOpening } from "../src/services/voice-agent";
+import { classifyOpening, mentionsSkinOrHair } from "../src/services/voice-agent";
 
 /**
  * The transcript that prompted all of this:
@@ -23,7 +26,6 @@ describe("someone in trouble", () => {
     "I've been shot in the leg",
     "I was stabbed",
     "I can't breathe properly",
-    "my brother is unconscious and won't wake up",
     "she's having a seizure",
     "I think I'm having a heart attack",
     "the cut won't stop bleeding",
@@ -57,6 +59,39 @@ describe("someone in trouble", () => {
     // is exactly how the canned "I only cover skin and hair" line was reached.
     expect(classifyOpening("I have a bullet wound")).toBe("offtopic");
     expect(classifyDistress("I have a bullet wound")).toBe("emergency");
+  });
+
+  /**
+   * Every pattern above is first-person. A shopper reporting somebody else's
+   * emergency matched none of them:
+   *
+   *   You      My friend just jumped out of the balcony
+   *   Advisor  That one's outside my world, I'm afraid — skin and hair are
+   *            what I know.
+   */
+  const bystander = [
+    "My friend just jumped out of the balcony",
+    "my neighbour fell off the roof",
+    "someone collapsed in the shop",
+    "my brother has been stabbed",
+    "my brother is unconscious and won't wake up",
+    "my dad had a fall",
+  ];
+
+  for (const utterance of bystander) {
+    it(`treats "${utterance}" as an emergency for somebody else`, () => {
+      expect(classifyDistress(utterance)).toBe("bystander");
+    });
+  }
+
+  it("opens with shock and sends them to emergency services", () => {
+    const reply = distressCopy("bystander", "en");
+    // Shock first. A sentence that opens by explaining our scope to a
+    // frightened person reads as indifference.
+    expect(reply.split(/[.—]/)[0]).toMatch(/oh no/i);
+    expect(reply).toMatch(/emergency services/i);
+    expect(reply).toMatch(/999/);
+    expect(reply).not.toMatch(/skin or hair concern|outside my world/i);
   });
 
   it("answers self-harm as a person rather than as a shop", () => {
@@ -162,5 +197,63 @@ describe("guarding a model-written reaction", () => {
   it("drops a speech", () => {
     expect(usableReaction("A".repeat(200))).toBe("");
     expect(usableReaction("One. Two. Three. Four.")).toBe("");
+  });
+});
+
+/**
+ * "My dog died" was answered "That one's outside my world, I'm afraid — skin
+ * and hair are what I know." Every word of that is true and all of it is
+ * horrible. Grief is not a tangent to be redirected.
+ */
+describe("bad news that is not an emergency", () => {
+  const grieving = ["My dog died", "my mother passed away last week", "I lost my father", "we had the funeral yesterday"];
+
+  for (const utterance of grieving) {
+    it(`hears grief in "${utterance}"`, () => {
+      expect(readsSorrow(utterance)).toBe("grief");
+      expect(classifyDistress(utterance)).toBeNull();
+    });
+  }
+
+  it("hears a rough time without calling an ambulance", () => {
+    expect(readsSorrow("After the accident")).toBe("misfortune");
+    expect(readsSorrow("I was in hospital for a week")).toBe("misfortune");
+    expect(classifyDistress("After the accident")).toBeNull();
+  });
+
+  it("says sorry, and does not end the conversation", () => {
+    const reply = sorrowCopy("grief", "en");
+    expect(reply).toMatch(/sorry/i);
+    expect(reply).not.toMatch(/outside my world/i);
+    // The door stays open — this is not a referral.
+    expect(reply).toMatch(/here whenever|i'm here/i);
+  });
+
+  /**
+   * Speech-to-text renders "I dyed my hair" as "I died my hair" constantly, so
+   * a bare "died" can never be enough — the thing that died has to be somebody.
+   */
+  it("is not fooled by the words around skincare", () => {
+    for (const utterance of [
+      "I died my hair last week",
+      "my hair fell out after dyeing it",
+      "dead skin cells on my face",
+      "I have dark spots and dull skin",
+      "I have dandruff",
+    ]) {
+      expect(readsSorrow(utterance)).toBeNull();
+      expect(classifyDistress(utterance)).toBeNull();
+    }
+  });
+
+  it("keeps helping when the bad news came with a real concern", () => {
+    // "I have scars after the accident" is bad news AND a question we can
+    // answer. Diverting it would be its own kind of not listening.
+    expect(readsSorrow("I have scars after the accident")).toBe("misfortune");
+    expect(mentionsSkinOrHair("I have scars after the accident")).toBe(true);
+    expect(mentionsSkinOrHair("My dog died")).toBe(false);
+    // and the short condolence is what goes in front of the ordinary flow
+    expect(sorrowLead("misfortune", "en")).toMatch(/sorry/i);
+    expect(sorrowLead("misfortune", "en").length).toBeLessThan(60);
   });
 });
