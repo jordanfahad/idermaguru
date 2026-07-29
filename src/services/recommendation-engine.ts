@@ -139,7 +139,7 @@ export function passesHardFilters(
   if (!product.inStock) return false;
   if (!safety.recommendationAllowed) return false;
 
-  const allergyTerms = (profile.allergies ?? []).map(normalize);
+  const allergyTerms = (profile.allergies ?? []).map(normalize).filter(Boolean);
   const avoidTerms = product.avoidIfJson.map(normalize);
   const ingredients = [...product.ingredientsJson, ...product.activeIngredientsJson].map(normalize);
 
@@ -147,6 +147,15 @@ export function passesHardFilters(
     return false;
   }
   if (allergyTerms.some((allergy) => avoidTerms.some((term) => term.includes(allergy)))) {
+    return false;
+  }
+  // Synced products carry no ingredient list at all — the Shopify importer has
+  // nothing structured to read, so `ingredientsJson` is empty and only derived
+  // actives are populated. That made "I'll keep peanut out of everything I
+  // suggest" a promise the filter could not keep: peanut is not an active, so
+  // nothing was excluded. The merchant's own words are the only other place an
+  // allergen is named, so they are read too.
+  if (allergyTerms.some((allergy) => mentionsAllergen(productText(product), allergy))) {
     return false;
   }
 
@@ -175,6 +184,32 @@ export function passesHardFilters(
   }
 
   return true;
+}
+
+function productText(product: ProductCatalogItem) {
+  return normalize(`${product.name} ${product.category} ${product.description}`);
+}
+
+/**
+ * Does this product's own copy name an allergen?
+ *
+ * The trap is that the safest products talk about allergens the most. A
+ * "fragrance-free formula" contains the word "fragrance", and excluding it for
+ * a fragrance allergy would remove exactly the product that shopper wants. So a
+ * mention inside a free-from claim is read as the opposite of a match.
+ */
+export function mentionsAllergen(text: string, allergen: string): boolean {
+  const term = allergen.trim();
+  if (term.length < 3) return false;
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const freeFrom = new RegExp(
+    `(?:free(?:\\s+(?:from|of))?|without|no|zero)\\s+(?:\\w+\\s+){0,2}?${escaped}|${escaped}[\\s-]*free`,
+    "i",
+  );
+  if (freeFrom.test(text)) return false;
+
+  return new RegExp(`\\b${escaped}`, "i").test(text);
 }
 
 function createCandidate(

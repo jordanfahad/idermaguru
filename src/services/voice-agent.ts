@@ -126,8 +126,17 @@ const NOT_PREGNANT_PHRASE_AR = /(?:لست|لسنا|غير|لا)\s*(?:حامل|م
 export function readsPregnant(input: string): boolean | undefined {
   const text = normaliseTranscript(input);
   if (NOT_PREGNANT_PHRASE.test(text) || NOT_PREGNANT_PHRASE_AR.test(input)) return false;
-  if (PREGNANT.test(text) || PREGNANT_AR.test(input)) return true;
-  if (NOT_PREGNANT.test(text) || NOT_PREGNANT_AR.test(input)) return false;
+
+  const saysPregnant = PREGNANT.test(text) || PREGNANT_AR.test(input);
+  const saysNot = NOT_PREGNANT.test(text) || NOT_PREGNANT_AR.test(input);
+  // "I am breast-feeding man" says both things at once. Taking the first match
+  // resolved it silently and read back "I'll skip the ingredients that aren't
+  // advised" to somebody who had just said they were a man. An answer that
+  // contradicts itself is not an answer — ask it again. If it stays unclear the
+  // caller falls back to the assumption that filters the most.
+  if (saysPregnant && saysNot) return undefined;
+  if (saysPregnant) return true;
+  if (saysNot) return false;
   return undefined;
 }
 
@@ -169,6 +178,14 @@ export function isHairConcern(input: string): boolean {
   return HAIR_CONCERN.test(normaliseTranscript(input)) || HAIR_CONCERN_AR.test(input);
 }
 
+/**
+ * An utterance that is a skin type and nothing else — how the question is
+ * actually answered. Anything with a second idea in it ("super dry dandruff")
+ * is a description, not an answer, and must not be recorded as one.
+ */
+const BARE_SKIN_TYPE =
+  /^(?:i(?:'m| am| have)?\s+)?(?:got\s+)?(?:a\s+)?(?:very |really |quite |super |bit |kind of )?(oily|dry|combination|combo|sensitive|normal|dehydrated)(?:\s+skin)?$/;
+
 const NO_ALLERGIES =
   /\b(no|not any|none|without|zero)\b[^.]{0,20}\ballerg/i;
 const NO_ALLERGIES_AR = /(لا|ما)\s*(يوجد|عندي)?\s*حساسية/;
@@ -189,12 +206,12 @@ export function extractInlineSlots(input: string): Partial<AgentSlots> {
   if (!input.trim()) return found;
   const text = normaliseTranscript(input);
 
-  // Only when the word was attached to their skin, or the whole utterance is
-  // the answer. "dry patches on my elbows" says nothing about skin type, and
-  // recording "dry skin" from it reads back as a fabrication — and, worse, it
-  // convinced the agent it was talking about a face, so it never asked where
-  // the patches were.
-  const statesType = namesSkinType(text) || text.split(/\s+/).length <= 3;
+  // Only when the word was attached to their skin, or the utterance is the
+  // answer and nothing else. "dry patches on my elbows" says nothing about skin
+  // type, and neither does "super dry dandruff" — which was recorded as a dry
+  // skin type and read straight back as "Got it — dry skin" to somebody talking
+  // about their scalp. A word-count rule was too loose to tell them apart.
+  const statesType = namesSkinType(text) || BARE_SKIN_TYPE.test(text);
   const skinType = statesType ? extractSkinType(text) : undefined;
   if (skinType) found.skinType = skinType;
 
@@ -654,7 +671,11 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
     // A shopper who already said where it is ("a rash on my hands") must not
     // then be asked where it is. Only harvested from the opening line: a stray
     // "hand cream" in a later answer is not a statement about location.
-    const area = extractBodyArea(text);
+    //
+    // Dandruff is on a scalp. Nobody needs to be asked, and "super dry
+    // dandruff" was being met with "whereabouts is it? Face, neck, hands..."
+    // because the word "dry" made it look like a symptom that moves around.
+    const area = extractBodyArea(text) ?? (isHairConcern(text) ? "scalp" : undefined);
     return { ...next, ...extractInlineSlots(text), ...(area ? { bodyArea: area } : {}) };
   }
 
@@ -846,7 +867,10 @@ export function nextQuestion(slots: AgentSlots, lang: AgentLang): { question: st
   // "Oily, dry, combination or sensitive" is a question about a face. Asked
   // about a pair of knuckles it is noise, and noise is what makes an advisor
   // feel like a form.
-  const onTheFace = areaRoute(next.bodyArea) === "face";
+  // Nor is it a question about a scalp. Asking somebody with dandruff whether
+  // their skin is oily or dry produced "Got it — dry skin" in a conversation
+  // that was never about skin at all.
+  const onTheFace = areaRoute(next.bodyArea) === "face" && !isHairConcern(next.mainConcern ?? "");
   if (onTheFace && !next.skinType && !next.skinTypeUnknown) {
     next.askedSkinType = true;
     return { question: copy.askSkinType, slots: next };

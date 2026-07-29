@@ -385,6 +385,13 @@ export async function POST(request: Request) {
     const products = await listTenantProducts(input.tenantSlug);
     const where = areaRoute(slots.bodyArea);
 
+    // An allergy named this turn is read back whichever routine follows. It was
+    // only ever said on the face path, so a shopper who answered "I do have
+    // peanut allergy" and got a hair routine was given no sign it had been
+    // heard at all.
+    const namedAllergies = before.allergies === undefined && slots.allergies?.length ? slots.allergies : null;
+    const heard = namedAllergies ? `${copy.avoiding(namedAllergies)} ` : "";
+
     // Hair and scalp concerns don't fit the face-routine slot model, so match
     // them directly against the catalogue instead of building an AM/PM routine.
     // If the merchant stocks nothing suitable we say so rather than selling a
@@ -394,7 +401,9 @@ export async function POST(request: Request) {
         pickHairProducts(products, slots.mainConcern ?? "", profile, tenant.id, safety),
       );
       return NextResponse.json({
-        reply: await say(hairMatches.length ? copy.hairResult(hairMatches.length) : copy.noHairProducts),
+        reply: await say(
+          hairMatches.length ? `${heard}${copy.hairResult(hairMatches.length)}` : copy.noHairProducts,
+        ),
         phase: hairMatches.length ? "result" : "referral",
         slots: { ...slots, gaveRoutine: true, lastRoutine: hairMatches.map((match) => match.id) },
         safetyLevel: safety.level,
@@ -414,7 +423,7 @@ export async function POST(request: Request) {
       );
       return NextResponse.json({
         reply: await say(
-          bodyMatches.length ? copy.bodyResult(bodyMatches.length, area) : copy.noBodyProducts(area),
+          bodyMatches.length ? `${heard}${copy.bodyResult(bodyMatches.length, area)}` : copy.noBodyProducts(area),
         ),
         phase: bodyMatches.length ? "result" : "referral",
         slots: { ...slots, gaveRoutine: true, lastRoutine: bodyMatches.map((match) => match.id) },
@@ -493,12 +502,7 @@ export async function POST(request: Request) {
     // "yes salicylic acid" went straight to "here's your routine", which gives
     // the shopper no way of knowing it was heard — and it is precisely the
     // answer they need to know was heard.
-    const namedAllergies = before.allergies === undefined && slots.allergies?.length ? slots.allergies : null;
-    const preface = namedAllergies
-      ? `${copy.avoiding(namedAllergies)} `
-      : skippedAhead && understood
-        ? `${copy.understood(understood)} `
-        : "";
+    const preface = heard || (skippedAhead && understood ? `${copy.understood(understood)} ` : "");
 
     let spokenReply: string;
     if (sameAsBefore) {

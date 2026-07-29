@@ -333,3 +333,20 @@ merchant catalogue of 876 in-stock products.
 - **Cause:** `@anthropic-ai/sdk` was a static import of the LLM provider module, so every cold start of the voice route paid to load it — on a path that, with the optional model enrichments off, usually never calls Anthropic at all.
 - **Fix:** type-only import, with the SDK loaded on first real use. Error classification reads the status structurally rather than through `instanceof Anthropic.APIError`, which would have dragged the package back in purely to classify a failure.
 - **Also:** the middleware matcher no longer matches `/api/voice-agent/speech`. Those responses are `public, immutable` so they can serve from a point of presence near the shopper, and waking middleware on them risks the one cache that matters most for how fast the advisor feels.
+
+### R-033 — "Super dry dandruff" → "Got it — dry skin."
+- **Symptom:** a shopper describing dandruff was told the advisor had understood they had dry *skin*, in a conversation that was never about skin.
+- **Cause:** the inline skin-type harvest allowed any utterance of three words or fewer through, and "super dry dandruff" is three words containing "dry". The rule was introduced in R-019 to fix the opposite problem and was too loose.
+- **Fix:** an inline skin type is taken only when the word is attached to the skin ("dry skin", "my skin is dry") or the utterance is a skin type and nothing else. The skin-type question is also skipped entirely for a hair concern — a scalp is not oily or combination — and dandruff now sets the body area to the scalp, so it is never asked "whereabouts is it?" either.
+
+### R-034 — "I am breast-feeding man" resolved silently
+- **Symptom:** an answer containing both a pregnancy word and a male self-description was read as breastfeeding, and the advisor replied "I'll skip the ingredients that aren't advised" to somebody who had just said they were a man.
+- **Cause:** `readsPregnant` tested for pregnancy before it tested for the negative, so whichever came first in the function won.
+- **Fix:** an answer that says both is treated as no answer and asked again. If it is still unclear the existing fallback assumes it applies, which excludes the restricted ingredients rather than waving them through — so the safe direction is unchanged.
+
+### R-035 — A named allergy was acknowledged only on the face path (safety)
+- **Symptom:** "I do have peanut allergy" was followed straight by a hair routine with no sign it had been heard.
+- **Cause:** the read-back added in R-021 was built inside the face branch, and the hair and body branches return before it.
+- **Fix:** the acknowledgement is computed once, before the routing splits, and used by all three.
+- **And the promise behind it:** the filter could not keep it. Synced products carry no ingredient list — the Shopify importer has nothing structured to read, so `ingredientsJson` is empty and only derived actives are populated. "Peanut" is not an active, so nothing was excluded. Allergy terms are now matched against the merchant's own product copy as well, with a guard so that a "fragrance-free" product is not excluded for a fragrance allergy — the trap being that the safest products name allergens the most.
+- **Guarded by:** `tests/heard-correctly.test.ts`.
