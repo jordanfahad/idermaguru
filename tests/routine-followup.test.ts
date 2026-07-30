@@ -241,3 +241,57 @@ describe("an intense routine is a longer one", () => {
     ]);
   });
 });
+
+/**
+ * A shopper pushing back on the routine is engaging with it, not going off
+ * topic. "Why that one?" gets the actual reasoning; "I don't like it" gets a
+ * swap, named out loud, that never comes back.
+ */
+describe("arguing with the routine", () => {
+  const ask = async (utterance: string, slots: Record<string, unknown>) => {
+    const { POST } = await import("../src/app/api/voice-agent/route");
+    const response = await POST(
+      new Request("http://localhost/api/voice-agent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ utterance, slots }),
+      }),
+    );
+    return response.json();
+  };
+
+  const toRoutine = async () => {
+    let slots: Record<string, unknown> = {};
+    for (const line of ["I have dark spots and dull skin", "combination", "no", "no"]) {
+      const payload = await ask(line, slots);
+      slots = payload.slots ?? slots;
+    }
+    return slots;
+  };
+
+  it("defends a pick with its actual reasoning", async () => {
+    const slots = await toRoutine();
+    const payload = await ask("why the serum?", slots);
+    expect(payload.reply).toMatch(/serum/i);
+    expect(payload.reply).not.toMatch(/outside my world/i);
+  });
+
+  it("swaps a disliked product and says what changed", async () => {
+    const slots = await toRoutine();
+    const payload = await ask("I don't like the cleanser", slots);
+    expect(payload.reply).toMatch(/out goes .* in comes/i);
+    expect(payload.products.length).toBeGreaterThan(0);
+    expect((payload.slots.dislikedIds ?? []).length).toBe(1);
+    // the swap holds: a later rebuild must not bring the old product back
+    const again = await ask("make it stronger", payload.slots);
+    const ids = (again.products ?? []).map((product: { id: string }) => product.id);
+    expect(ids).not.toContain(payload.slots.dislikedIds[0]);
+  });
+
+  it("asks which one when the target is unclear", async () => {
+    const slots = await toRoutine();
+    const payload = await ask("swap something", slots);
+    expect(payload.reply).toMatch(/which one/i);
+    expect(payload.reply).not.toMatch(/outside my world/i);
+  });
+});

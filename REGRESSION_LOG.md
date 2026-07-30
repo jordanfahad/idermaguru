@@ -440,3 +440,11 @@ merchant catalogue of 876 in-stock products.
 - **Cause 2 — a failed audio load started listening twice.** A media failure fires both the element's `onerror` and the rejection of `play()`; each ran the browser-voice fallback, so `listen()` started twice and the second session aborted the first mid-answer, discarding whatever it had heard.
 - **Fix:** when recognition ends with words heard and nothing finalised, the words ARE the answer — the last interim is sent. And `speak()` is single-exit, so the fallback can only fire once.
 - **Verified** in a real browser against a faked iOS-style recogniser that only ever emits interims: both interim-only utterances became turns and the conversation advanced. Harness note: this Chromium exposes a native unprefixed `SpeechRecognition`, so the fake must override both constructors.
+
+### R-048 — Long breaths between sentences, and no way to argue back
+- **Symptom (pauses):** the advisor started speaking promptly, then took long pauses between sentences.
+- **Cause:** each sentence's audio was requested by the `<audio>` element when its turn came. The prewarm warmed the *fetch* cache — but Safari's media loader bypasses the fetch cache, so on the device that matters most every sentence still paid a full round trip (and a TTS synthesis on a cold edge).
+- **Fix:** `speakSequence` fetches every part's audio up front, in parallel, as blobs; playback starts from memory in the same frame. `speak()` accepts a preloaded object URL.
+- **Symptom (debate):** "why that one?" and "I don't like it" bounced off the tangent classifier.
+- **Fix:** `readFollowup` reads a challenge. "Why" is answered with the pick's actual reasoning and timing; a dislike swaps the product for the next-best that clears the same checks, names the change out loud, and the rejection persists (`dislikedIds`) so no later rebuild brings it back. A swap with no target asks which; a step with no alternative says so honestly instead of pretending.
+- **Note:** a `\b` typed into a Python heredoc became a literal backspace byte, so the first version of the followup regexes matched nothing — and un-bounded, "whatever" contains "hate". Caught by running the classifier before wiring it.

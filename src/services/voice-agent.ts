@@ -43,6 +43,8 @@ export type AgentSlots = {
   /** Adjustments the shopper asked for after seeing the routine. */
   routineShape?: "simple" | "full";
   gentle?: boolean;
+  /** Products the shopper rejected, so a swap never brings one back. */
+  dislikedIds?: string[];
   /** How old the person using the product is, when they have said. */
   ageYears?: number;
   /** True when the shopper is asking on somebody else's behalf. */
@@ -67,6 +69,30 @@ const WANT_SIMPLER =
   /\b(simpler|simplest|fewer steps|less steps|too many|too complicated|shorter|minimal|bare minimum|just the essentials|cut it down|trim it)\b/;
 const WANT_FULLER =
   /\b(more intense|intense|stronger|strong|advanced|serious|aggressive|full routine|complete routine|more steps|extra steps|add more|more thorough|deeper|go harder|maximum)\b/;
+
+/**
+ * A challenge to the routine on screen: "why that one?" or "give me a
+ * different one". The advisor answers with its actual reasoning, or swaps the
+ * product and says what changed — a shopper pushing back is engaging, not
+ * off-topic, and both used to fall through to the tangent classifier.
+ */
+export type RoutineFollowup = "why" | "swap";
+
+const ASKS_WHY =
+  /\bwhy\b|\bwhat(?:'s| is)? (?:that|this|it) for\b|\bwhat does (?:it|this|that) do\b|\bhow come\b|\bexplain\b|\bconvince me\b|\bjustify\b/;
+// Word-bounded throughout: without \b, "whatever" contains "hate" and a
+// perfectly agreeable sentence reads as a demand to swap.
+const ASKS_SWAP =
+  /\b(?:swap|replace|different one|something else|another (?:one|option|product)|other options?|alternative)\b|\bdon'?t (?:like|want|trust)\b|\bnot a fan\b|\bhate\b|\binstead of\b|\btoo expensive\b|\bcheaper\b/;
+export function readFollowup(input: string): RoutineFollowup | null {
+  const text = normaliseTranscript(input);
+  if (!text) return null;
+  // An adjustment ("make it stronger") is its own flow and wins.
+  if (readAdjustment(text)) return null;
+  if (ASKS_WHY.test(text)) return "why";
+  if (ASKS_SWAP.test(text)) return "swap";
+  return null;
+}
 
 export function readAdjustment(input: string): RoutineAdjustment | null {
   const text = normaliseTranscript(input);
@@ -519,6 +545,15 @@ const COPY = {
       fullerAfterGentle: (count: number) =>
         `Alright — ${count} steps, and the actives are back in. You did say it was stinging, so go slowly with them: one new thing a week, and stop the one that bites.`,
     },
+    whichSwap:
+      "Happy to change it — which one? Tell me the product or the step, like 'the cleanser' or 'the serum'.",
+    swapNone:
+      "I did look — that's genuinely the only product in this store that fits that step and what you've told me. I could go gentler or fuller instead, but a straight swap would mean breaking something you asked for.",
+    swapped: (oldName: string, newName: string) =>
+      `Fair enough — out goes ${oldName}, in comes ${newName}. Same job, different formula, and it still clears every check you gave me.`,
+    whyThis: (name: string, reason: string, timing: string) =>
+      `${name} — ${reason} ${timing} If that doesn't win you over, say so and I'll swap it.`,
+    whyAll: (lines: string) => `Here's my thinking, step by step: ${lines} Challenge any of them and I'll defend it or swap it.`,
     nothingStronger:
       "That's genuinely as far as I can take it with what this store stocks and still keep it safe for you — there's nothing further to add. If you want to go harder than this, a pharmacist or a dermatologist can offer things I'm not allowed to suggest.",
     sameAgain: (count: number) =>
@@ -580,6 +615,14 @@ const COPY = {
       fullerAfterGentle: (count: number) =>
         `تمام — ${count} خطوات، وأعدت المكونات الفعّالة. لكنك ذكرت أنها كانت تسبب حرقة، فتدرّج ببطء: منتج جديد كل أسبوع، وأوقف ما يزعجك.`,
     },
+    whichSwap: "يسعدني تغييره — أيّ واحد؟ اذكر المنتج أو الخطوة، مثل «الغسول» أو «السيروم».",
+    swapNone:
+      "بحثت فعلاً — هذا هو المنتج الوحيد في المتجر الذي يناسب هذه الخطوة وما أخبرتني به. يمكنني جعل الروتين ألطف أو أشمل، لكن الاستبدال المباشر سيخالف شيئاً طلبتَه.",
+    swapped: (oldName: string, newName: string) =>
+      `لا بأس — استبعدتُ ${oldName} ووضعتُ ${newName} مكانه. المهمة نفسها بتركيبة مختلفة، وما زال يجتاز كل الفحوصات.`,
+    whyThis: (name: string, reason: string, timing: string) =>
+      `${name} — ${reason} ${timing} إن لم يقنعك ذلك فأخبرني وسأستبدله.`,
+    whyAll: (lines: string) => `إليك منطقي خطوة بخطوة: ${lines} اعترض على أيٍّ منها وسأدافع عنه أو أستبدله.`,
     nothingStronger:
       "هذا أقصى ما أستطيع الوصول إليه بما يوفّره هذا المتجر مع الحفاظ على سلامتك — لا يوجد ما أضيفه. إن أردت أقوى من ذلك، يمكن لصيدلي أو طبيب جلدية تقديم ما لا يُسمح لي باقتراحه.",
     sameAgain: (count: number) =>
@@ -642,6 +685,8 @@ export function fixedLines(lang: AgentLang): string[] {
     copy.noHairProducts,
     copy.intimateArea,
     copy.nothingStronger,
+    copy.whichSwap,
+    copy.swapNone,
     ESCALATION_MESSAGE,
     ...COUNTS.map((count) => copy.result(count)),
     ...COUNTS.map((count) => copy.hairResult(count)),

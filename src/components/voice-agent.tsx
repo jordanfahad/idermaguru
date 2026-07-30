@@ -459,7 +459,7 @@ export function VoiceAgent({
 
   /** Natural OpenAI voice when configured; browser voice otherwise. */
   const speak = useCallback(
-    async (text: string, onDone: () => void) => {
+    async (text: string, onDone: () => void, preloadedUrl?: string) => {
       if (!text.trim()) {
         onDone();
         return;
@@ -491,7 +491,11 @@ export function VoiceAgent({
       const finish = () => once(onDone);
 
       try {
-        if (isScriptedLine(text)) {
+        if (preloadedUrl) {
+          // Already in memory: playback starts with no request at all.
+          objectUrl = preloadedUrl;
+          audio.src = preloadedUrl;
+        } else if (isScriptedLine(text)) {
           // A scripted line is already in the browser cache, and the element
           // starts playing on the first bytes rather than the last — this is
           // the difference between an instant reply and a second of silence.
@@ -531,16 +535,26 @@ export function VoiceAgent({
         onDone();
         return;
       }
+      // Fetch the audio for EVERY part now, in parallel, as blobs. The old
+      // version warmed the HTTP cache and let the <audio> element re-request
+      // each line when its turn came — but Safari's media loader bypasses the
+      // fetch cache, so on the device that matters most every sentence still
+      // paid a full round trip, heard as a long breath between sentences. A
+      // blob in memory starts in the same frame.
+      const preloads = queue.map((part) =>
+        isScriptedLine(part)
+          ? fetch(speechUrl(part, spokenLangRef.current))
+              .then((response) => (response.ok ? response.blob() : null))
+              .then((blob) => (blob ? URL.createObjectURL(blob) : null))
+              .catch(() => null)
+          : Promise.resolve(null),
+      );
       const step = (index: number) => {
         if (index >= queue.length) {
           onDone();
           return;
         }
-        const upcoming = queue[index + 1];
-        if (upcoming && isScriptedLine(upcoming)) {
-          void fetch(speechUrl(upcoming, spokenLangRef.current), { cache: "force-cache" }).catch(() => {});
-        }
-        void speak(queue[index], () => step(index + 1));
+        void preloads[index].then((url) => speak(queue[index], () => step(index + 1), url ?? undefined));
       };
       step(0);
     },

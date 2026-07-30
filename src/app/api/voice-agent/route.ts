@@ -29,6 +29,7 @@ import {
   mentionsSkinOrHair,
   nextQuestion,
   readAdjustment,
+  readFollowup,
   slotsToProfile,
   summariseSlots,
   updateSlots,
@@ -67,6 +68,7 @@ const SlotsSchema = z.object({
   lastRoutine: z.array(z.string()).optional(),
   routineShape: z.enum(["simple", "full"]).optional(),
   gentle: z.boolean().optional(),
+  dislikedIds: z.array(z.string()).optional(),
   ageYears: z.number().optional(),
   forSomeoneElse: z.boolean().optional(),
 });
@@ -245,8 +247,12 @@ export async function POST(request: Request) {
     // tangent classifier took it — the single most important fact in that
     // conversation, discarded as small talk.
     const statesAge = readsAge(input.utterance) !== undefined;
+    // "swap something" and "why?" name nothing in the skin vocabulary, so the
+    // tangent classifier claimed them — the same trap as the allergen list and
+    // the body-area answer before them.
+    const followup = before.gaveRoutine ? readFollowup(input.utterance) : null;
     const aside =
-      before.mainConcern && !awaitingAllergens && !awaitingArea && !adjusting && !statesAge
+      before.mainConcern && !awaitingAllergens && !awaitingArea && !adjusting && !statesAge && !followup
         ? classifyAside(input.utterance)
         : null;
     if (aside) {
@@ -278,6 +284,88 @@ export async function POST(request: Request) {
         language: spoken,
         rtl: isRtl(spoken),
       });
+    }
+
+    // A CHALLENGE TO THE ROUTINE IS A CONVERSATION, NOT A TANGENT.
+    //
+    // "Why that one?" is answered with the actual reasoning behind the pick,
+    // and "I don't like it" swaps the product for the next-best that clears
+    // the same checks — with the change named out loud. Both used to bounce
+    // off the tangent classifier.
+    if (followup) {
+      const tenantF = await getTenantBySlug(input.tenantSlug);
+      if (tenantF) {
+        const profileF = slotsToProfile(before, input.sessionId);
+        const safetyF = runSafetyTriage(profileF);
+        const productsF = await listTenantProducts(input.tenantSlug);
+        const disliked = new Set(before.dislikedIds ?? []);
+        const build = (exclude: Set<string>) =>
+          buildRecommendations({
+            tenantId: tenantF.id,
+            profile: profileF,
+            safety: safetyF,
+            products: productsF,
+            sponsoredEnabled: true,
+            excludeProductIds: exclude,
+          }).items;
+        const current = build(disliked);
+
+        if (current.length) {
+          const target = matchRoutineItem(input.utterance, current);
+
+          if (followup === "why") {
+            const reply = target
+              ? copy.whyThis(target.product.name, target.reason, target.expectedResults)
+              : copy.whyAll(current.slice(0, 3).map((item) => `${item.slot} — ${item.reason}`).join(" "));
+            return NextResponse.json({
+              reply: await say(reply),
+              phase: "result",
+              slots: before,
+              products: [],
+              language: spoken,
+              rtl: isRtl(spoken),
+            });
+          }
+
+          if (!target) {
+            return NextResponse.json({
+              reply: await say(copy.whichSwap),
+              speech: speakable(spoken, "", copy.whichSwap),
+              phase: "result",
+              slots: before,
+              products: [],
+              language: spoken,
+              rtl: isRtl(spoken),
+            });
+          }
+
+          disliked.add(target.product.id);
+          const rebuilt = build(disliked);
+          const replacement = rebuilt.find(
+            (item) => item.step === target.step && item.product.id !== target.product.id,
+          );
+          if (!replacement) {
+            // The dislike is NOT persisted: excluding the only product that
+            // fits would silently drop the step from every later rebuild.
+            return NextResponse.json({
+              reply: await say(copy.swapNone),
+              phase: "result",
+              slots: before,
+              products: [],
+              language: spoken,
+              rtl: isRtl(spoken),
+            });
+          }
+          return NextResponse.json({
+            reply: await say(copy.swapped(target.product.name, replacement.product.name)),
+            phase: "result",
+            slots: { ...before, dislikedIds: [...disliked], lastRoutine: rebuilt.map((item) => item.product.id) },
+            products: rebuilt.map(routineItemToProduct),
+            language: spoken,
+            rtl: isRtl(spoken),
+          });
+        }
+      }
     }
 
     let slots: AgentSlots = updateSlots(before, input.utterance, lang);
@@ -521,6 +609,8 @@ export async function POST(request: Request) {
       safety,
       products,
       sponsoredEnabled: true,
+      // A swapped-away product stays away, whatever else changes later.
+      excludeProductIds: new Set(slots.dislikedIds ?? []),
     };
     // The stock check and the model's phrasing of the result are independent,
     // and each used to wait for the other. Run them together: the turn now
@@ -804,6 +894,67 @@ function speakable(spoken: LanguageCode, leadIn: string, question?: string): str
  * 200ML and 390ML, plus two more shampoos. Every step is optional — a routine
  * that skips what the catalogue cannot fill is honest.
  */
+/** Which routine item an utterance is talking about, by product or step name. */
+const STEP_WORDS: Record<string, string[]> = {
+  cleanser: ["cleanser", "cleansing", "wash", "الغسول", "غسول"],
+  toner: ["toner", "تونر"],
+  treatment: ["serum", "treatment", "سيروم"],
+  eye: ["eye", "العين"],
+  moisturizer: ["moisturiser", "moisturizer", "cream", "المرطب", "مرطب"],
+  sunscreen: ["sunscreen", "spf", "sunblock", "واقي"],
+  exfoliant: ["exfoliant", "scrub", "peel", "مقشر"],
+  mask: ["mask", "ماسك"],
+};
+
+function matchRoutineItem<T extends { step: string; slot: string; product: { name: string } }>(
+  utterance: string,
+  items: T[],
+): T | null {
+  const text = utterance.toLowerCase();
+  let best: T | null = null;
+  let bestScore = 0;
+  for (const item of items) {
+    let score = 0;
+    for (const word of item.product.name.toLowerCase().split(/[^a-z0-9\u0600-\u06ff]+/)) {
+      if (word.length > 2 && text.includes(word)) score += 2;
+    }
+    for (const word of STEP_WORDS[item.step] ?? []) if (text.includes(word)) score += 3;
+    if (item.slot && text.includes(item.slot.toLowerCase())) score += 3;
+    if (score > bestScore) {
+      best = item;
+      bestScore = score;
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
+
+function routineItemToProduct(item: {
+  product: ProductCatalogItem;
+  step: string;
+  slot: string;
+  reason: string;
+  expectedResults: string;
+  cautions: string[];
+  sponsored: boolean;
+}) {
+  return {
+    id: item.product.id,
+    name: item.product.name,
+    brand: item.product.brand,
+    category: item.product.category,
+    price: item.product.price,
+    currency: item.product.currency,
+    imageUrl: item.product.imageUrl ?? null,
+    url: item.product.url,
+    step: item.step,
+    slot: item.slot,
+    reason: item.reason,
+    expectedResults: item.expectedResults,
+    cautions: item.cautions,
+    sponsored: item.sponsored,
+  };
+}
+
 const HAIR_ROUTINE: { step: RoutineStep; label: string }[] = [
   { step: "shampoo", label: "shampoo" },
   { step: "conditioner", label: "conditioner" },
