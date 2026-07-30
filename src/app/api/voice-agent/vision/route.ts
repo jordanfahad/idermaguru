@@ -25,9 +25,17 @@ const VisionSchema = z.object({
  * referral instead of observations - which the caller turns into an escalation
  * rather than a product list.
  */
-const VISION_PROMPT = `You look at a photo of skin for a cosmetic shopping assistant in a beauty store.
+const VISION_PROMPT = `You look at a photo for a cosmetic shopping assistant in a beauty store.
 
-You describe only what is COSMETICALLY visible: oiliness or shine, dryness or flaking, visible texture, visible pores, redness, dullness, uneven-looking tone, visible blemishes.
+FIRST decide what the photo actually shows.
+- "face", "hand", "arm", "leg", "foot", "scalp", "neck", "back", "other-skin" when it shows human skin.
+- "not-skin" for anything else — a keyboard, a pet, a screenshot, food, a car, a blank wall. People test assistants with these, and being told "I couldn't read that clearly" when they photographed their lunch is obviously wrong.
+
+If it is "not-skin", put a plain two-to-five word description in "shows" — "a computer keyboard", "a cat", "a plate of food". Name what you see; do not guess why.
+
+If it IS skin but you cannot tell which part of the body it is, or the framing is too close to place it, set "needsContext" to true. Asking is better than guessing.
+
+For skin, describe only what is COSMETICALLY visible: oiliness or shine, dryness or flaking, visible texture, visible pores, redness, dullness, uneven-looking tone, visible blemishes or breakouts, visible marks left behind by past blemishes.
 
 You must NOT:
 - name, suggest or hint at any medical condition, disease or infection (no acne vulgaris, eczema, psoriasis, rosacea, dermatitis, melasma, fungal, cancer, melanoma)
@@ -35,12 +43,24 @@ You must NOT:
 - comment on age, weight, attractiveness, ethnicity or gender
 - guess anything not clearly visible
 
-If you see anything that a clinician should look at - bleeding, an open or weeping wound, signs of infection, a mole that looks irregular or is changing, severe swelling, or anything you are unsure about - do not describe it cosmetically. Set "refer" to true instead.
+If you see anything a clinician should look at — bleeding, an open or weeping wound, signs of infection, a mole that looks irregular or is changing, severe swelling, or anything you are unsure about — do not describe it cosmetically. Set "refer" to true instead.
 
-If the image does not show skin, or is too dark or blurry to read, set "usable" to false.
+Set "usable" to false ONLY when the photo shows skin but is genuinely too dark, blurry or overexposed to read. A photo that is merely imperfect is still usable — describe what you can see.
 
 Reply with JSON only:
-{"usable":boolean,"refer":boolean,"observations":["short cosmetic phrases"],"skinType":"oily|dry|combination|sensitive|normal|unknown","concerns":["dark spots","dullness","dryness","oiliness","texture","redness","blemishes"]}`;
+{"subject":"face|hand|arm|leg|foot|scalp|neck|back|other-skin|not-skin","shows":"","usable":boolean,"needsContext":boolean,"refer":boolean,"observations":["short cosmetic phrases"],"skinType":"oily|dry|combination|sensitive|normal|unknown","concerns":["dark spots","dullness","dryness","oiliness","texture","redness","blemishes"]}`;
+
+/** What the photo showed, mapped onto the body areas the dialogue already knows. */
+const SUBJECT_AREAS: Record<string, string> = {
+  face: "face",
+  neck: "neck",
+  scalp: "scalp",
+  hand: "hands",
+  arm: "body",
+  leg: "body",
+  back: "body",
+  foot: "feet",
+};
 
 export async function POST(request: Request) {
   let input: z.infer<typeof VisionSchema>;
@@ -66,7 +86,7 @@ export async function POST(request: Request) {
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
         model,
-        max_tokens: 300,
+        max_tokens: 400,
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [
@@ -75,7 +95,7 @@ export async function POST(request: Request) {
             role: "user",
             content: [
               { type: "text", text: "Describe what is cosmetically visible." },
-              { type: "image_url", image_url: { url: input.image, detail: "low" } },
+              { type: "image_url", image_url: { url: input.image, detail: "auto" } },
             ],
           },
         ],
@@ -92,7 +112,10 @@ export async function POST(request: Request) {
     const raw = payload.choices?.[0]?.message?.content ?? "{}";
 
     let parsed: {
+      subject?: unknown;
+      shows?: unknown;
       usable?: boolean;
+      needsContext?: boolean;
       refer?: boolean;
       observations?: unknown;
       skinType?: unknown;
@@ -104,11 +127,24 @@ export async function POST(request: Request) {
       return jsonError("Could not read the photo review.", 502);
     }
 
+    const subject = typeof parsed.subject === "string" ? parsed.subject.toLowerCase().trim() : "";
+
+    // Somebody testing the assistant with a photo of their keyboard should be
+    // told it is a keyboard. "I couldn't read that clearly. Try better light"
+    // is both untrue and the reason they stop trusting the rest of it.
+    if (subject === "not-skin") {
+      const shows = typeof parsed.shows === "string" ? parsed.shows.trim().slice(0, 60) : "";
+      return NextResponse.json({ usable: true, notSkin: true, shows, observations: [], concerns: [] });
+    }
     if (parsed.usable === false) {
       return NextResponse.json({ usable: false, refer: false, observations: [], concerns: [] });
     }
     if (parsed.refer) {
       return NextResponse.json({ usable: true, refer: true, observations: [], concerns: [] });
+    }
+    // Skin, but it could not place it. Asking beats guessing.
+    if (parsed.needsContext) {
+      return NextResponse.json({ usable: true, needsContext: true, observations: [], concerns: [] });
     }
 
     const observations = Array.isArray(parsed.observations)
@@ -128,7 +164,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ usable: true, refer: true, observations: [], concerns: [] });
     }
 
-    return NextResponse.json({ usable: true, refer: false, observations, concerns, skinType });
+    return NextResponse.json({
+      usable: true,
+      refer: false,
+      observations,
+      concerns,
+      skinType,
+      // Feeds the body-area slot, so a photo of a hand routes to body products
+      // instead of a face routine.
+      bodyArea: SUBJECT_AREAS[subject],
+    });
   } catch (error) {
     console.error("vision request failed", error instanceof Error ? error.message : "unknown");
     return jsonError("Could not review the photo.", 502);

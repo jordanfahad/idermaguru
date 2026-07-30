@@ -162,6 +162,11 @@ const UI = {
     cameraRefer:
       "I'd rather not comment on that from a photo — it's worth having a pharmacist or clinician take a look in person. I can still help with general routine questions.",
     cameraUnusable: "I couldn't read that clearly. Try better light and hold steady.",
+    cameraNotSkin: (shows: string) =>
+      shows
+        ? `That looks like ${shows} to me — and I'm only qualified to look at skin! Point the camera at the area you'd like help with and I'll take a proper look.`
+        : "I don't think that's skin I'm looking at — and skin is the only thing I'm qualified to comment on. Point the camera at the area you'd like help with and try again.",
+    cameraWhichPart: "I can see skin, but I can't quite tell which part of the body I'm looking at — whereabouts is this?",
     cameraDenied: "I couldn't open the camera. Allow camera access, or just describe your skin.",
     cameraError: "The photo review didn't work. You can describe your skin instead.",
     liveTranscript: "Live transcript",
@@ -206,6 +211,11 @@ const UI = {
     cameraRefer:
       "أفضّل ألا أعلّق على ذلك من صورة — يستحسن أن يراه صيدلي أو مختص شخصياً. ما زال بإمكاني مساعدتك في أسئلة الروتين العامة.",
     cameraUnusable: "لم أتمكن من رؤية الصورة بوضوح. جرّب إضاءة أفضل وثبّت الكاميرا.",
+    cameraNotSkin: (shows: string) =>
+      shows
+        ? `يبدو لي أن هذه ${shows} — وأنا مؤهل للنظر إلى البشرة فقط! وجّه الكاميرا إلى المنطقة التي تريد المساعدة بها وسألقي نظرة.`
+        : "لا أعتقد أن ما أراه بشرة — والبشرة هي الشيء الوحيد المؤهل للتعليق عليه. وجّه الكاميرا إلى المنطقة المطلوبة وحاول مجدداً.",
+    cameraWhichPart: "أرى بشرة، لكن لا أستطيع تحديد أي جزء من الجسم أنظر إليه — أين هذه المنطقة تحديداً؟",
     cameraDenied: "تعذّر فتح الكاميرا. اسمح بالوصول أو صف بشرتك بالكلمات.",
     cameraError: "لم تنجح مراجعة الصورة. يمكنك وصف بشرتك بدلاً من ذلك.",
     liveTranscript: "النص المباشر",
@@ -769,8 +779,36 @@ export function VoiceAgent({
         void speak(line, () => setPhase("idle"));
         return;
       }
+      // A keyboard is a keyboard. Saying "I couldn't read that clearly" to a
+      // photo of one is untrue, and it is how shoppers testing the assistant
+      // decide the whole thing is fake.
+      if (payload.notSkin) {
+        const line = t.cameraNotSkin(typeof payload.shows === "string" ? payload.shows : "");
+        setTurns((current) => [...current, { role: "user", text: t.cameraShared }, { role: "agent", text: line }]);
+        if (modeRef.current === "voice") {
+          continueRef.current = true;
+          void speak(line, () => listen());
+        } else {
+          setPhase("idle");
+        }
+        return;
+      }
+      // Skin, but too tightly framed to place. Ask — the body-area question
+      // already exists and changes which products are even eligible.
+      if (payload.needsContext) {
+        const line = t.cameraWhichPart;
+        setTurns((current) => [...current, { role: "user", text: t.cameraShared }, { role: "agent", text: line }]);
+        if (modeRef.current === "voice") {
+          continueRef.current = true;
+          void speak(line, () => listen());
+        } else {
+          setPhase("idle");
+        }
+        return;
+      }
       if (payload.usable === false) {
         setNotice(t.cameraUnusable);
+        setPhase("idle");
         return;
       }
 
@@ -801,6 +839,8 @@ export function VoiceAgent({
         ...slots,
         ...(seen ? { mainConcern: slots.mainConcern ? `${slots.mainConcern}. Visible: ${seen}` : seen } : {}),
         ...(payload.skinType && !slots.skinType ? { skinType: payload.skinType } : {}),
+        // A photo of a hand routes to body products, not a face routine.
+        ...(payload.bodyArea && !slots.bodyArea ? { bodyArea: payload.bodyArea } : {}),
       };
       // Taking a photo mid-conversation means the conversation continues. The
       // shopper almost certainly tapped the orb to stop talking before reaching
