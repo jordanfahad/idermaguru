@@ -314,6 +314,11 @@ export function VoiceAgent({
   // stand-down message is honest: a mic that has worked and gone quiet gets
   // "tap when you're ready", not an error about a microphone problem.
   const everHeardRef = useRef(false);
+  // When a recognition session last ended. iOS ducks the page's media output
+  // while recognition runs and is slow to lift it; playback started inside
+  // that window keeps the ducked volume for the whole line. Speak waits out
+  // the remainder of a short settle window on iOS.
+  const lastMicActivityRef = useRef(0);
   const restartTimerRef = useRef<number | null>(null);
   const t = UI[lang];
 
@@ -506,7 +511,10 @@ export function VoiceAgent({
       if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
       const liveRecognition = recognitionRef.current;
       recognitionRef.current = null;
-      liveRecognition?.abort();
+      if (liveRecognition) {
+        lastMicActivityRef.current = Date.now();
+        liveRecognition.abort();
+      }
       setPhase("speaking");
 
       let audio = audioElRef.current;
@@ -562,7 +570,17 @@ export function VoiceAgent({
 
         audio.onended = finish;
         audio.onerror = () => once(() => speakWithBrowser(text, onDone));
-        await audio.play();
+        // iOS ducks media output while speech recognition holds the audio
+        // session, and lifts it a beat AFTER recognition ends. Playback that
+        // starts inside that beat keeps the ducked volume for the whole line
+        // — heard as the voice "going down" right after the shopper spoke.
+        // Wait out the remainder of a short settle window; later parts of the
+        // same reply see an old timestamp and start with no delay at all.
+        if (IOS) {
+          const settle = 450 - (Date.now() - lastMicActivityRef.current);
+          if (settle > 0 && !exited) await new Promise((resolve) => setTimeout(resolve, settle));
+        }
+        if (!exited) await audio.play();
       } catch {
         once(() => speakWithBrowser(text, onDone));
       }
@@ -753,6 +771,7 @@ export function VoiceAgent({
         if (settled.trim()) {
           // The answer is in; stop before the browser restarts on its own.
           recognitionRef.current = null;
+          lastMicActivityRef.current = Date.now();
           try {
             recognition.stop();
           } catch {
@@ -772,6 +791,7 @@ export function VoiceAgent({
       };
 
       recognition.onend = () => {
+        lastMicActivityRef.current = Date.now();
         if (recognitionRef.current !== recognition) return; // we ended it on purpose
         recognitionRef.current = null;
         if (!continueRef.current || modeRef.current !== "voice") {
@@ -868,8 +888,16 @@ export function VoiceAgent({
   function begin() {
     modeRef.current = "voice";
     // Must be created inside the tap gesture or browsers keep audio suspended.
-    if (!orbRef.current) orbRef.current = createOrbAudio();
-    orbRef.current.startHum();
+    //
+    // NOT on iOS. The orb's audio engine — hum, cue, analyser — keeps a Web
+    // Audio output rendering for the whole session, and with one live, iOS
+    // holds the page's media output at the DUCKED level it applies during
+    // speech recognition: every line after the first listen played quiet.
+    // On iOS the orb is CSS-only and the reply element owns the audio route.
+    if (!IOS) {
+      if (!orbRef.current) orbRef.current = createOrbAudio();
+      orbRef.current.startHum();
+    }
     continueRef.current = true;
     silentRestartsRef.current = 0;
     setStarted(true);
