@@ -51,6 +51,11 @@ export type AgentSlots = {
   forSomeoneElse?: boolean;
   /** True once a photo has been reviewed, so the result can speak to it. */
   sawPhoto?: boolean;
+  /**
+   * Set after the shopper answers "yes" to "anything else?" — the very next
+   * utterance IS the new concern, whatever words it uses.
+   */
+  awaitingConcern?: boolean;
 };
 
 /**
@@ -106,13 +111,81 @@ export function readAdjustment(input: string): RoutineAdjustment | null {
 }
 
 /**
+ * A NEW concern raised after the routine is a new conversation, not an
+ * adjustment of the old one.
+ *
+ * "I want to add more for my acne", said over a dandruff routine, contains
+ * "add more" — so the adjustment reader claimed it, rebuilt the same three
+ * hair products at the shopper, and the acne was never heard at all. A named
+ * concern that is not part of the current one outranks every routine follow-up.
+ */
+const CONCERN_WORDS =
+  /\b(acne|pimples?|breakouts?|blackheads?|whiteheads?|dark spots?|dark circles|pigmentation|melasma|uneven tone|wrinkles?|fine lines|ageing|aging|dry skin|dryness|oily skin|dull(?:ness)?|redness|rosacea|eczema|psoriasis|blemish(?:es)?|scars?|large pores|dandruff|hair ?fall|hair loss|frizz|itchy scalp|rash(?:es)?)\b|(?:بثور|حبوب|رؤوس سوداء|بقع داكنة|هالات|تصبغات|تجاعيد|خطوط رفيعة|جفاف|احمرار|أكزيما|ندوب|مسام|قشرة|تساقط|طفح)/i;
+
+export function readNewConcern(utterance: string, currentConcern: string | undefined): string | null {
+  const text = normaliseTranscript(utterance);
+  if (!text) return null;
+  const match = text.match(CONCERN_WORDS);
+  if (!match) return null;
+  const word = (match[1] ?? match[0]).toLowerCase();
+  // "What about my dandruff?" straight after the dandruff routine is the same
+  // conversation. Only a concern ABSENT from the current one switches topic.
+  if (normaliseTranscript(currentConcern ?? "").includes(word)) return null;
+  return utterance.trim();
+}
+
+/**
+ * Starting over on a new concern, without forgetting the person.
+ *
+ * Skin type, pregnancy, allergies, age and disliked products all describe the
+ * shopper and carry over — re-asking them is how a conversation stops feeling
+ * like one. Everything scoped to the old concern resets, so the interview asks
+ * only what the new concern actually needs.
+ */
+export function beginConcern(slots: AgentSlots, utterance: string): AgentSlots {
+  const text = utterance.trim();
+  const area = extractBodyArea(text) ?? (isHairConcern(text) ? "scalp" : undefined);
+  return {
+    ...slots,
+    mainConcern: text,
+    bodyArea: area,
+    bodyAreaUnknown: undefined,
+    askedBodyArea: undefined,
+    gaveRoutine: undefined,
+    lastRoutine: undefined,
+    awaitingConcern: undefined,
+    misses: 0,
+    offTopic: 0,
+    ...extractInlineSlots(text),
+  };
+}
+
+/**
+ * The two answers to "anything else I can help with?". Deliberately strict,
+ * whole-utterance matches: "no" mid-interview belongs to the open question,
+ * and these are only consulted once the routine is settled.
+ */
+const ALL_DONE =
+  /^(?:no+|nope|nah|no,? thanks?(?: you)?|no,? thank you|not really|that'?s (?:all|it|everything)|i'?m (?:all )?(?:good|done|set|fine|okay|ok)|nothing(?: else)?(?:,? thanks?| for now)?|all good|we'?re done|i'?m done|that will be all|that'?ll be all|لا|لا شكرا|لا شكراً|خلاص|هذا كل شيء|انتهيت|كفى)[.!؟]?$/i;
+const WANTS_MORE =
+  /^(?:yes|yeah|yep|yup|sure|please|yes please|go on|one more(?: thing)?|actually,? yes|نعم|أجل|ايوه|إيوه|طبعا|طبعاً|تمام)[.!؟]?$/i;
+
+export function readsDone(utterance: string): boolean {
+  return ALL_DONE.test(utterance.trim());
+}
+
+export function readsMore(utterance: string): boolean {
+  return WANTS_MORE.test(utterance.trim());
+}
+
+/**
  * A question is asked at most twice. Voice transcription is imperfect and a
  * shopper who cannot be understood must never be trapped in a loop, so the
  * third time we take the safest available answer and move on.
  */
 const MAX_MISSES = 1;
 
-export type AgentPhase = "asking" | "result" | "referral";
+export type AgentPhase = "asking" | "result" | "referral" | "farewell";
 
 const ARABIC = /[؀-ۿ]/;
 
@@ -581,6 +654,14 @@ const COPY = {
       `Here's a ${count}-step hair and scalp routine from the store. Scalps are slower than faces, so give it a few weeks of regular washes — and patch test anything new.`,
     bodyResult: (count: number, area: string) =>
       `Here's what the store has for ${area} — ${count} product${count === 1 ? "" : "s"}, kept gentle. Patch test on a small area first, and give it a couple of weeks before you judge it.`,
+    // The conversation doesn't end at the routine — the door is held open, by
+    // name: skin or hair, more to sort or all done.
+    anythingElse:
+      "Anything else I can help with — your skin, your hair? Or if that's everything, I'll leave you to look through it.",
+    whatElse: "Go on — what else is bothering you?",
+    wrapUp:
+      "Lovely. It's all in the panel whenever you're ready, and I'm right here if anything else comes up. Look after yourself!",
+    nextConcern: "Happy to help with that too — let's sort it.",
   },
   ar: {
     greeting: "مرحباً — أنا مستشار البشرة. أخبرني ما الذي يزعج بشرتك أو شعرك.",
@@ -675,6 +756,10 @@ const COPY = {
       `هذا روتين للشعر وفروة الرأس من ${count} خطوات. فروة الرأس أبطأ من الوجه، فامنحه بضعة أسابيع من الغسل المنتظم — وجرّب أي منتج جديد على مساحة صغيرة أولاً.`,
     bodyResult: (count: number, area: string) =>
       `هذا ما يوفّره المتجر لـ${area} — ${count} منتج، اخترتها لطيفة. جرّبها على مساحة صغيرة أولاً، وامنحها أسبوعين قبل الحكم عليها.`,
+    anythingElse: "هل أساعدك في شيء آخر — بشرتك أو شعرك؟ وإن كان هذا كل شيء، أترك لك تصفّح الروتين.",
+    whatElse: "تفضل — ما الذي يزعجك أيضاً؟",
+    wrapUp: "رائع. كل شيء في اللوحة متى ما كنت جاهزاً، وأنا هنا إن استجدّ شيء. اعتنِ بنفسك!",
+    nextConcern: "يسعدني المساعدة في هذا أيضاً — لنبدأ.",
   },
 };
 
@@ -772,6 +857,10 @@ export function fixedLines(lang: AgentLang): string[] {
     copy.whichSwap(["wash", "moisturiser"]),
     copy.swapNone,
     copy.photoNote,
+    copy.anythingElse,
+    copy.whatElse,
+    copy.wrapUp,
+    copy.nextConcern,
     ESCALATION_MESSAGE,
     ...COUNTS.map((count) => copy.result(count)),
     ...COUNTS.map((count) => copy.hairResult(count)),

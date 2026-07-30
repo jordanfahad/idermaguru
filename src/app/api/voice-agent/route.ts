@@ -21,6 +21,7 @@ import { soldOutProductIds } from "@/services/stock";
 import { childCopy, isChild, readsAge } from "@/services/audience";
 import {
   agentCopy,
+  beginConcern,
   classifyAside,
   classifyOpening,
   detectLang,
@@ -30,6 +31,9 @@ import {
   nextQuestion,
   readAdjustment,
   readFollowup,
+  readNewConcern,
+  readsDone,
+  readsMore,
   slotsToProfile,
   summariseSlots,
   updateSlots,
@@ -72,6 +76,7 @@ const SlotsSchema = z.object({
   ageYears: z.number().optional(),
   forSomeoneElse: z.boolean().optional(),
   sawPhoto: z.boolean().optional(),
+  awaitingConcern: z.boolean().optional(),
 });
 
 const AgentSchema = z.object({
@@ -252,10 +257,57 @@ export async function POST(request: Request) {
     // tangent classifier claimed them — the same trap as the allergen list and
     // the body-area answer before them.
     const followup = before.gaveRoutine ? readFollowup(input.utterance) : null;
+    // A NEW concern outranks every routine follow-up. "I want to add more for
+    // my acne", said over a dandruff routine, contains "add more" — the
+    // adjustment reader claimed it and rebuilt the same three hair products
+    // while the acne went unheard. A concern that is not part of the current
+    // one starts a fresh interview (keeping everything known about the person);
+    // after "anything else?" was answered yes, the next utterance IS the new
+    // concern whatever words it uses.
+    const routineSettled = Boolean(before.gaveRoutine) && !nextQuestion(before, lang);
+    const done = (routineSettled || Boolean(before.awaitingConcern)) && readsDone(input.utterance);
+    const wantsMore = routineSettled && !before.awaitingConcern && readsMore(input.utterance);
+    const newConcern = done
+      ? null
+      : (routineSettled ? readNewConcern(input.utterance, before.mainConcern) : null) ??
+        (before.awaitingConcern && !classifyOpening(input.utterance) ? input.utterance.trim() || null : null);
     const aside =
-      before.mainConcern && !awaitingAllergens && !awaitingArea && !adjusting && !statesAge && !followup
+      before.mainConcern &&
+      !awaitingAllergens &&
+      !awaitingArea &&
+      !adjusting &&
+      !statesAge &&
+      !followup &&
+      !done &&
+      !wantsMore &&
+      !newConcern
         ? classifyAside(input.utterance)
         : null;
+
+    // "No, that's everything" closes the visit warmly instead of bouncing off
+    // the tangent classifier; a bare "yes" opens the floor for the next thing.
+    if (done) {
+      return NextResponse.json({
+        reply: await say(copy.wrapUp),
+        speech: speakable(spoken, "", copy.wrapUp),
+        phase: "farewell",
+        slots: { ...before, awaitingConcern: undefined },
+        products: [],
+        language: spoken,
+        rtl: isRtl(spoken),
+      });
+    }
+    if (wantsMore) {
+      return NextResponse.json({
+        reply: await say(copy.whatElse),
+        speech: speakable(spoken, "", copy.whatElse),
+        phase: "asking",
+        slots: { ...before, awaitingConcern: true },
+        products: [],
+        language: spoken,
+        rtl: isRtl(spoken),
+      });
+    }
     if (aside) {
       const pendingAside = nextQuestion(before, lang);
       const offTopicRun = aside === "offtopic" ? (before.offTopic ?? 0) + 1 : 0;
@@ -292,8 +344,9 @@ export async function POST(request: Request) {
     // "Why that one?" is answered with the actual reasoning behind the pick,
     // and "I don't like it" swaps the product for the next-best that clears
     // the same checks — with the change named out loud. Both used to bounce
-    // off the tangent classifier.
-    if (followup) {
+    // off the tangent classifier. A new concern outranks both readers: the
+    // sentence is about the new thing, not the routine on screen.
+    if (followup && !newConcern) {
       const tenantF = await getTenantBySlug(input.tenantSlug);
       if (tenantF) {
         const profileF = slotsToProfile(before, input.sessionId);
@@ -379,7 +432,11 @@ export async function POST(request: Request) {
       }
     }
 
-    let slots: AgentSlots = updateSlots(before, input.utterance, lang);
+    // A topic switch bypasses the answer-parsing entirely: the utterance is not
+    // an answer to any open question, it is the opening line of the next one.
+    let slots: AgentSlots = newConcern
+      ? beginConcern(before, newConcern)
+      : updateSlots(before, input.utterance, lang);
 
     // When a real model is configured, let it read anything the deterministic
     // patterns missed - but only for non-safety slots. Pregnancy and allergies
@@ -524,7 +581,9 @@ export async function POST(request: Request) {
       // A condolence outranks the ordinary reaction: somebody who mentioned a
       // bereavement or an accident alongside their concern should hear that
       // first, not "Got it."
-      const reaction = misheard ? "" : sorrow ? sorrowLead(sorrow, lang) : openingReaction;
+      // A switched concern gets its own welcome; the shopper just heard the
+      // routine and is asking about the next thing, not repeating themselves.
+      const reaction = misheard ? "" : newConcern ? copy.nextConcern : sorrow ? sorrowLead(sorrow, lang) : openingReaction;
       const acknowledgement = learned ? copy.understood(learned) : openingConcern;
       const leadIn = misheard
         ? copy.repeat
@@ -583,14 +642,19 @@ export async function POST(request: Request) {
     // them directly against the catalogue instead of building an AM/PM routine.
     // If the merchant stocks nothing suitable we say so rather than selling a
     // face routine for dandruff.
+    // A switched concern opens with its welcome; and a fresh routine ends by
+    // holding the door open — "anything else?" is what keeps this a
+    // conversation instead of a vending machine.
+    const switchLead = newConcern ? `${copy.nextConcern} ` : "";
+
     if (where === "hair" || isHairConcern(slots.mainConcern ?? "")) {
       const hairMatches = await inStockOnly(
         pickHairProducts(pickable, slots.mainConcern ?? "", profile, tenant.id, safety),
       );
+      const hairLine = `${switchLead}${heard}${copy.hairResult(hairMatches.length)}`;
       return NextResponse.json({
-        reply: await say(
-          hairMatches.length ? `${heard}${copy.hairResult(hairMatches.length)}` : copy.noHairProducts,
-        ),
+        reply: await say(hairMatches.length ? `${hairLine} ${copy.anythingElse}` : copy.noHairProducts),
+        speech: hairMatches.length ? speakable(spoken, hairLine, copy.anythingElse) : undefined,
         phase: hairMatches.length ? "result" : "referral",
         slots: { ...slots, gaveRoutine: true, lastRoutine: hairMatches.map((match) => match.id) },
         safetyLevel: safety.level,
@@ -608,10 +672,10 @@ export async function POST(request: Request) {
       const bodyMatches = await inStockOnly(
         pickBodyProducts(pickable, slots.mainConcern ?? "", profile, tenant.id, safety),
       );
+      const bodyLine = `${switchLead}${heard}${copy.bodyResult(bodyMatches.length, area)}`;
       return NextResponse.json({
-        reply: await say(
-          bodyMatches.length ? `${heard}${copy.bodyResult(bodyMatches.length, area)}` : copy.noBodyProducts(area),
-        ),
+        reply: await say(bodyMatches.length ? `${bodyLine} ${copy.anythingElse}` : copy.noBodyProducts(area)),
+        speech: bodyMatches.length ? speakable(spoken, bodyLine, copy.anythingElse) : undefined,
         phase: bodyMatches.length ? "result" : "referral",
         slots: { ...slots, gaveRoutine: true, lastRoutine: bodyMatches.map((match) => match.id) },
         safetyLevel: safety.level,
@@ -708,7 +772,7 @@ export async function POST(request: Request) {
       // A photo earns the six-week handoff: confident about what was seen,
       // honest about when to stop trusting a shop's eyes and see a real one.
       const photoNote = slots.sawPhoto ? ` ${copy.photoNote}` : "";
-      spokenReply = `${preface}${copy.result(count)}${photoNote}`;
+      spokenReply = `${switchLead}${preface}${copy.result(count)}${photoNote}`;
       // The model's phrasing names products, so it is only safe to use when the
       // stock check left the routine alone. It is also re-run through the safety
       // gate, and dropped if it drifts.
@@ -717,12 +781,16 @@ export async function POST(request: Request) {
         explanation.trim() &&
         validateAssistantTextForSafety(explanation, safety).recommendationAllowed
       ) {
-        spokenReply = `${preface}${shorten(explanation, 420)}`;
+        spokenReply = `${switchLead}${preface}${shorten(explanation, 420)}`;
       }
     }
 
+    // A fresh routine ends with the door held open. The same-again and
+    // adjusted lines already close with their own invitations.
+    const freshRoutine = !sameAsBefore && !adjusted;
     return NextResponse.json({
-      reply: await say(spokenReply),
+      reply: await say(freshRoutine ? `${spokenReply} ${copy.anythingElse}` : spokenReply),
+      speech: freshRoutine ? speakable(spoken, spokenReply, copy.anythingElse) : undefined,
       phase: "result",
       slots: { ...slots, gaveRoutine: true, lastRoutine: routineIds },
       safetyLevel: safety.level,

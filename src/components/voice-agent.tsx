@@ -485,6 +485,14 @@ export function VoiceAgent({
       }
       window.speechSynthesis?.cancel();
       audioElRef.current?.pause();
+      // Never talk over an open microphone. A silent-restart timer queued just
+      // before this turn arrived would reopen recognition DURING playback —
+      // and iOS ducks media output to a whisper while capture is live, which
+      // is heard as the voice starting strong and going extremely quiet.
+      if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+      const liveRecognition = recognitionRef.current;
+      recognitionRef.current = null;
+      liveRecognition?.abort();
       setPhase("speaking");
 
       let audio = audioElRef.current;
@@ -493,8 +501,14 @@ export function VoiceAgent({
         audio.preload = "auto";
         audioElRef.current = audio;
       }
+      audio.volume = 1;
       // Route through the analyser so the orb pulses with the agent's voice.
-      orbRef.current?.attachElement(audio);
+      // NOT on iOS: capturing an element into a WebAudio graph is permanent
+      // for that element, and iOS leaves the graph's output at the ducked
+      // level it had during the last recognition session — every line after
+      // the first listen played at a whisper. Played directly, the element
+      // returns to full media volume; the orb keeps its CSS speaking state.
+      if (!IOS) orbRef.current?.attachElement(audio);
 
       let objectUrl: string | null = null;
       // One exit only. A failed load fires BOTH the element's onerror and the
@@ -624,7 +638,10 @@ export function VoiceAgent({
       }
       // Keep the microphone open unless safety triage ended the session — the
       // shopper can always ask a follow-up once the routine is on screen.
-      const keepGoing = payload.phase !== "referral" && continueRef.current;
+      // "farewell" is the shopper saying they're done: reopening the mic after
+      // goodbye is the shop assistant following you to the door.
+      const keepGoing =
+        payload.phase !== "referral" && payload.phase !== "farewell" && continueRef.current;
       const parts: string[] = Array.isArray(payload.speech) && payload.speech.length ? payload.speech : [reply];
       speakSequence(parts, () => (keepGoing ? listen() : setPhase("idle")));
     },
