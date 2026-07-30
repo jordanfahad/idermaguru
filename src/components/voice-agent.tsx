@@ -168,6 +168,7 @@ const UI = {
     error: "Something went wrong. Tap the mic to try again.",
     micTrouble:
       "I'm not hearing anything from the microphone. Tap the orb to try again — or switch to Chat and type, that always works.",
+    micIdle: "Still with you — tap the orb whenever you're ready to carry on.",
     showSkin: "Show your skin",
     cameraTitle: "Let the advisor look at your skin?",
     cameraBody:
@@ -218,6 +219,7 @@ const UI = {
     fallback: "افتح المستشار الكامل",
     error: "حدث خطأ. اضغط الميكروفون للمحاولة مرة أخرى.",
     micTrouble: "لا يصلني صوت من الميكروفون. اضغط الكرة للمحاولة مجدداً — أو انتقل إلى «محادثة» واكتب، فهذا يعمل دائماً.",
+    micIdle: "ما زلت معك — اضغط الكرة متى أردت المتابعة.",
     showSkin: "أرِ بشرتك",
     cameraTitle: "هل تسمح للمستشار برؤية بشرتك؟",
     cameraBody:
@@ -301,6 +303,10 @@ export function VoiceAgent({
   // How many times recognition has restarted without hearing anything. A
   // shopper who walked away shouldn't keep the microphone open forever.
   const silentRestartsRef = useRef(0);
+  // Whether this visit's microphone has EVER produced words. It decides which
+  // stand-down message is honest: a mic that has worked and gone quiet gets
+  // "tap when you're ready", not an error about a microphone problem.
+  const everHeardRef = useRef(false);
   const restartTimerRef = useRef<number | null>(null);
   const t = UI[lang];
 
@@ -722,6 +728,7 @@ export function VoiceAgent({
         if (live.trim()) lastInterim = live;
         if (live.trim() || settled.trim()) {
           heard = true;
+          everHeardRef.current = true;
           silentRestartsRef.current = 0;
         }
         if (settled.trim()) {
@@ -767,8 +774,9 @@ export function VoiceAgent({
         if (silentRestartsRef.current > MAX_SILENT_RESTARTS) {
           silentRestartsRef.current = 0;
           // Standing down without a word is indistinguishable from being
-          // stuck. Say it, and point at the way that always works.
-          setNotice(t.micTrouble);
+          // stuck. Say it — and say the right thing: a mic that has worked
+          // all along and gone quiet is a thinking shopper, not a fault.
+          setNotice(everHeardRef.current ? t.micIdle : t.micTrouble);
           setPhase("idle");
           return;
         }
@@ -792,7 +800,7 @@ export function VoiceAgent({
           silentRestartsRef.current += 1;
           if (silentRestartsRef.current > MAX_SILENT_RESTARTS) {
             silentRestartsRef.current = 0;
-            setNotice(t.micTrouble);
+            setNotice(everHeardRef.current ? t.micIdle : t.micTrouble);
             setPhase("idle");
             return;
           }
@@ -819,10 +827,23 @@ export function VoiceAgent({
       try {
         recognition.start();
       } catch {
-        setPhase("idle");
+        // iOS throws InvalidStateError when a session is started during an
+        // audio-route transition — precisely the moment playback ends and we
+        // want to listen again. Going idle here was a silent mid-conversation
+        // stop with no message and no retry. One breath, then try again.
+        recognitionRef.current = null;
+        clearWatchdog();
+        silentRestartsRef.current += 1;
+        if (silentRestartsRef.current > MAX_SILENT_RESTARTS) {
+          silentRestartsRef.current = 0;
+          setNotice(everHeardRef.current ? t.micIdle : t.micTrouble);
+          setPhase("idle");
+          return;
+        }
+        restartTimerRef.current = window.setTimeout(startListening, 250);
       }
     },
-    [lang, send, t.noVoice, t.denied, t.micTrouble],
+    [lang, send, t.noVoice, t.denied, t.micTrouble, t.micIdle],
   );
 
   function begin() {

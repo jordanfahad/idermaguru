@@ -394,8 +394,17 @@ const ACHE_COMPOUND = /\b(tooth|head|back|stomach|ear|belly|neck|body)aches?\b/i
 const GREETINGS = /\b(hi|hello|hey|salam|marhaba|good (morning|evening|afternoon))\b/i;
 const IDENTITY = /\b(who|what) (are|r) (you|u)\b|\byour name\b|\bare you (a )?(human|robot|bot|real|ai)\b/i;
 const THANKS = /\b(thanks|thank you|shukran|cheers|appreciate)\b/i;
+// "Hello can you hear me" is a person checking the thing works, and it was
+// answered with "That one's outside my world" — the coldest possible reply to
+// the warmest possible opening. A hearing check gets "Loud and clear!".
+const MIC_CHECK =
+  /\b(?:can|do) you hear(?: me)?\b|\bhear me\?|\bare you (?:there|listening)\b|\bis this (?:thing )?(?:on|working)\b|\btesting[,.\s]+(?:testing|one|1)\b|\bmic (?:check|test)\b|هل تسمعني|أتسمعني|هل أنت (?:هنا|موجود|تسمع)/i;
 
-export type Aside = "greeting" | "identity" | "thanks" | "offtopic";
+export function readsMicCheck(input: string): boolean {
+  return MIC_CHECK.test(normaliseTranscript(input)) || MIC_CHECK.test(input);
+}
+
+export type Aside = "greeting" | "identity" | "thanks" | "offtopic" | "hearing";
 
 /**
  * Detects an utterance that isn't answering us and isn't about skin.
@@ -459,6 +468,9 @@ export function classifyAside(input: string): Aside | null {
 
   // An honest "I don't know" is an answer to the open question, not a tangent.
   if (UNSURE.test(text)) return null;
+  // A hearing check is unmistakable and outranks everything: whatever else the
+  // sentence contains, the person is asking whether they are being heard.
+  if (readsMicCheck(input)) return "hearing";
   if (IDENTITY.test(text)) return "identity";
   if (answersSomething || aboutSkin) return null;
   if (THANKS.test(text)) return "thanks";
@@ -586,6 +598,7 @@ const COPY = {
       greeting: "Hello!",
       identity: "I'm the AI skin advisor for this store — not a doctor, and I only suggest over-the-counter products.",
       thanks: "Any time.",
+      hearing: "Loud and clear — I can hear you!",
       offtopic: "That one's outside my world, I'm afraid — skin and hair are what I know.",
       elsewhere:
         "Ah, I'm sorry — that sounds rotten, and it's honestly not something I can help with. A doctor or pharmacist is the right person for it. If something's going on with your skin or hair though, I'm all yours.",
@@ -688,6 +701,7 @@ const COPY = {
       greeting: "أهلاً!",
       identity: "أنا مستشار البشرة الذكي لهذا المتجر — لست طبيباً، وأقترح منتجات بدون وصفة فقط.",
       thanks: "على الرحب والسعة.",
+      hearing: "أسمعك بوضوح تام!",
       offtopic: "هذا خارج مجالي للأسف — البشرة والشعر هما ما أعرفه.",
       elsewhere:
         "آه، يؤسفني ذلك — يبدو مزعجاً، وبصراحة ليس مما أستطيع المساعدة فيه. الطبيب أو الصيدلي هو الشخص المناسب. لكن إن كان لديك ما يخص البشرة أو الشعر، فأنا رهن إشارتك.",
@@ -887,6 +901,7 @@ export function acknowledgements(lang: AgentLang): string[] {
     copy.aside.greeting,
     copy.aside.identity,
     copy.aside.thanks,
+    copy.aside.hearing,
     copy.aside.offtopic,
     copy.aside.elsewhere,
     copy.offTopicLetGo,

@@ -33,6 +33,7 @@ import {
   readFollowup,
   readNewConcern,
   readsDone,
+  readsMicCheck,
   readsMore,
   slotsToProfile,
   summariseSlots,
@@ -218,6 +219,20 @@ export async function POST(request: Request) {
     // with "understood — how would you describe your skin?" and "do you sell
     // iphones" became a skin concern. Nothing off-topic is stored.
     if (!before.mainConcern) {
+      // "Hello can you hear me" is a person checking the microphone works —
+      // it got the off-topic brush-off, which reads as a machine failing a
+      // human test. Confirm warmly, then ask.
+      if (readsMicCheck(input.utterance)) {
+        return NextResponse.json({
+          reply: await say(`${copy.aside.hearing} ${copy.askConcern}`),
+          speech: speakable(spoken, copy.aside.hearing, copy.askConcern),
+          phase: "asking",
+          slots: before,
+          products: [],
+          language: spoken,
+          rtl: isRtl(spoken),
+        });
+      }
       const opening = classifyOpening(input.utterance);
       if (opening) {
         const leadIn = opening === "elsewhere" ? copy.aside.elsewhere : copy.aside.offtopic;
