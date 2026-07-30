@@ -300,15 +300,26 @@ export async function POST(request: Request) {
         const safetyF = runSafetyTriage(profileF);
         const productsF = await listTenantProducts(input.tenantSlug);
         const disliked = new Set(before.dislikedIds ?? []);
-        const build = (exclude: Set<string>) =>
-          buildRecommendations({
+        // The routine being argued with must be rebuilt by the SAME builder
+        // that produced it. This always used the face builder, so a hair
+        // shopper saying "I don't like the oil" was matched against a face
+        // routine with no oil in it — and asked "which one?" with examples
+        // ('the cleanser', 'the serum') from steps that were never on their
+        // screen.
+        const hairF = areaRoute(before.bodyArea) === "hair" || isHairConcern(before.mainConcern ?? "");
+        const bodyF = areaRoute(before.bodyArea) === "body";
+        const build = (exclude: Set<string>): ReturnType<typeof routineItemToProduct>[] => {
+          const available = exclude.size ? productsF.filter((product) => !exclude.has(product.id)) : productsF;
+          if (hairF) return pickHairProducts(available, before.mainConcern ?? "", profileF, tenantF.id, safetyF);
+          if (bodyF) return pickBodyProducts(available, before.mainConcern ?? "", profileF, tenantF.id, safetyF);
+          return buildRecommendations({
             tenantId: tenantF.id,
             profile: profileF,
             safety: safetyF,
-            products: productsF,
+            products: available,
             sponsoredEnabled: true,
-            excludeProductIds: exclude,
-          }).items;
+          }).items.map(routineItemToProduct);
+        };
         const current = build(disliked);
 
         if (current.length) {
@@ -316,7 +327,7 @@ export async function POST(request: Request) {
 
           if (followup === "why") {
             const reply = target
-              ? copy.whyThis(target.product.name, target.reason, target.expectedResults)
+              ? copy.whyThis(target.name, target.reason, target.expectedResults)
               : copy.whyAll(current.slice(0, 3).map((item) => `${item.slot} — ${item.reason}`).join(" "));
             return NextResponse.json({
               reply: await say(reply),
@@ -329,9 +340,10 @@ export async function POST(request: Request) {
           }
 
           if (!target) {
+            const whichLine = copy.whichSwap(current.map((item) => item.slot));
             return NextResponse.json({
-              reply: await say(copy.whichSwap),
-              speech: speakable(spoken, "", copy.whichSwap),
+              reply: await say(whichLine),
+              speech: speakable(spoken, "", whichLine),
               phase: "result",
               slots: before,
               products: [],
@@ -340,11 +352,9 @@ export async function POST(request: Request) {
             });
           }
 
-          disliked.add(target.product.id);
-          const rebuilt = build(disliked);
-          const replacement = rebuilt.find(
-            (item) => item.step === target.step && item.product.id !== target.product.id,
-          );
+          disliked.add(target.id);
+          const rebuilt = await inStockOnly(build(disliked));
+          const replacement = rebuilt.find((item) => item.step === target.step && item.id !== target.id);
           if (!replacement) {
             // The dislike is NOT persisted: excluding the only product that
             // fits would silently drop the step from every later rebuild.
@@ -358,10 +368,10 @@ export async function POST(request: Request) {
             });
           }
           return NextResponse.json({
-            reply: await say(copy.swapped(target.product.name, replacement.product.name)),
+            reply: await say(copy.swapped(target.name, replacement.name)),
             phase: "result",
-            slots: { ...before, dislikedIds: [...disliked], lastRoutine: rebuilt.map((item) => item.product.id) },
-            products: rebuilt.map(routineItemToProduct),
+            slots: { ...before, dislikedIds: [...disliked], lastRoutine: rebuilt.map((item) => item.id) },
+            products: rebuilt,
             language: spoken,
             rtl: isRtl(spoken),
           });
@@ -562,13 +572,20 @@ export async function POST(request: Request) {
     const namedAllergies = before.allergies === undefined && slots.allergies?.length ? slots.allergies : null;
     const heard = namedAllergies ? `${copy.avoiding(namedAllergies)} ` : "";
 
+    // A swapped-away product stays away here too. The face plan carries this
+    // through excludeProductIds; the hair and body pickers read the catalogue
+    // directly, so without this a "make it stronger" after a swap brought the
+    // disliked product straight back.
+    const dislikedNow = new Set(slots.dislikedIds ?? []);
+    const pickable = dislikedNow.size ? products.filter((product) => !dislikedNow.has(product.id)) : products;
+
     // Hair and scalp concerns don't fit the face-routine slot model, so match
     // them directly against the catalogue instead of building an AM/PM routine.
     // If the merchant stocks nothing suitable we say so rather than selling a
     // face routine for dandruff.
     if (where === "hair" || isHairConcern(slots.mainConcern ?? "")) {
       const hairMatches = await inStockOnly(
-        pickHairProducts(products, slots.mainConcern ?? "", profile, tenant.id, safety),
+        pickHairProducts(pickable, slots.mainConcern ?? "", profile, tenant.id, safety),
       );
       return NextResponse.json({
         reply: await say(
@@ -589,7 +606,7 @@ export async function POST(request: Request) {
     if (where === "body") {
       const area = areaLabel(slots.bodyArea as BodyArea, lang);
       const bodyMatches = await inStockOnly(
-        pickBodyProducts(products, slots.mainConcern ?? "", profile, tenant.id, safety),
+        pickBodyProducts(pickable, slots.mainConcern ?? "", profile, tenant.id, safety),
       );
       return NextResponse.json({
         reply: await say(
@@ -908,9 +925,15 @@ const STEP_WORDS: Record<string, string[]> = {
   sunscreen: ["sunscreen", "spf", "sunblock", "واقي"],
   exfoliant: ["exfoliant", "scrub", "peel", "مقشر"],
   mask: ["mask", "ماسك"],
+  // The hair steps were missing entirely, so no word a shopper could say
+  // pointed at a hair product except its brand name.
+  shampoo: ["shampoo", "شامبو"],
+  conditioner: ["conditioner", "بلسم"],
+  scalp: ["scalp", "فروة"],
+  oil: ["oil", "زيت"],
 };
 
-function matchRoutineItem<T extends { step: string; slot: string; product: { name: string } }>(
+function matchRoutineItem<T extends { step: string; slot: string; name: string }>(
   utterance: string,
   items: T[],
 ): T | null {
@@ -919,7 +942,7 @@ function matchRoutineItem<T extends { step: string; slot: string; product: { nam
   let bestScore = 0;
   for (const item of items) {
     let score = 0;
-    for (const word of item.product.name.toLowerCase().split(/[^a-z0-9\u0600-\u06ff]+/)) {
+    for (const word of item.name.toLowerCase().split(/[^a-z0-9\u0600-\u06ff]+/)) {
       if (word.length > 2 && text.includes(word)) score += 2;
     }
     for (const word of STEP_WORDS[item.step] ?? []) if (text.includes(word)) score += 3;

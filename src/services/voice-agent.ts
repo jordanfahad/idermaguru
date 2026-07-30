@@ -547,8 +547,17 @@ const COPY = {
       fullerAfterGentle: (count: number) =>
         `Alright — ${count} steps, and the actives are back in. You did say it was stinging, so go slowly with them: one new thing a week, and stop the one that bites.`,
     },
-    whichSwap:
-      "Happy to change it — which one? Tell me the product or the step, like 'the cleanser' or 'the serum'.",
+    // The examples must name steps that are actually on the screen. Quoting
+    // 'the cleanser' at someone looking at a shampoo routine reads as not
+    // having looked at their routine at all.
+    whichSwap: (steps: string[]) => {
+      const named = steps.filter(Boolean);
+      const example =
+        named.length >= 2
+          ? ` Tell me the product or the step, like 'the ${named[0]}' or 'the ${named[1]}'.`
+          : " Tell me the product or the step.";
+      return `Happy to change it — which one?${example}`;
+    },
     swapNone:
       "I did look — that's genuinely the only product in this store that fits that step and what you've told me. I could go gentler or fuller instead, but a straight swap would mean breaking something you asked for.",
     swapped: (oldName: string, newName: string) =>
@@ -621,7 +630,32 @@ const COPY = {
       fullerAfterGentle: (count: number) =>
         `تمام — ${count} خطوات، وأعدت المكونات الفعّالة. لكنك ذكرت أنها كانت تسبب حرقة، فتدرّج ببطء: منتج جديد كل أسبوع، وأوقف ما يزعجك.`,
     },
-    whichSwap: "يسعدني تغييره — أيّ واحد؟ اذكر المنتج أو الخطوة، مثل «الغسول» أو «السيروم».",
+    whichSwap: (steps: string[]) => {
+      // Slot labels arrive in English; the ones a routine can carry are named
+      // here, and an unmapped label simply drops the example rather than
+      // splicing English into an Arabic sentence.
+      const labels: Record<string, string> = {
+        cleanser: "الغسول",
+        serum: "السيروم",
+        "second serum": "السيروم الثاني",
+        toner: "التونر",
+        moisturiser: "المرطب",
+        sunscreen: "واقي الشمس",
+        "eye cream": "كريم العين",
+        "weekly exfoliant": "المقشر الأسبوعي",
+        "weekly mask": "الماسك الأسبوعي",
+        shampoo: "الشامبو",
+        conditioner: "البلسم",
+        "scalp care": "عناية فروة الرأس",
+        "hair oil": "زيت الشعر",
+        wash: "الغسول",
+        "targeted step": "الخطوة الموجّهة",
+      };
+      const named = steps.map((step) => labels[step]).filter(Boolean);
+      const example =
+        named.length >= 2 ? ` اذكر المنتج أو الخطوة، مثل «${named[0]}» أو «${named[1]}».` : " اذكر المنتج أو الخطوة.";
+      return `يسعدني تغييره — أيّ واحد؟${example}`;
+    },
     swapNone:
       "بحثت فعلاً — هذا هو المنتج الوحيد في المتجر الذي يناسب هذه الخطوة وما أخبرتني به. يمكنني جعل الروتين ألطف أو أشمل، لكن الاستبدال المباشر سيخالف شيئاً طلبتَه.",
     swapped: (oldName: string, newName: string) =>
@@ -730,7 +764,12 @@ export function fixedLines(lang: AgentLang): string[] {
     copy.noHairProducts,
     copy.intimateArea,
     copy.nothingStronger,
-    copy.whichSwap,
+    // The which-one question, with the step examples each routine shape
+    // actually opens with. Odd shapes fall back to dynamic synthesis.
+    copy.whichSwap(["cleanser", "serum"]),
+    copy.whichSwap(["cleanser", "toner"]),
+    copy.whichSwap(["shampoo", "conditioner"]),
+    copy.whichSwap(["wash", "moisturiser"]),
     copy.swapNone,
     copy.photoNote,
     ESCALATION_MESSAGE,
