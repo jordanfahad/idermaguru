@@ -15,6 +15,22 @@ function speechUrl(text: string, language: string) {
 /** Roughly 30s of silence before the advisor stops listening and waits for a tap. */
 const MAX_SILENT_RESTARTS = 4;
 
+/**
+ * iPhone and iPad, including iPadOS pretending to be a Mac.
+ *
+ * On iOS Safari, a page that HOLDS a getUserMedia audio stream and runs
+ * webkitSpeechRecognition at the same time is fighting itself for the one
+ * audio-input route. Recognition starts "successfully" and simply never
+ * receives audio — no interim, no final, no error — most often on the session
+ * right after a TTS reply reshuffles the audio session. Desktop Chrome
+ * multiplexes happily, which is why this never reproduced in a headless test
+ * and always reproduced on the shopper's phone.
+ */
+const IOS =
+  typeof navigator !== "undefined" &&
+  (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
 /** Every line the interview can say verbatim — these are the ones worth caching. */
 /**
  * Every line that is written by us rather than by a model.
@@ -150,6 +166,8 @@ const UI = {
     replay: "Tap when you're ready",
     fallback: "Open the full advisor",
     error: "Something went wrong. Tap the mic to try again.",
+    micTrouble:
+      "I'm not hearing anything from the microphone. Tap the orb to try again — or switch to Chat and type, that always works.",
     showSkin: "Show your skin",
     cameraTitle: "Let the advisor look at your skin?",
     cameraBody:
@@ -199,6 +217,7 @@ const UI = {
     replay: "اضغط عندما تكون جاهزاً",
     fallback: "افتح المستشار الكامل",
     error: "حدث خطأ. اضغط الميكروفون للمحاولة مرة أخرى.",
+    micTrouble: "لا يصلني صوت من الميكروفون. اضغط الكرة للمحاولة مجدداً — أو انتقل إلى «محادثة» واكتب، فهذا يعمل دائماً.",
     showSkin: "أرِ بشرتك",
     cameraTitle: "هل تسمح للمستشار برؤية بشرتك؟",
     cameraBody:
@@ -730,6 +749,9 @@ export function VoiceAgent({
         silentRestartsRef.current = heard ? 0 : silentRestartsRef.current + 1;
         if (silentRestartsRef.current > MAX_SILENT_RESTARTS) {
           silentRestartsRef.current = 0;
+          // Standing down without a word is indistinguishable from being
+          // stuck. Say it, and point at the way that always works.
+          setNotice(t.micTrouble);
           setPhase("idle");
           return;
         }
@@ -753,6 +775,7 @@ export function VoiceAgent({
           silentRestartsRef.current += 1;
           if (silentRestartsRef.current > MAX_SILENT_RESTARTS) {
             silentRestartsRef.current = 0;
+            setNotice(t.micTrouble);
             setPhase("idle");
             return;
           }
@@ -771,14 +794,18 @@ export function VoiceAgent({
       setNotice(null);
       // Only chime when the turn actually changes hands, not on every restart.
       if (silentRestartsRef.current === 0) orbRef.current?.cue();
-      void orbRef.current?.attachMic();
+      // The analyser stream is decoration — amplitude for the orb. On iOS,
+      // holding it is what starves recognition of audio, so there the orb
+      // gives up its light show and the microphone actually works.
+      if (IOS) orbRef.current?.detachMic();
+      else void orbRef.current?.attachMic();
       try {
         recognition.start();
       } catch {
         setPhase("idle");
       }
     },
-    [lang, send, t.noVoice, t.denied],
+    [lang, send, t.noVoice, t.denied, t.micTrouble],
   );
 
   function begin() {
