@@ -854,7 +854,10 @@ export async function POST(request: Request) {
               ? copy.sameAgain(hairMatches.length)
               : `${hairLine} ${copy.anythingElse}`,
         ),
-        speech: hairMatches.length && !sameHair ? speakable(spoken, hairLine, copy.anythingElse) : undefined,
+        speech:
+          hairMatches.length && !sameHair
+            ? speakParts(spoken, switchLead, heard, copy.hairResult(hairMatches.length), copy.anythingElse)
+            : undefined,
         phase: hairMatches.length ? "result" : "referral",
         slots: { ...slots, gaveRoutine: true, lastRoutine: hairIds },
         safetyLevel: safety.level,
@@ -893,7 +896,10 @@ export async function POST(request: Request) {
               ? copy.sameAgain(bodyMatches.length)
               : `${bodyLine} ${copy.anythingElse}`,
         ),
-        speech: bodyMatches.length && !sameBody ? speakable(spoken, bodyLine, copy.anythingElse) : undefined,
+        speech:
+          bodyMatches.length && !sameBody
+            ? speakParts(spoken, switchLead, heard, copy.bodyResult(bodyMatches.length, area), copy.anythingElse)
+            : undefined,
         phase: bodyMatches.length ? "result" : "referral",
         slots: { ...slots, gaveRoutine: true, lastRoutine: bodyIds },
         safetyLevel: safety.level,
@@ -984,6 +990,7 @@ export async function POST(request: Request) {
     const preface = heard || (skippedAhead && understood ? `${copy.understood(understood)} ` : "");
 
     let spokenReply: string;
+    let resultParts: string[] | undefined;
     if (sameAsBefore) {
       // Nothing moved. Say so, instead of replaying the same line at them.
       spokenReply = adjusted === "fuller" ? copy.nothingStronger : copy.sameAgain(count);
@@ -999,6 +1006,14 @@ export async function POST(request: Request) {
       // honest about when to stop trusting a shop's eyes and see a real one.
       const photoNote = slots.sawPhoto ? ` ${copy.photoNote}` : "";
       spokenReply = `${switchLead}${preface}${copy.result(count)}${photoNote}`;
+      resultParts = speakParts(
+        spoken,
+        switchLead,
+        preface,
+        copy.result(count),
+        slots.sawPhoto ? copy.photoNote : undefined,
+        copy.anythingElse,
+      );
       // The model's phrasing names products, so it is only safe to use when the
       // stock check left the routine alone. It is also re-run through the safety
       // gate, and dropped if it drifts.
@@ -1008,6 +1023,7 @@ export async function POST(request: Request) {
         validateAssistantTextForSafety(explanation, safety).recommendationAllowed
       ) {
         spokenReply = `${switchLead}${preface}${shorten(explanation, 420)}`;
+        resultParts = speakParts(spoken, spokenReply, copy.anythingElse);
       }
     }
 
@@ -1016,7 +1032,7 @@ export async function POST(request: Request) {
     const freshRoutine = !sameAsBefore && !adjusted;
     return NextResponse.json({
       reply: await say(freshRoutine ? `${spokenReply} ${copy.anythingElse}` : spokenReply),
-      speech: freshRoutine ? speakable(spoken, spokenReply, copy.anythingElse) : undefined,
+      speech: freshRoutine ? resultParts : undefined,
       phase: "result",
       slots: { ...slots, gaveRoutine: true, lastRoutine: routineIds },
       safetyLevel: safety.level,
@@ -1184,6 +1200,20 @@ function speakable(spoken: LanguageCode, leadIn: string, question?: string): str
   if (!question) return undefined;
   const prefix = leadIn.trim();
   return prefix ? [prefix, question] : [question];
+}
+
+/**
+ * A reply as separately-playable parts.
+ *
+ * The result turn used to weld its acknowledgement, its result line and its
+ * closer into one string: one dynamic part, synthesised whole, every time —
+ * the biggest reply in the product paying the biggest pause. Split, all but
+ * the short acknowledgement play straight from cache.
+ */
+function speakParts(spoken: LanguageCode, ...parts: (string | undefined)[]): string[] | undefined {
+  if (spoken !== "en" && spoken !== "ar") return undefined;
+  const clean = parts.map((part) => part?.trim()).filter((part): part is string => Boolean(part));
+  return clean.length ? clean : undefined;
 }
 
 /**

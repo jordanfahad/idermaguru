@@ -7,9 +7,16 @@ import { speechLocale } from "@/services/language";
 import { acknowledgements, describePhoto, fixedLines, scriptedLines } from "@/services/voice-agent";
 import "./voice-agent.css";
 
-/** GET endpoint for a fixed line, so <audio> streams it from the browser cache. */
+/**
+ * GET endpoint for a fixed line, so <audio> streams it from the browser cache.
+ *
+ * `v` is the voice-direction version: the recordings are cached immutable by
+ * URL, so a change to how the advisor DELIVERS her lines must mint new URLs or
+ * every shopper keeps hearing the old read forever. Bump it when the TTS
+ * instructions change.
+ */
 function speechUrl(text: string, language: string) {
-  return `/api/voice-agent/speech?lang=${language === "ar" ? "ar" : "en"}&text=${encodeURIComponent(text)}`;
+  return `/api/voice-agent/speech?v=2&lang=${language === "ar" ? "ar" : "en"}&text=${encodeURIComponent(text)}`;
 }
 
 /** Roughly 30s of silence before the advisor stops listening and waits for a tap. */
@@ -474,6 +481,7 @@ export function VoiceAgent({
       const voice = pickVoice(synth, spokenLangRef.current);
       if (voice) utterance.voice = voice;
       utterance.rate = 0.97;
+      utterance.volume = 1;
       utterance.onend = onDone;
       utterance.onerror = onDone;
       setPhase("speaking");
@@ -580,13 +588,24 @@ export function VoiceAgent({
       // fetch cache, so on the device that matters most every sentence still
       // paid a full round trip, heard as a long breath between sentences. A
       // blob in memory starts in the same frame.
+      //
+      // Dynamic parts too: they used to wait until their turn and pay their
+      // whole synthesis as an audible pause in the MIDDLE of the reply —
+      // exactly where a failure also dropped that one line to the quiet
+      // robotic browser voice. Synthesised here, they arrive while the first
+      // cached part is already playing.
       const preloads = queue.map((part) =>
-        isScriptedLine(part)
+        (isScriptedLine(part)
           ? fetch(speechUrl(part, spokenLangRef.current))
-              .then((response) => (response.ok ? response.blob() : null))
-              .then((blob) => (blob ? URL.createObjectURL(blob) : null))
-              .catch(() => null)
-          : Promise.resolve(null),
+          : fetch("/api/voice-agent/speech", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ text: part, language: spokenLangRef.current }),
+            })
+        )
+          .then((response) => (response.ok ? response.blob() : null))
+          .then((blob) => (blob ? URL.createObjectURL(blob) : null))
+          .catch(() => null),
       );
       const step = (index: number) => {
         if (index >= queue.length) {

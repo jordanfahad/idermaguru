@@ -26,7 +26,9 @@ const DEFAULT_INSTRUCTIONS =
   "Sound like you are pleased to be helping: warm, smiling, energetic, with real lift at the end of a " +
   "question. Keep the pace brisk and conversational, the way you would talk to a friend at the counter — " +
   "quick, natural, never flat, never a robot reading a script. Let the important word in each sentence " +
-  "carry a little extra colour.";
+  "carry a little extra colour. Project your voice at a full, confident, consistent volume from the very " +
+  "first word to the very last — never trail off, never go quiet at the ends of sentences, and keep the " +
+  "same punchy energy in every line of the conversation.";
 
 const ARABIC_NOTE =
   " The text is Arabic: speak it as a native Gulf Arabic speaker would, with the same warmth and energy.";
@@ -70,7 +72,9 @@ async function synthesise(text: string, language: "en" | "ar" | undefined, cache
 
   // The scripted questions repeat in every single session, so synthesising them
   // again each time is the main source of the pause before the agent speaks.
-  const cacheKey = `${model}:${voice}:${language ?? "en"}:${text}`;
+  // The instructions are part of the recording's identity: without them in the
+  // key, a delivery change kept serving the old read from this map.
+  const cacheKey = `${model}:${voice}:${language ?? "en"}:${instructions.length}:${text}`;
   const cached = speechCache.get(cacheKey);
   if (cached) {
     return new NextResponse(cached.slice(0), {
