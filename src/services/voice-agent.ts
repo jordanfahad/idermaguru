@@ -205,10 +205,34 @@ export function readProductQuery(input: string): string[] | null {
 }
 
 /**
+ * Whether two tokens are within two edits of each other — the scale of damage
+ * speech-to-text does to a brand name ("Miley" for "Mielle").
+ */
+function closeEnough(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 2) return false;
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  let previous = Array.from({ length: cols }, (_, j) => j);
+  for (let i = 1; i < rows; i += 1) {
+    const current = [i];
+    for (let j = 1; j < cols; j += 1) {
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    previous = current;
+  }
+  return previous[cols - 1] <= 2;
+}
+
+/**
  * The catalogue row a query is talking about, if any is a confident match.
  *
- * Token scoring with prefix credit, because these arrive from speech-to-text:
- * "multiply hair serum" is "Multi-Peptide", and "hair salon" is "hair serum".
+ * Token scoring with prefix and edit-distance credit, because these arrive
+ * from speech-to-text: "multiply hair serum" is "Multi-Peptide", "hair salon"
+ * is "hair serum", and "Miley hair oil" is the Mielle oil.
  */
 export function findProductByQuery<
   T extends { name: string; brand: string; category: string; merchantPriority: number },
@@ -228,10 +252,12 @@ export function findProductByQuery<
         !exact &&
         token.length >= 4 &&
         words.some((word) => word.length >= 4 && (word.startsWith(token) || token.startsWith(word)));
+      const fuzzy =
+        !exact && !prefix && token.length >= 5 && words.some((word) => word.length >= 5 && closeEnough(token, word));
       if (exact) {
         score += 2;
         matched += 1;
-      } else if (prefix) {
+      } else if (prefix || fuzzy) {
         score += 1;
         matched += 1;
       }
@@ -357,7 +383,19 @@ export function readYesNo(input: string): boolean | undefined {
 export function readPregnancyAnswer(text: string): boolean | undefined {
   const stated = readsPregnant(text);
   if (stated !== undefined) return stated;
+  // "Hey I have hair dandruff and acne" contains "I have" — a yes-marker —
+  // and was recorded as a pregnancy. A sentence that is busy describing a
+  // skin or hair concern is not answering this question at all.
+  if (describesConcern(text)) return undefined;
   return readYesNo(text);
+}
+
+/**
+ * True when the utterance is describing a skin or hair concern — which means
+ * it is NOT an answer to whatever yes/no safety question happens to be open.
+ */
+export function describesConcern(input: string): boolean {
+  return isHairConcern(input) || CONCERN_WORDS.test(normaliseTranscript(input)) || CONCERN_WORDS.test(input);
 }
 
 const HAIR_CONCERN =
@@ -772,6 +810,12 @@ const COPY = {
       `The store does have ${name}, but it doesn't clear the checks you've given me — your allergies or your skin's sensitivities — so I won't put it in your routine.`,
     productNotStocked:
       "I've been through the whole catalogue — the store doesn't stock that one. Tell me the job you want done and I'll find the closest thing it does have.",
+    // A product asked for before any routine exists: confirm it, keep it, and
+    // get on with the interview that decides what goes around it.
+    productHere: (name: string) =>
+      `Good news — the store has ${name}. I've put it on screen and I'll keep it in whatever we build.`,
+    // Two concerns in one breath. Say the plan, or the second one sounds ignored.
+    twoThings: "Got it — that's two things, so let's take them one at a time. Hair first.",
     // The swap refusal when an alternative EXISTS but the shelf is empty. The
     // plain refusal claimed to be the only product that fits, which was untrue.
     swapSoldOut:
@@ -883,6 +927,8 @@ const COPY = {
     productBlocked: (name: string) =>
       `المتجر لديه ${name}، لكنه لا يجتاز الفحوصات التي أعطيتني إياها — حساسيتك أو طبيعة بشرتك — لذا لن أضعه في روتينك.`,
     productNotStocked: "بحثت في الكتالوج كاملاً — المتجر لا يوفّر هذا المنتج. أخبرني بما تريد تحقيقه وسأجد أقرب بديل متوفر.",
+    productHere: (name: string) => `خبر جيد — المتجر لديه ${name}. عرضته لك وسأبقيه في كل ما نبنيه معاً.`,
+    twoThings: "فهمت — هذان أمران، فلنأخذهما واحداً تلو الآخر: الشعر أولاً.",
     swapSoldOut:
       "يوجد بديل لهذه الخطوة فعلاً، لكنه نافد من المخزون حالياً — أفضّل أن أترك لك ما يمكنك شراؤه اليوم بدل أن أضع ما لا يمكنك شراؤه.",
   },
@@ -988,6 +1034,7 @@ export function fixedLines(lang: AgentLang): string[] {
     copy.nextConcern,
     copy.productNotStocked,
     copy.swapSoldOut,
+    copy.twoThings,
     ESCALATION_MESSAGE,
     ...COUNTS.map((count) => copy.result(count)),
     ...COUNTS.map((count) => copy.hairResult(count)),
@@ -1093,6 +1140,13 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
       next.misses = 0;
       return next;
     }
+    // A restated or expanded concern ("Hey I have hair dandruff and acne") is
+    // real information, not a failure to answer: keep it, and ask again.
+    if (describesConcern(text)) {
+      next.mainConcern = `${next.mainConcern}. ${text}`;
+      next.misses = 0;
+      return next;
+    }
     // Unintelligible: ask once more, then assume the answer that filters the
     // most rather than looping or guessing "no".
     next.misses = (next.misses ?? 0) + 1;
@@ -1112,12 +1166,19 @@ export function updateSlots(slots: AgentSlots, utterance: string, lang: AgentLan
       next.misses = 0;
       return next;
     }
-    if (readYesNo(text) === true) {
+    // Same trap as the pregnancy question: "I have hair dandruff" contains
+    // the yes-marker "I have" and would be read as "yes, allergies".
+    if (readYesNo(text) === true && !describesConcern(text)) {
       next.askedAllergyNames = true;
       next.misses = 0;
       return next;
     }
     if (gained) {
+      next.misses = 0;
+      return next;
+    }
+    if (describesConcern(text)) {
+      next.mainConcern = `${next.mainConcern}. ${text}`;
       next.misses = 0;
       return next;
     }

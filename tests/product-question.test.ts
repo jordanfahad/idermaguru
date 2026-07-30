@@ -145,6 +145,58 @@ describe("a question about a product gets an answer about that product", () => {
   });
 });
 
+describe("a product question before any routine exists", () => {
+  it("hears 'Miley hair oil' as the Mielle oil", () => {
+    const tokens = readProductQuery("Do you have a Miley hair oil");
+    expect(tokens).toBeTruthy();
+    expect(findProductByQuery(catalogue, tokens!)?.id).toBe("mielle-oil");
+  });
+
+  it("answers the opening question, keeps the product, and starts the interview", async () => {
+    const payload = await ask("Do you have a Miley hair oil", {});
+    expect(payload.reply).toMatch(/good news/i);
+    expect(payload.reply).toMatch(/strengthening oil/i);
+    expect(payload.reply).toMatch(/skin or hair/i);
+    expect(payload.phase).toBe("asking");
+    expect(payload.slots.pinnedIds).toEqual(["mielle-oil"]);
+    expect((payload.products ?? []).map((product: { id: string }) => product.id)).toEqual(["mielle-oil"]);
+    // and the eventual routine still contains what they asked for
+    let slots = payload.slots;
+    let last: { products?: { id: string }[] } = {};
+    for (const line of ["I have dandruff", "no", "no"]) {
+      last = await ask(line, slots);
+      slots = (last as { slots?: Record<string, unknown> }).slots ?? slots;
+    }
+    expect((last.products ?? []).map((product) => product.id)).toContain("mielle-oil");
+  });
+
+  it("answers mid-interview and then repeats the open question", async () => {
+    const opening = await ask("I have dandruff", {});
+    const payload = await ask("do you have a miley hair oil", opening.slots);
+    expect(payload.reply).toMatch(/good news/i);
+    expect(payload.reply).toMatch(/pregnan|breast/i);
+  });
+});
+
+describe("describing a concern is never a yes to a safety question", () => {
+  it("does not read 'Hey I have hair dandruff and acne' as a pregnancy", async () => {
+    const opening = await ask("Hi I have hair dandruff and acne on my face", {});
+    const payload = await ask("Hey I have hair dandruff and acne", opening.slots);
+    // The live session recorded a pregnancy off the back of "I have" and
+    // replied "I'll skip the ingredients that aren't advised."
+    expect(payload.reply).not.toMatch(/skip the ingredients/i);
+    expect(payload.slots.pregnantOrBreastfeeding).toBeUndefined();
+    // the restated concern is kept, and the question is asked again
+    expect(payload.slots.mainConcern).toMatch(/acne/i);
+    expect(payload.reply).toMatch(/pregnan|breast/i);
+  });
+
+  it("tells a two-concern opening the plan instead of ignoring the second", async () => {
+    const payload = await ask("Hi I have hair dandruff and acne on my face", {});
+    expect(payload.reply).toMatch(/two things|one at a time/i);
+  });
+});
+
 describe("the hair routine never re-reads itself", () => {
   it("says same-again instead of replaying the identical routine", async () => {
     const slots = await toRoutine();

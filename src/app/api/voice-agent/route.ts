@@ -290,11 +290,15 @@ export async function POST(request: Request) {
       : (routineSettled ? readNewConcern(input.utterance, before.mainConcern) : null) ??
         (before.awaitingConcern && !classifyOpening(input.utterance) ? input.utterance.trim() || null : null);
     // "Do you have any hair serum?" — asked three ways in one live session and
-    // answered, all three times, by re-reading the same routine. A question
-    // about a product gets an answer about that product. Shape only here; the
-    // handler below acts only when the catalogue actually matches.
+    // answered, all three times, by re-reading the same routine. And "Do you
+    // have a Miley hair oil" as the very FIRST words was swallowed into the
+    // interview as if it were a concern. A question about a product gets an
+    // answer about that product, at any point in the conversation. Shape only
+    // here; the handler below acts only when the catalogue actually matches.
+    // Never while the allergen list or the body-area answer is open: "what
+    // about my hands" is an answer to the question, not a shopping query.
     const productQuery =
-      routineSettled && !done && !wantsMore && !newConcern && !adjusting
+      !done && !wantsMore && !newConcern && !adjusting && !awaitingAllergens && !awaitingArea
         ? readProductQuery(input.utterance)
         : null;
     const aside =
@@ -408,14 +412,53 @@ export async function POST(request: Request) {
                 }).items.map(routineItemToProduct);
           return applyPins(built, pins, productsF, profileF, tenantF.id, safetyF);
         };
-        const current = build(disliked);
-
         // A NAMED PRODUCT OUTRANKS THE SWAP READING OF THE SAME SENTENCE —
         // but only when the catalogue actually matches; "do you have
         // something else" still falls through to the swap flow below.
         if (productQuery) {
           const match = findProductByQuery(productsF, productQuery);
+          // Asked before any routine exists — the opening line, or while a
+          // safety question is open. Answer it, keep the product, and get on
+          // with the interview that decides what goes around it.
+          if (match && !before.gaveRoutine) {
+            const soldOutEarly = await soldOutProductIds([{ id: match.id, url: match.url }], STOCK_BUDGET_MS);
+            const pendingEarly = nextQuestion(before, lang);
+            const question = pendingEarly?.question ?? copy.askConcern;
+            if (soldOutEarly.has(match.id)) {
+              return NextResponse.json({
+                reply: await say(`${copy.productSoldOut(match.name)} ${question}`),
+                speech: speakable(spoken, copy.productSoldOut(match.name), question),
+                phase: "asking",
+                slots: pendingEarly?.slots ?? before,
+                products: [],
+                language: spoken,
+                rtl: isRtl(spoken),
+              });
+            }
+            if (!passesHardFilters(match, profileF, tenantF.id, safetyF)) {
+              return NextResponse.json({
+                reply: await say(`${copy.productBlocked(match.name)} ${question}`),
+                speech: speakable(spoken, copy.productBlocked(match.name), question),
+                phase: "asking",
+                slots: pendingEarly?.slots ?? before,
+                products: [],
+                language: spoken,
+                rtl: isRtl(spoken),
+              });
+            }
+            const pinnedEarly = [...(before.pinnedIds ?? []).filter((id) => id !== match.id), match.id];
+            return NextResponse.json({
+              reply: await say(`${copy.productHere(match.name)} ${question}`),
+              speech: speakable(spoken, copy.productHere(match.name), question),
+              phase: "asking",
+              slots: { ...(pendingEarly?.slots ?? before), pinnedIds: pinnedEarly },
+              products: [pinnedItem(match)],
+              language: spoken,
+              rtl: isRtl(spoken),
+            });
+          }
           if (match) {
+            const current = build(disliked);
             const already = current.find((item) => item.id === match.id);
             if (already) {
               // It's on their screen. Defend it rather than re-adding it.
@@ -468,11 +511,18 @@ export async function POST(request: Request) {
             });
           }
           if (!followup) {
+            // Before a routine exists the interview still has somewhere to go:
+            // answer honestly, then carry on with the open question.
+            const pendingMiss = before.gaveRoutine ? null : nextQuestion(before, lang);
             return NextResponse.json({
-              reply: await say(copy.productNotStocked),
-              speech: speakable(spoken, "", copy.productNotStocked),
-              phase: "result",
-              slots: before,
+              reply: await say(
+                pendingMiss ? `${copy.productNotStocked} ${pendingMiss.question}` : copy.productNotStocked,
+              ),
+              speech: pendingMiss
+                ? speakable(spoken, copy.productNotStocked, pendingMiss.question)
+                : speakable(spoken, "", copy.productNotStocked),
+              phase: pendingMiss ? "asking" : "result",
+              slots: pendingMiss?.slots ?? before,
               products: [],
               language: spoken,
               rtl: isRtl(spoken),
@@ -480,6 +530,7 @@ export async function POST(request: Request) {
           }
         }
 
+        const current = followup ? build(disliked) : [];
         if (followup && current.length) {
           const target = matchRoutineItem(input.utterance, current);
 
@@ -689,9 +740,18 @@ export async function POST(request: Request) {
       );
       // Acknowledge the opening concern in the agent's own words. Echoing the
       // raw transcript is what made "I am a mad" insulting, so only a concern
-      // we parsed into the profile is reflected back.
-      const openingConcern =
-        !before.mainConcern && slots.mainConcern && slots.mainConcern.length <= 60
+      // we parsed into the profile is reflected back. An opening that names
+      // TWO concerns ("hair dandruff and acne on my face") is told the plan —
+      // one at a time, hair first — or the second one sounds ignored and the
+      // shopper repeats themselves at the safety question.
+      const dualOpening =
+        !before.mainConcern &&
+        Boolean(slots.mainConcern) &&
+        isHairConcern(slots.mainConcern ?? "") &&
+        FACE_CONCERN.test(slots.mainConcern ?? "");
+      const openingConcern = dualOpening
+        ? copy.twoThings
+        : !before.mainConcern && slots.mainConcern && slots.mainConcern.length <= 60
           ? copy.heardConcern()
           : "";
       // React to what was said before asking the next thing. "I have a rash"
@@ -1135,6 +1195,11 @@ function speakable(spoken: LanguageCode, leadIn: string, question?: string): str
  * that skips what the catalogue cannot fill is honest.
  */
 /** Which routine item an utterance is talking about, by product or step name. */
+// Face-side concern words, used only to spot a two-concern opening — the hair
+// side is isHairConcern, which routing already trusts.
+const FACE_CONCERN =
+  /\b(acne|pimples?|breakouts?|blackheads?|dark spots?|dark circles|pigmentation|melasma|wrinkles?|fine lines|redness|rosacea|eczema|blemish(es)?|dull(ness)?|large pores)\b/i;
+
 const STEP_WORDS: Record<string, string[]> = {
   cleanser: ["cleanser", "cleansing", "wash", "الغسول", "غسول"],
   toner: ["toner", "تونر"],
@@ -1222,6 +1287,27 @@ function slotLabelFor(step: RoutineStep): string {
  * step or joins the end, still subject to the same hard safety filters as
  * everything else — a pinned product an allergy excludes stays out.
  */
+/** The client card for a product the shopper asked for by name. */
+function pinnedItem(product: ProductCatalogItem): ReturnType<typeof routineItemToProduct> {
+  const step = routineStep(product);
+  return {
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    category: product.category,
+    price: product.price,
+    currency: product.currency,
+    imageUrl: product.imageUrl ?? null,
+    url: product.url,
+    step,
+    slot: slotLabelFor(step),
+    reason: "In because you asked for it by name.",
+    expectedResults: "Give it the same few weeks of regular use you'd give anything new.",
+    cautions: ["Patch test before first use.", "Follow the label directions."],
+    sponsored: false,
+  };
+}
+
 function applyPins(
   items: ReturnType<typeof routineItemToProduct>[],
   pinnedIds: string[] | undefined,
@@ -1236,24 +1322,8 @@ function applyPins(
     if (result.some((item) => item.id === id)) continue;
     const product = catalogue.find((row) => row.id === id);
     if (!product || !passesHardFilters(product, profile, tenantId, safety)) continue;
-    const step = routineStep(product);
-    const pinned = {
-      id: product.id,
-      name: product.name,
-      brand: product.brand,
-      category: product.category,
-      price: product.price,
-      currency: product.currency,
-      imageUrl: product.imageUrl ?? null,
-      url: product.url,
-      step,
-      slot: slotLabelFor(step),
-      reason: "In because you asked for it by name.",
-      expectedResults: "Give it the same few weeks of regular use you'd give anything new.",
-      cautions: ["Patch test before first use.", "Follow the label directions."],
-      sponsored: false,
-    };
-    const index = result.findIndex((item) => item.step === step);
+    const pinned = pinnedItem(product);
+    const index = result.findIndex((item) => item.step === pinned.step);
     if (index >= 0) result[index] = pinned;
     else result.push(pinned);
   }
