@@ -561,6 +561,58 @@ export function VoiceAgent({
     [speak],
   );
 
+  /** One turn's round trip, with no side effects — so callers can overlap it. */
+  const requestTurn = useCallback(async (utterance: string) => {
+    const response = await fetch("/api/voice-agent", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ utterance, slots: slotsRef.current, language: spokenLangRef.current }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.error ?? "agent error");
+    return payload;
+  }, []);
+
+  /** Applies a turn's payload: state, transcript, and the spoken reply. */
+  const handleTurn = useCallback(
+    (payload: {
+      slots?: Record<string, unknown>;
+      language?: string;
+      products?: AgentProduct[];
+      disclosure?: string;
+      reply?: string;
+      phase?: string;
+      speech?: string[];
+    }) => {
+      slotsRef.current = payload.slots ?? slotsRef.current;
+      if (typeof payload.language === "string" && payload.language) {
+        spokenLangRef.current = payload.language;
+        // Only the two authored locales drive the interface copy.
+        if (payload.language === "ar" || payload.language === "en") setLang(payload.language);
+      }
+      if (Array.isArray(payload.products) && payload.products.length) {
+        setProducts(payload.products);
+        setDisclosure(typeof payload.disclosure === "string" ? payload.disclosure : null);
+      }
+
+      const reply: string = payload.reply ?? "";
+      setTurns((current) => [...current, { role: "agent", text: reply }]);
+
+      // Chat mode stays silent and never grabs the microphone.
+      if (modeRef.current === "chat") {
+        setPhase("idle");
+        return;
+      }
+      // Keep the microphone open unless safety triage ended the session — the
+      // shopper can always ask a follow-up once the routine is on screen.
+      const keepGoing = payload.phase !== "referral" && continueRef.current;
+      const parts: string[] = Array.isArray(payload.speech) && payload.speech.length ? payload.speech : [reply];
+      speakSequence(parts, () => (keepGoing ? listen() : setPhase("idle")));
+    },
+    // eslint-disable-next-line
+    [speakSequence],
+  );
+
   const send = useCallback(
     async (utterance: string) => {
       setPhase("thinking");
@@ -568,45 +620,13 @@ export function VoiceAgent({
       if (utterance) setTurns((current) => [...current, { role: "user", text: utterance }]);
 
       try {
-        const response = await fetch("/api/voice-agent", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ utterance, slots: slotsRef.current, language: spokenLangRef.current }),
-        });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload?.error ?? "agent error");
-
-        slotsRef.current = payload.slots ?? slotsRef.current;
-        if (typeof payload.language === "string" && payload.language) {
-          spokenLangRef.current = payload.language;
-          // Only the two authored locales drive the interface copy.
-          if (payload.language === "ar" || payload.language === "en") setLang(payload.language);
-        }
-        if (Array.isArray(payload.products) && payload.products.length) {
-          setProducts(payload.products);
-          setDisclosure(typeof payload.disclosure === "string" ? payload.disclosure : null);
-        }
-
-        const reply: string = payload.reply ?? "";
-        setTurns((current) => [...current, { role: "agent", text: reply }]);
-
-        // Chat mode stays silent and never grabs the microphone.
-        if (modeRef.current === "chat") {
-          setPhase("idle");
-          return;
-        }
-        // Keep the microphone open unless safety triage ended the session — the
-        // shopper can always ask a follow-up once the routine is on screen.
-        const keepGoing = payload.phase !== "referral" && continueRef.current;
-        const parts: string[] = Array.isArray(payload.speech) && payload.speech.length ? payload.speech : [reply];
-        speakSequence(parts, () => (keepGoing ? listen() : setPhase("idle")));
+        handleTurn(await requestTurn(utterance));
       } catch {
         setNotice(t.error);
         setPhase("idle");
       }
     },
-    // eslint-disable-next-line
-    [lang, speakSequence, t.error],
+    [requestTurn, handleTurn, t.error],
   );
 
   /**
@@ -714,6 +734,36 @@ export function VoiceAgent({
           return;
         }
         restartTimerRef.current = window.setTimeout(startListening, 120);
+      };
+
+      // iOS sometimes opens a session whose audio route never engages: the
+      // orb says listening, the shopper talks, and no result of any kind ever
+      // arrives. The give-up counter only ticks on onend, and a dead session
+      // can sit open for a long time — so a session that has heard nothing at
+      // all after 7 seconds is cycled by force. A genuinely quiet room hits
+      // the same path and simply restarts, exactly as onend would.
+      const watchdog = window.setTimeout(() => {
+        if (recognitionRef.current === recognition && !heard) {
+          recognitionRef.current = null;
+          try {
+            recognition.abort();
+          } catch {
+            // already gone
+          }
+          silentRestartsRef.current += 1;
+          if (silentRestartsRef.current > MAX_SILENT_RESTARTS) {
+            silentRestartsRef.current = 0;
+            setPhase("idle");
+            return;
+          }
+          restartTimerRef.current = window.setTimeout(startListening, 120);
+        }
+      }, 7000);
+      const clearWatchdog = () => window.clearTimeout(watchdog);
+      const previousOnEnd = recognition.onend;
+      recognition.onend = () => {
+        clearWatchdog();
+        previousOnEnd?.();
       };
 
       recognitionRef.current = recognition;
@@ -907,10 +957,17 @@ export function VoiceAgent({
       // question into a microphone it had never reopened.
       if (modeRef.current === "voice") {
         continueRef.current = true;
-        // Say what was seen FIRST, like a person looking up from the photo,
-        // then let the next question follow. send() speaks its own reply.
+        // Say what was seen while the next turn's round trip runs UNDERNEATH
+        // the speech. Serially this was look-line synthesis, then the network,
+        // then the question — three waits in a row where one is audible.
         if (looked) {
-          void speak(looked, () => void send(""));
+          const pendingTurn = requestTurn("");
+          void speak(looked, () => {
+            pendingTurn.then(handleTurn).catch(() => {
+              setNotice(t.error);
+              setPhase("idle");
+            });
+          });
           return;
         }
       }

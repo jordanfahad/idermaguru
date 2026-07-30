@@ -709,7 +709,21 @@ const COUNTS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
  */
 export function fixedLines(lang: AgentLang): string[] {
   const copy = COPY[lang];
+  // Every acknowledgement the interview can open a sentence with. "Got it —
+  // sensitive skin." was the one dynamic-looking line in the loop, so the
+  // answer's echo paid a full TTS synthesis while the question behind it sat
+  // in cache — heard as a huge pause exactly where the shopper had just
+  // spoken. There are only five skin types, one pregnancy line and one
+  // no-allergies line: enumerable, so enumerated.
+  const understoodSingles = [
+    ...["oily", "dry", "combination", "sensitive", "normal"].map((type) =>
+      copy.understood(summariseSlots({ skinType: type }, lang)),
+    ),
+    copy.understood(summariseSlots({ pregnantOrBreastfeeding: true }, lang)),
+    copy.understood(summariseSlots({ allergies: [] }, lang)),
+  ];
   return [
+    ...understoodSingles,
     ...scriptedLines(lang),
     ...acknowledgements(lang),
     copy.noProducts,
