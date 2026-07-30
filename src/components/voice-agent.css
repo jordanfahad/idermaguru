@@ -534,3 +534,20 @@
     animation-play-state: paused;
   }
 }
+
+/* ---------- language toggle ---------- */
+/* Present on the widget itself, because the embedded /advisor has no page
+   chrome around it — and speaking Arabic only works if the recogniser was told
+   to listen for Arabic before the first word. */
+.va-langs {
+  display: inline-flex; gap: 4px; margin-top: 14px; padding: 3px;
+  background: rgba(255, 255, 255, 0.75); border: 1px solid var(--va-line); border-radius: 999px;
+}
+.va-lang {
+  border: none; background: transparent; cursor: pointer;
+  padding: 8px 16px; min-height: 38px; border-radius: 999px;
+  font-size: 13px; font-weight: 600; color: var(--va-soft); transition: all 160ms ease;
+}
+.va-lang:hover { color: var(--va-ink); }
+.va-lang-on { background: var(--va-ink); color: #fff; }
+.va-lang:focus-visible { outline: 2px solid rgba(var(--va-live), 0.9); outline-offset: 2px; }

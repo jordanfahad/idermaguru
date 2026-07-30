@@ -427,3 +427,9 @@ merchant catalogue of 876 in-stock products.
 - **Cause 2:** the prompt's only failure mode was `usable: false`. It had no way to say what the photo actually showed, no way to say "this is skin but I can't place it", and no way to name the body part it saw.
 - **Fix:** `detail: "auto"`, and the model now classifies the subject first. A non-skin photo is named for what it is ("That looks like a computer keyboard to me — and I'm only qualified to look at skin!"); skin it can't place asks "whereabouts is this?"; a placed body part feeds the `bodyArea` slot, so a photo of a hand routes to body products rather than a face routine. "Too dark or blurry" is reserved for photos that are actually too dark or blurry.
 - **Verified** by driving all three outcomes through the real client in a browser.
+
+### R-046 — Arabic existed everywhere except the door in
+- **Question asked:** does it support Arabic for voice and chat?
+- **What was already true:** authored Arabic copy for every line the advisor says, Arabic parsing for skin types, pregnancy, allergies and hair concerns, per-utterance script detection (typed Arabic always got an Arabic answer), Gulf-Arabic TTS delivery, RTL layout, and 83 pre-cached Arabic audio lines.
+- **The gap:** voice. Speech recognition transcribes in the language it was told to listen in, and it started in `en-US` — an English recogniser mangles spoken Arabic into Latin junk, so the script detection downstream never saw Arabic at all. `/live-consultation-1` has a page-level toggle; the embeddable `/advisor` — the surface merchants frame — had no way to switch.
+- **Fix:** an EN/عربي toggle on the widget itself. It flips the UI and RTL, retargets the recogniser (restarting a live session in the new locale), and the existing prewarm effect re-runs for the Arabic lines. Verified in a browser: toggle → RTL + Arabic UI; typed Arabic → Arabic reply through the real API; a fresh load still starts English.

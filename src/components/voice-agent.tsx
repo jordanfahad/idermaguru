@@ -866,6 +866,27 @@ export function VoiceAgent({
     void send(clean);
   }
 
+  /**
+   * Switch the advisor's language.
+   *
+   * Typing Arabic always worked — the server detects the script per utterance.
+   * SPEAKING it did not: recognition starts in en-US, an English recogniser
+   * mangles Arabic into Latin junk, and the script detection downstream never
+   * sees Arabic at all. The recogniser has to be told what to listen for, and
+   * this is where the shopper tells it.
+   */
+  function switchLang(next: Lang) {
+    if (next === lang) return;
+    setLang(next);
+    spokenLangRef.current = next;
+    // A live recognition session is bound to the old locale; restart it in the
+    // new one rather than leaving it listening for the wrong language.
+    if (phase === "listening") {
+      recognitionRef.current?.abort();
+      restartTimerRef.current = window.setTimeout(() => listen(), 150);
+    }
+  }
+
   function switchMode(next: Mode) {
     modeRef.current = next;
     setMode(next);
@@ -977,6 +998,26 @@ export function VoiceAgent({
           </button>
         </div>
       ) : null}
+
+      <div className="va-langs" role="group" aria-label="Language">
+        <button
+          type="button"
+          className={lang === "en" ? "va-lang va-lang-on" : "va-lang"}
+          aria-pressed={lang === "en"}
+          onClick={() => switchLang("en")}
+        >
+          EN
+        </button>
+        <button
+          type="button"
+          className={lang === "ar" ? "va-lang va-lang-on" : "va-lang"}
+          aria-pressed={lang === "ar"}
+          onClick={() => switchLang("ar")}
+          lang="ar"
+        >
+          عربي
+        </button>
+      </div>
 
       <div className="va-modes" role="tablist" aria-label="Input mode">
         <button
