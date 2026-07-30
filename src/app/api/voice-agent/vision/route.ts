@@ -37,6 +37,8 @@ If it IS skin but you cannot tell which part of the body it is, or the framing i
 
 For skin, describe only what is COSMETICALLY visible: oiliness or shine, dryness or flaking, visible texture, visible pores, redness, dullness, uneven-looking tone, visible blemishes or breakouts, visible marks left behind by past blemishes.
 
+Say WHERE each thing is when you can tell — "shine across the forehead and nose", "small clustered bumps on the chin", "dryness around the mouth". Specific and located, the way a professional describes what they see out loud. Never vague filler like "some texture".
+
 You must NOT:
 - name, suggest or hint at any medical condition, disease or infection (no acne vulgaris, eczema, psoriasis, rosacea, dermatitis, melasma, fungal, cancer, melanoma)
 - diagnose, or imply the person has a condition
@@ -79,6 +81,7 @@ export async function POST(request: Request) {
   if (!apiKey) return jsonError("Photo review is not configured.", 503);
 
   const model = process.env.OPENAI_VISION_MODEL ?? "gpt-4o-mini";
+  const observationLanguage = input.language === "ar" ? "Write the observation phrases in Arabic." : "";
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -94,7 +97,7 @@ export async function POST(request: Request) {
           {
             role: "user",
             content: [
-              { type: "text", text: "Describe what is cosmetically visible." },
+              { type: "text", text: `Describe what is cosmetically visible. ${observationLanguage}`.trim() },
               { type: "image_url", image_url: { url: input.image, detail: "auto" } },
             ],
           },

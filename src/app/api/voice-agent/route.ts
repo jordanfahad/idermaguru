@@ -71,6 +71,7 @@ const SlotsSchema = z.object({
   dislikedIds: z.array(z.string()).optional(),
   ageYears: z.number().optional(),
   forSomeoneElse: z.boolean().optional(),
+  sawPhoto: z.boolean().optional(),
 });
 
 const AgentSchema = z.object({
@@ -687,7 +688,10 @@ export async function POST(request: Request) {
           ? copy.adjusted.fullerAfterGentle(count)
           : copy.adjusted[adjusted](count);
     } else {
-      spokenReply = `${preface}${copy.result(count)}`;
+      // A photo earns the six-week handoff: confident about what was seen,
+      // honest about when to stop trusting a shop's eyes and see a real one.
+      const photoNote = slots.sawPhoto ? ` ${copy.photoNote}` : "";
+      spokenReply = `${preface}${copy.result(count)}${photoNote}`;
       // The model's phrasing names products, so it is only safe to use when the
       // stock check left the routine alone. It is also re-run through the safety
       // gate, and dropped if it drifts.

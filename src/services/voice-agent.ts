@@ -49,6 +49,8 @@ export type AgentSlots = {
   ageYears?: number;
   /** True when the shopper is asking on somebody else's behalf. */
   forSomeoneElse?: boolean;
+  /** True once a photo has been reviewed, so the result can speak to it. */
+  sawPhoto?: boolean;
 };
 
 /**
@@ -560,6 +562,10 @@ const COPY = {
       `I've had another look and I'd still put you on the same ${count} steps — nothing else here fits you better. Tell me what you'd change about it and I'll have another go.`,
     result: (count: number) =>
       `Here's a simple routine with ${count} product${count === 1 ? "" : "s"} matched from the store. I've kept it conservative — patch test anything new, and use sunscreen every morning.`,
+    // The dermatologist's escape hatch, said only when a photo was involved:
+    // confident about what was seen, honest about when to stop trusting it.
+    photoNote:
+      "And since I've actually seen it — give this six weeks of consistent use. If what I saw hasn't visibly shifted by then, that's when I'd want a dermatologist's eyes on it rather than mine.",
     // The face line told a shopper with dandruff to use sunscreen every
     // morning: good advice, and nothing to do with what they asked about.
     hairResult: (count: number) =>
@@ -629,12 +635,37 @@ const COPY = {
       `راجعت مرة أخرى وما زلت أقترح الخطوات الـ${count} نفسها — لا يوجد هنا ما يناسبك أكثر. أخبرني بما تريد تغييره وسأحاول مجدداً.`,
     result: (count: number) =>
       `هذا روتين بسيط يضم ${count} منتج مطابق من المتجر. أبقيته متحفظاً — جرّب المنتج على مساحة صغيرة أولاً، واستخدم واقي الشمس كل صباح.`,
+    photoNote:
+      "وبما أنني رأيتُ بشرتك فعلاً — امنح هذا الروتين ستة أسابيع من الاستخدام المنتظم. إن لم يتغيّر ما رأيتُه بشكل ملحوظ حينها، فذلك وقت عرضه على طبيب جلدية بدلاً مني.",
     hairResult: (count: number) =>
       `هذا روتين للشعر وفروة الرأس من ${count} خطوات. فروة الرأس أبطأ من الوجه، فامنحه بضعة أسابيع من الغسل المنتظم — وجرّب أي منتج جديد على مساحة صغيرة أولاً.`,
     bodyResult: (count: number, area: string) =>
       `هذا ما يوفّره المتجر لـ${area} — ${count} منتج، اخترتها لطيفة. جرّبها على مساحة صغيرة أولاً، وامنحها أسبوعين قبل الحكم عليها.`,
   },
 };
+
+/**
+ * What the advisor says after actually looking at the photo.
+ *
+ * The old line was a machine reading a list: "From the photo I can see slight
+ * oiliness, visible texture, uneven-looking tone." A person who has just looked
+ * at your skin doesn't talk in commas — they open, they describe, they reassure,
+ * and they move on. On voice this line was never spoken at all; the shopper
+ * heard silence and then a question, as if the photo had gone nowhere.
+ */
+export function describePhoto(observations: string[], lang: AgentLang): string {
+  const seen = observations.map((entry) => entry.trim().replace(/\.$/, "")).filter(Boolean).slice(0, 5);
+  if (!seen.length) return "";
+  const lowered = seen.map((entry) => entry.charAt(0).toLowerCase() + entry.slice(1));
+
+  if (lang === "ar") {
+    const woven = lowered.length === 1 ? lowered[0] : `${lowered.slice(0, -1).join("، ")} و${lowered[lowered.length - 1]}`;
+    return `حسناً — ألقيتُ نظرة متأنية. أرى ${woven}. لا شيء مقلق فيما أراه — وهذا يعطيني صورة أوضح بكثير للعمل عليها.`;
+  }
+
+  const woven = lowered.length === 1 ? lowered[0] : `${lowered.slice(0, -1).join(", ")} and ${lowered[lowered.length - 1]}`;
+  return `Right — I've had a proper look. I can see ${woven}. Nothing there that worries me, and it gives me a much better picture to work from.`;
+}
 
 export function agentCopy(lang: AgentLang) {
   return COPY[lang];
@@ -687,6 +718,7 @@ export function fixedLines(lang: AgentLang): string[] {
     copy.nothingStronger,
     copy.whichSwap,
     copy.swapNone,
+    copy.photoNote,
     ESCALATION_MESSAGE,
     ...COUNTS.map((count) => copy.result(count)),
     ...COUNTS.map((count) => copy.hairResult(count)),

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, Clock, ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Sparkles, Square } from "lucide-react";
 import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
 import { speechLocale } from "@/services/language";
-import { acknowledgements, fixedLines, scriptedLines } from "@/services/voice-agent";
+import { acknowledgements, describePhoto, fixedLines, scriptedLines } from "@/services/voice-agent";
 import "./voice-agent.css";
 
 /** GET endpoint for a fixed line, so <audio> streams it from the browser cache. */
@@ -844,6 +844,28 @@ export function VoiceAgent({
         return;
       }
 
+      // Somebody testing with a photo of their lunch is told it looks like
+      // lunch — and asked for skin. "I couldn't read that clearly" was a lie.
+      if (payload.notSkin) {
+        const line = t.cameraNotSkin(typeof payload.shows === "string" ? payload.shows : "");
+        setTurns((current) => [...current, { role: "user", text: t.cameraShared }, { role: "agent", text: line }]);
+        if (modeRef.current === "voice") {
+          continueRef.current = true;
+          void speak(line, () => listen());
+        } else setPhase("idle");
+        return;
+      }
+      // Skin, but it could not place the body part: asking beats guessing.
+      if (payload.needsContext) {
+        const line = t.cameraWhichPart;
+        setTurns((current) => [...current, { role: "user", text: t.cameraShared }, { role: "agent", text: line }]);
+        if (modeRef.current === "voice") {
+          continueRef.current = true;
+          void speak(line, () => listen());
+        } else setPhase("idle");
+        return;
+      }
+
       const observations: string[] = payload.observations ?? [];
       const concerns: string[] = payload.concerns ?? [];
       const seen = [...observations, ...concerns].filter(Boolean).join(", ");
@@ -858,10 +880,14 @@ export function VoiceAgent({
         return;
       }
 
+      // A person who has just looked at your skin doesn't read a comma list —
+      // and on voice this line was never spoken at all: the shopper heard
+      // silence, then a question, as if the photo had gone nowhere.
+      const looked = describePhoto(observations.length ? observations : concerns, lang);
       setTurns((current) => [
         ...current,
         { role: "user", text: t.cameraShared },
-        ...(observations.length ? [{ role: "agent" as const, text: `${t.cameraSaw} ${observations.join(", ")}.` }] : []),
+        ...(looked ? [{ role: "agent" as const, text: looked }] : []),
       ]);
 
       // Fold what was seen into the intake, then continue the same conversation
@@ -869,6 +895,7 @@ export function VoiceAgent({
       const slots = slotsRef.current as Record<string, unknown>;
       slotsRef.current = {
         ...slots,
+        sawPhoto: true,
         ...(seen ? { mainConcern: slots.mainConcern ? `${slots.mainConcern}. Visible: ${seen}` : seen } : {}),
         ...(payload.skinType && !slots.skinType ? { skinType: payload.skinType } : {}),
         // A photo of a hand routes to body products, not a face routine.
@@ -878,7 +905,15 @@ export function VoiceAgent({
       // shopper almost certainly tapped the orb to stop talking before reaching
       // for the camera, which cleared this — so the advisor asked its next
       // question into a microphone it had never reopened.
-      if (modeRef.current === "voice") continueRef.current = true;
+      if (modeRef.current === "voice") {
+        continueRef.current = true;
+        // Say what was seen FIRST, like a person looking up from the photo,
+        // then let the next question follow. send() speaks its own reply.
+        if (looked) {
+          void speak(looked, () => void send(""));
+          return;
+        }
+      }
       void send("");
     } catch {
       setNotice(t.cameraError);
