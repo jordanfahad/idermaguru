@@ -96,13 +96,13 @@ describe("a child's age stops the sale", () => {
   });
 
   it("holds for the rest of the session", async () => {
-    const { said } = await converse(["my son has acne", "he is 15", "no", "no"]);
+    const { said } = await converse(["my son has acne", "he is 8", "no", "no"]);
     for (const turn of said.slice(1)) {
       expect(turn.phase).toBe("referral");
       expect(turn.products).toBe(0);
     }
     // the same answer each time, not a generic wall of clinical text
-    expect(said[3].reply).toMatch(/15|pharmacist/i);
+    expect(said[3].reply).toMatch(/8|pharmacist/i);
   });
 
   it("asks about the right person when buying for someone else", async () => {
@@ -112,9 +112,34 @@ describe("a child's age stops the sale", () => {
   });
 
   it("feeds the age to the triage that always had the rule", () => {
-    const profile = slotsToProfile({ mainConcern: "acne", ageYears: 15 });
-    expect(profile.ageRange).toBe("15 years old");
+    const profile = slotsToProfile({ mainConcern: "acne", ageYears: 6 });
+    expect(profile.ageRange).toBe("6 years old");
     expect(runSafetyTriage(profile).recommendationAllowed).toBe(false);
+  });
+
+  /**
+   * The threshold is 10, set by the owner. A teenager with acne is one of the
+   * most common shoppers there is, and the old rule refused them — it matched
+   * "13".."17" as bare substrings of whatever string it was handed.
+   */
+  it("helps a teenager rather than turning them away", async () => {
+    expect(isChild(15)).toBe(false);
+    expect(isChild(10)).toBe(false);
+    expect(isChild(9)).toBe(true);
+
+    const profile = slotsToProfile({ mainConcern: "acne", skinType: "oily", ageYears: 15 });
+    expect(runSafetyTriage(profile).recommendationAllowed).toBe(true);
+
+    const { said } = await converse(["I have acne", "oily", "no", "no"]);
+    expect(said[3].phase).toBe("result");
+  });
+
+  it("does not read a digit out of an age band as an age", () => {
+    // "18-24" used to refuse, because the old rule found no number at all and
+    // matched substrings instead.
+    expect(runSafetyTriage({ mainConcern: "dark spots", ageRange: "18-24" }).recommendationAllowed).toBe(true);
+    expect(runSafetyTriage({ mainConcern: "dark spots", ageRange: "25-34" }).recommendationAllowed).toBe(true);
+    expect(runSafetyTriage({ mainConcern: "dark spots", ageRange: "toddler" }).recommendationAllowed).toBe(false);
   });
 
   it("leaves an adult alone", async () => {

@@ -402,3 +402,14 @@ merchant catalogue of 876 in-stock products.
 - **Fix:** `services/audience.ts` reads an age and whether the advice is for a third party. A child's age ends the session with an age-appropriate referral and holds for the rest of it — without that, later turns fell through to the generic clinical escalation and a shopper answering "no" got a wall of text about breathing difficulties. The pregnancy question is reworded when buying for someone else. The age is also passed to the triage, so its own rule finally works.
 - **Care taken:** an age is only read where the sentence is plainly about one. "a simple glow routine under AED 200", "I use it 3 times a week" and "my routine is 4 steps" all read no age.
 - **Guarded by:** `tests/audience.test.ts`.
+
+### R-042 — The camera preview was a black rectangle
+- **Symptom:** "Show your skin" opened the camera — the phone's camera light came on and the browser showed its recording indicator — but the preview rendered solid black.
+- **Cause:** the stream was attached inside a `requestAnimationFrame` fired immediately after `setCamera("live")`. The `<video>` only renders in that state, and React commits when it commits: on a phone that frame regularly arrived before the element existed, so `videoRef.current` was null, the stream was never attached, and nothing ever played. The camera was genuinely open the whole time, which is why the indicator was on.
+- **Fix:** the stream is attached in an effect keyed on the camera state, which runs after the commit — the only point at which the element is guaranteed to exist. `play()` is also deferred to `loadedmetadata`, since iOS rejects it before then and rejects silently, which looks identical to the same bug.
+- **Verified** by driving the flow in a real browser: stream attached, `readyState` 4, not paused, 1280x720.
+
+### R-043 — Advice age threshold lowered to 10
+- **Change requested by the owner.** Previously anyone under 18 was refused, which turned away a teenager with acne — one of the most common shoppers there is.
+- **Also fixed on the way:** `isUnder18` matched "13".."17" as bare substrings of whatever string it was handed, so an age band like "18-24" refused. It now parses the number and compares it to the threshold, and still refuses on words like "toddler" and "infant" whatever number sits beside them.
+- **Configurable** via `ADVISOR_MIN_AGE`, because the right line is a legal and commercial judgement that differs by market rather than a fact about skin.

@@ -302,6 +302,33 @@ export function VoiceAgent({
   }, [routineKey]);
 
   /**
+   * Attach the camera stream once the <video> is really in the DOM.
+   *
+   * This used to run inside a requestAnimationFrame fired straight after
+   * setCamera("live"). React commits when it commits, and on a phone that frame
+   * regularly arrived first — so videoRef.current was null, the stream was never
+   * attached, and the shopper watched a black rectangle while the camera light
+   * on their phone was on. An effect runs after the commit, which is the only
+   * point at which the element is guaranteed to exist.
+   */
+  useEffect(() => {
+    if (camera !== "live" && camera !== "reviewing") return;
+    const video = videoRef.current;
+    const stream = cameraStreamRef.current;
+    if (!video || !stream) return;
+
+    if (video.srcObject !== stream) video.srcObject = stream;
+    // iOS will not start a stream until it has metadata, and play() before that
+    // rejects silently — which looks identical to the bug above.
+    const start = () => {
+      video.play().catch(() => setNotice(t.cameraError));
+    };
+    if (video.readyState >= 1) start();
+    else video.addEventListener("loadedmetadata", start, { once: true });
+    return () => video.removeEventListener("loadedmetadata", start);
+  }, [camera, t.cameraError]);
+
+  /**
    * Drive --level from real audio — but only while there is audio.
    *
    * This ran every frame for the whole life of the page, and --level feeds the
@@ -688,14 +715,9 @@ export function VoiceAgent({
         audio: false,
       });
       cameraStreamRef.current = stream;
+      // The <video> does not exist yet — it renders with the "live" state. The
+      // effect near the top attaches the stream once React has committed it.
       setCamera("live");
-      // The element mounts with the "live" state, so attach on the next frame.
-      requestAnimationFrame(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          void videoRef.current.play().catch(() => {});
-        }
-      });
     } catch {
       setNotice(t.cameraDenied);
       setCamera("off");

@@ -89,25 +89,32 @@ export function readsThirdParty(input: string): boolean {
 /**
  * The age below which this advisor stops and sends them to a person.
  *
- * The existing safety triage already treats anyone under 18 as a referral,
- * because a guardian consent flow was never built. This keeps that policy and
- * simply makes it reachable from a conversation.
+ * Set to 10 by the owner. Above it the ordinary flow runs, so a teenager with
+ * acne — one of the most common shoppers there is — gets helped rather than
+ * turned away. Below it the products simply are not formulated or tested for
+ * that skin, and no amount of careful questioning changes that.
+ *
+ * Configurable per deployment, because the right line is a legal and
+ * commercial judgement that differs by market rather than a fact about skin.
  */
-export const ADULT_AGE = 18;
+export const MIN_ADVICE_AGE = (() => {
+  const configured = Number(process.env.ADVISOR_MIN_AGE);
+  return Number.isInteger(configured) && configured >= 0 && configured <= 25 ? configured : 10;
+})();
 
 export function isChild(age: number | undefined): boolean {
-  return age !== undefined && age < ADULT_AGE;
+  return age !== undefined && age < MIN_ADVICE_AGE;
 }
 
 const CHILD_COPY: Record<AgentLang, (age: number, other: boolean) => string> = {
   en: (age, other) =>
     age <= 12
       ? `Ah — ${age} changes it, I'm afraid. Children's skin genuinely is not adult skin, and everything this store stocks is formulated and tested for adults, so anything I picked would be a guess. A pharmacist or ${other ? "her doctor" : "their doctor"} can look properly and suggest something made for that age. I'm sorry not to be more use.`
-      : `Ah — at ${age} I'd want a pharmacist to have the final say rather than me. This store's products are formulated for adults, and I'm not set up to advise anyone under ${ADULT_AGE} without a parent or guardian in the conversation. A pharmacy counter is a good next stop, and they'll be able to help properly.`,
+      : `Ah — at ${age} I'd want a pharmacist to have the final say rather than me. This store's products are formulated for adults, and I'm not set up to advise anyone under ${MIN_ADVICE_AGE} without a parent or guardian in the conversation. A pharmacy counter is a good next stop, and they'll be able to help properly.`,
   ar: (age, other) =>
     age <= 12
       ? `آه — عمر ${age} يغيّر الأمر للأسف. بشرة الأطفال ليست كبشرة البالغين، وكل ما يوفّره هذا المتجر مُصمّم ومُختبر للبالغين، لذلك سيكون أي اقتراح مني تخميناً. يمكن لصيدلي أو ${other ? "طبيبها" : "طبيبه"} الفحص واقتراح ما يناسب هذا العمر. آسف لعدم قدرتي على المساعدة أكثر.`
-      : `آه — في عمر ${age} أفضّل أن يكون القرار للصيدلي وليس لي. منتجات هذا المتجر مخصصة للبالغين، ولستُ مهيّأ لتقديم النصح لمن هم دون ${ADULT_AGE} دون وجود ولي أمر. الصيدلية محطة تالية جيدة وسيساعدونك بشكل صحيح.`,
+      : `آه — في عمر ${age} أفضّل أن يكون القرار للصيدلي وليس لي. منتجات هذا المتجر مخصصة للبالغين، ولستُ مهيّأ لتقديم النصح لمن هم دون ${MIN_ADVICE_AGE} دون وجود ولي أمر. الصيدلية محطة تالية جيدة وسيساعدونك بشكل صحيح.`,
 };
 
 export function childCopy(age: number, lang: AgentLang, forSomeoneElse: boolean): string {

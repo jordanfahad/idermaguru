@@ -6,6 +6,7 @@ import {
   type SafetyTriage,
 } from "@/domain/skincare";
 import { expandSearchText } from "@/data/search-keywords";
+import { MIN_ADVICE_AGE } from "@/services/audience";
 
 const urgentPatterns = [
   /trouble breathing|cannot breathe|can't breathe|difficulty breathing|breathing difficulty/i,
@@ -105,8 +106,8 @@ export function runSafetyTriage(profile: IntakeProfileInput): SafetyTriage {
     }
   }
 
-  if (profile.ageRange && isUnder18(profile.ageRange)) {
-    reasons.push("User appears under 18 and guardian flow is not implemented.");
+  if (profile.ageRange && belowAdviceAge(profile.ageRange)) {
+    reasons.push(`User appears to be under ${MIN_ADVICE_AGE}; products here are formulated for older skin.`);
   }
 
   if (reasons.length > 0) {
@@ -215,8 +216,20 @@ function normalizeProfileText(profile: IntakeProfileInput) {
   return expanded;
 }
 
-function isUnder18(ageRange: string) {
-  return /under\s*18|underage|child|teen|13|14|15|16|17/.test(ageRange.toLowerCase());
+/**
+ * Is the person this is for below the age this advisor will help?
+ *
+ * The old version matched "13|14|15|16|17" as bare substrings, so any age range
+ * containing those digits refused — and it could never fire anyway, because
+ * nothing populated ageRange from a conversation until the dialogue learned to
+ * read one. Now it parses the number and compares it to the configured line.
+ */
+function belowAdviceAge(ageRange: string) {
+  const text = ageRange.toLowerCase();
+  // Words that name a small child whatever number sits beside them.
+  if (/\b(?:toddler|infant|newborn|underage|baby)\b/.test(text)) return true;
+  const stated = text.match(/\d{1,2}/);
+  return stated ? Number(stated[0]) < MIN_ADVICE_AGE : false;
 }
 
 function severityRank(level: SafetyLevel) {
