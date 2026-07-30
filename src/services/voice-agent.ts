@@ -56,6 +56,12 @@ export type AgentSlots = {
    * utterance IS the new concern, whatever words it uses.
    */
   awaitingConcern?: boolean;
+  /**
+   * Products the shopper asked for BY NAME, kept in the routine across every
+   * later rebuild — "make it stronger" must not silently drop the serum they
+   * specifically requested.
+   */
+  pinnedIds?: string[];
 };
 
 /**
@@ -154,10 +160,89 @@ export function beginConcern(slots: AgentSlots, utterance: string): AgentSlots {
     gaveRoutine: undefined,
     lastRoutine: undefined,
     awaitingConcern: undefined,
+    // Pins are requests about THIS routine; a hair serum pinned by name must
+    // not follow the shopper into their face routine.
+    pinnedIds: undefined,
     misses: 0,
     offTopic: 0,
     ...extractInlineSlots(text),
   };
+}
+
+/**
+ * A question about a specific product: "do you have any hair serum?", "what
+ * about the Ordinary multi-peptide?". Asked three different ways in one live
+ * session and answered, all three times, by re-reading the same routine —
+ * the single most robotic thing the advisor did that day.
+ *
+ * The shape test is deliberately loose; the CALLER only acts when the query
+ * also matches something in the catalogue, so "do you have something else"
+ * still falls through to the swap flow.
+ */
+const PRODUCT_QUERY_SHAPE =
+  /\b(?:do (?:you|u) (?:have|stock|carry|sell)|have you got|got any|is there|any chance of|what about|how about|looking for|asking about|هل عندك|هل لديك|هل يوجد|ماذا عن)\b/i;
+
+/** Words that describe the shopper or the domain, never a product's name. */
+const QUERY_STOPWORDS = new Set([
+  "do", "you", "have", "any", "got", "the", "a", "an", "is", "there", "what", "how", "about", "it",
+  "them", "this", "that", "im", "i", "am", "asking", "sell", "stock", "carry", "of", "for", "in",
+  "me", "my", "please", "does", "u", "want", "need", "just", "and", "or", "with", "your", "yours",
+  "something", "anything", "else", "one", "some", "chance", "looking",
+]);
+const QUERY_DOMAIN_WORDS = new Set(["face", "skin", "hair", "scalp", "body"]);
+
+export function readProductQuery(input: string): string[] | null {
+  if (!PRODUCT_QUERY_SHAPE.test(input)) return null;
+  const tokens = normaliseTranscript(input)
+    .split(/[^a-z0-9؀-ۿ]+/)
+    .filter((token) => token.length >= 3 && !QUERY_STOPWORDS.has(token));
+  if (!tokens.length) return null;
+  // "What about my dandruff?" names a concern and a domain, not a product.
+  const aboutProducts = tokens.some(
+    (token) => !QUERY_DOMAIN_WORDS.has(token) && !CONCERN_WORDS.test(token),
+  );
+  return aboutProducts ? tokens : null;
+}
+
+/**
+ * The catalogue row a query is talking about, if any is a confident match.
+ *
+ * Token scoring with prefix credit, because these arrive from speech-to-text:
+ * "multiply hair serum" is "Multi-Peptide", and "hair salon" is "hair serum".
+ */
+export function findProductByQuery<
+  T extends { name: string; brand: string; category: string; merchantPriority: number },
+>(products: T[], tokens: string[]): T | null {
+  let best: T | null = null;
+  let bestScore = 0;
+  for (const product of products) {
+    const words = `${product.name} ${product.brand} ${product.category}`
+      .toLowerCase()
+      .split(/[^a-z0-9؀-ۿ]+/)
+      .filter(Boolean);
+    let score = 0;
+    let matched = 0;
+    for (const token of tokens) {
+      const exact = words.some((word) => word === token);
+      const prefix =
+        !exact &&
+        token.length >= 4 &&
+        words.some((word) => word.length >= 4 && (word.startsWith(token) || token.startsWith(word)));
+      if (exact) {
+        score += 2;
+        matched += 1;
+      } else if (prefix) {
+        score += 1;
+        matched += 1;
+      }
+    }
+    if (matched < Math.ceil(tokens.length / 2) || score < 2) continue;
+    if (score > bestScore || (score === bestScore && best && product.merchantPriority > best.merchantPriority)) {
+      best = product;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 /**
@@ -675,6 +760,22 @@ const COPY = {
     wrapUp:
       "Lovely. It's all in the panel whenever you're ready, and I'm right here if anything else comes up. Look after yourself!",
     nextConcern: "Happy to help with that too — let's sort it.",
+    // A question about a specific product gets an answer about that product:
+    // found and buyable, found but sold out, or honestly not stocked.
+    productSwappedIn: (name: string, oldName: string) =>
+      `Good shout — the store has ${name}. In it goes, out comes ${oldName}, and it still clears every check you gave me.`,
+    productAdded: (name: string, slot: string) =>
+      `Good shout — the store has ${name}. I've added it to your routine as your ${slot}.`,
+    productSoldOut: (name: string) =>
+      `The store does list ${name} — but it's out of stock right now, so I won't put it in your routine. Tell me the job you want done and I'll find you an in-stock alternative.`,
+    productBlocked: (name: string) =>
+      `The store does have ${name}, but it doesn't clear the checks you've given me — your allergies or your skin's sensitivities — so I won't put it in your routine.`,
+    productNotStocked:
+      "I've been through the whole catalogue — the store doesn't stock that one. Tell me the job you want done and I'll find the closest thing it does have.",
+    // The swap refusal when an alternative EXISTS but the shelf is empty. The
+    // plain refusal claimed to be the only product that fits, which was untrue.
+    swapSoldOut:
+      "There is an alternative for that step, but it's out of stock right now — I'd rather leave you something you can actually buy today than swap in something you can't.",
   },
   ar: {
     greeting: "مرحباً — أنا مستشار البشرة. أخبرني ما الذي يزعج بشرتك أو شعرك.",
@@ -774,6 +875,16 @@ const COPY = {
     whatElse: "تفضل — ما الذي يزعجك أيضاً؟",
     wrapUp: "رائع. كل شيء في اللوحة متى ما كنت جاهزاً، وأنا هنا إن استجدّ شيء. اعتنِ بنفسك!",
     nextConcern: "يسعدني المساعدة في هذا أيضاً — لنبدأ.",
+    productSwappedIn: (name: string, oldName: string) =>
+      `فكرة موفقة — المتجر لديه ${name}. وضعتُه مكان ${oldName}، وما زال يجتاز كل الفحوصات التي أعطيتني إياها.`,
+    productAdded: (name: string, slot: string) => `فكرة موفقة — المتجر لديه ${name}. أضفته إلى روتينك ضمن خطوة ${slot}.`,
+    productSoldOut: (name: string) =>
+      `المتجر يعرض ${name} فعلاً — لكنه نافد من المخزون حالياً، لذا لن أضعه في روتينك. أخبرني بما تريد تحقيقه وسأجد لك بديلاً متوفراً.`,
+    productBlocked: (name: string) =>
+      `المتجر لديه ${name}، لكنه لا يجتاز الفحوصات التي أعطيتني إياها — حساسيتك أو طبيعة بشرتك — لذا لن أضعه في روتينك.`,
+    productNotStocked: "بحثت في الكتالوج كاملاً — المتجر لا يوفّر هذا المنتج. أخبرني بما تريد تحقيقه وسأجد أقرب بديل متوفر.",
+    swapSoldOut:
+      "يوجد بديل لهذه الخطوة فعلاً، لكنه نافد من المخزون حالياً — أفضّل أن أترك لك ما يمكنك شراؤه اليوم بدل أن أضع ما لا يمكنك شراؤه.",
   },
 };
 
@@ -875,6 +986,8 @@ export function fixedLines(lang: AgentLang): string[] {
     copy.whatElse,
     copy.wrapUp,
     copy.nextConcern,
+    copy.productNotStocked,
+    copy.swapSoldOut,
     ESCALATION_MESSAGE,
     ...COUNTS.map((count) => copy.result(count)),
     ...COUNTS.map((count) => copy.hairResult(count)),

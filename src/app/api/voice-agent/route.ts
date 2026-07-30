@@ -26,9 +26,11 @@ import {
   classifyOpening,
   detectLang,
   extractSkinType,
+  findProductByQuery,
   isHairConcern,
   mentionsSkinOrHair,
   nextQuestion,
+  readProductQuery,
   readAdjustment,
   readFollowup,
   readNewConcern,
@@ -78,6 +80,7 @@ const SlotsSchema = z.object({
   forSomeoneElse: z.boolean().optional(),
   sawPhoto: z.boolean().optional(),
   awaitingConcern: z.boolean().optional(),
+  pinnedIds: z.array(z.string()).optional(),
 });
 
 const AgentSchema = z.object({
@@ -286,6 +289,14 @@ export async function POST(request: Request) {
       ? null
       : (routineSettled ? readNewConcern(input.utterance, before.mainConcern) : null) ??
         (before.awaitingConcern && !classifyOpening(input.utterance) ? input.utterance.trim() || null : null);
+    // "Do you have any hair serum?" — asked three ways in one live session and
+    // answered, all three times, by re-reading the same routine. A question
+    // about a product gets an answer about that product. Shape only here; the
+    // handler below acts only when the catalogue actually matches.
+    const productQuery =
+      routineSettled && !done && !wantsMore && !newConcern && !adjusting
+        ? readProductQuery(input.utterance)
+        : null;
     const aside =
       before.mainConcern &&
       !awaitingAllergens &&
@@ -295,7 +306,8 @@ export async function POST(request: Request) {
       !followup &&
       !done &&
       !wantsMore &&
-      !newConcern
+      !newConcern &&
+      !productQuery
         ? classifyAside(input.utterance)
         : null;
 
@@ -357,11 +369,13 @@ export async function POST(request: Request) {
     // A CHALLENGE TO THE ROUTINE IS A CONVERSATION, NOT A TANGENT.
     //
     // "Why that one?" is answered with the actual reasoning behind the pick,
-    // and "I don't like it" swaps the product for the next-best that clears
-    // the same checks — with the change named out loud. Both used to bounce
-    // off the tangent classifier. A new concern outranks both readers: the
-    // sentence is about the new thing, not the routine on screen.
-    if (followup && !newConcern) {
+    // "I don't like it" swaps the product for the next-best that clears the
+    // same checks, and "do you have any hair serum?" is answered about that
+    // product — found and swapped in, sold out, or honestly not stocked. All
+    // of these used to bounce: the first two off the tangent classifier, the
+    // last into a verbatim re-read of the routine. A new concern outranks
+    // every one of them: that sentence is about the new thing.
+    if ((followup || productQuery) && !newConcern) {
       const tenantF = await getTenantBySlug(input.tenantSlug);
       if (tenantF) {
         const profileF = slotsToProfile(before, input.sessionId);
@@ -376,21 +390,97 @@ export async function POST(request: Request) {
         // screen.
         const hairF = areaRoute(before.bodyArea) === "hair" || isHairConcern(before.mainConcern ?? "");
         const bodyF = areaRoute(before.bodyArea) === "body";
-        const build = (exclude: Set<string>): ReturnType<typeof routineItemToProduct>[] => {
+        const build = (
+          exclude: Set<string>,
+          pins: string[] | undefined = before.pinnedIds,
+        ): ReturnType<typeof routineItemToProduct>[] => {
           const available = exclude.size ? productsF.filter((product) => !exclude.has(product.id)) : productsF;
-          if (hairF) return pickHairProducts(available, before.mainConcern ?? "", profileF, tenantF.id, safetyF);
-          if (bodyF) return pickBodyProducts(available, before.mainConcern ?? "", profileF, tenantF.id, safetyF);
-          return buildRecommendations({
-            tenantId: tenantF.id,
-            profile: profileF,
-            safety: safetyF,
-            products: available,
-            sponsoredEnabled: true,
-          }).items.map(routineItemToProduct);
+          const built = hairF
+            ? pickHairProducts(available, before.mainConcern ?? "", profileF, tenantF.id, safetyF)
+            : bodyF
+              ? pickBodyProducts(available, before.mainConcern ?? "", profileF, tenantF.id, safetyF)
+              : buildRecommendations({
+                  tenantId: tenantF.id,
+                  profile: profileF,
+                  safety: safetyF,
+                  products: available,
+                  sponsoredEnabled: true,
+                }).items.map(routineItemToProduct);
+          return applyPins(built, pins, productsF, profileF, tenantF.id, safetyF);
         };
         const current = build(disliked);
 
-        if (current.length) {
+        // A NAMED PRODUCT OUTRANKS THE SWAP READING OF THE SAME SENTENCE —
+        // but only when the catalogue actually matches; "do you have
+        // something else" still falls through to the swap flow below.
+        if (productQuery) {
+          const match = findProductByQuery(productsF, productQuery);
+          if (match) {
+            const already = current.find((item) => item.id === match.id);
+            if (already) {
+              // It's on their screen. Defend it rather than re-adding it.
+              return NextResponse.json({
+                reply: await say(copy.whyThis(already.name, already.reason, already.expectedResults)),
+                phase: "result",
+                slots: before,
+                products: [],
+                language: spoken,
+                rtl: isRtl(spoken),
+              });
+            }
+            const soldOut = await soldOutProductIds([{ id: match.id, url: match.url }], STOCK_BUDGET_MS);
+            if (soldOut.has(match.id)) {
+              return NextResponse.json({
+                reply: await say(copy.productSoldOut(match.name)),
+                phase: "result",
+                slots: before,
+                products: [],
+                language: spoken,
+                rtl: isRtl(spoken),
+              });
+            }
+            if (!passesHardFilters(match, profileF, tenantF.id, safetyF)) {
+              return NextResponse.json({
+                reply: await say(copy.productBlocked(match.name)),
+                phase: "result",
+                slots: before,
+                products: [],
+                language: spoken,
+                rtl: isRtl(spoken),
+              });
+            }
+            const pinned = [...(before.pinnedIds ?? []).filter((id) => id !== match.id), match.id];
+            const replaced = current.find(
+              (item) => item.step === routineStep(match) && item.id !== match.id,
+            );
+            const rebuilt = await inStockOnly(build(disliked, pinned));
+            return NextResponse.json({
+              reply: await say(
+                replaced
+                  ? copy.productSwappedIn(match.name, replaced.name)
+                  : copy.productAdded(match.name, slotLabelFor(routineStep(match))),
+              ),
+              phase: "result",
+              slots: { ...before, pinnedIds: pinned, lastRoutine: rebuilt.map((item) => item.id) },
+              products: rebuilt,
+              language: spoken,
+              rtl: isRtl(spoken),
+            });
+          }
+          if (!followup) {
+            return NextResponse.json({
+              reply: await say(copy.productNotStocked),
+              speech: speakable(spoken, "", copy.productNotStocked),
+              phase: "result",
+              slots: before,
+              products: [],
+              language: spoken,
+              rtl: isRtl(spoken),
+            });
+          }
+        }
+
+        if (followup && current.length) {
           const target = matchRoutineItem(input.utterance, current);
 
           if (followup === "why") {
@@ -421,13 +511,22 @@ export async function POST(request: Request) {
           }
 
           disliked.add(target.id);
-          const rebuilt = await inStockOnly(build(disliked));
+          // A disliked product loses its pin: asked-for-by-name ends the
+          // moment they say they don't want it.
+          const pinsAfter = (before.pinnedIds ?? []).filter((id) => id !== target.id);
+          const rebuiltAll = build(disliked, pinsAfter);
+          const rebuilt = await inStockOnly(rebuiltAll);
           const replacement = rebuilt.find((item) => item.step === target.step && item.id !== target.id);
           if (!replacement) {
             // The dislike is NOT persisted: excluding the only product that
             // fits would silently drop the step from every later rebuild.
+            // And the refusal tells the truth: an alternative that exists but
+            // is out of stock is a different sentence from "there is nothing".
+            const hadAlternative = rebuiltAll.some(
+              (item) => item.step === target.step && item.id !== target.id,
+            );
             return NextResponse.json({
-              reply: await say(copy.swapNone),
+              reply: await say(hadAlternative ? copy.swapSoldOut : copy.swapNone),
               phase: "result",
               slots: before,
               products: [],
@@ -438,7 +537,12 @@ export async function POST(request: Request) {
           return NextResponse.json({
             reply: await say(copy.swapped(target.name, replacement.name)),
             phase: "result",
-            slots: { ...before, dislikedIds: [...disliked], lastRoutine: rebuilt.map((item) => item.id) },
+            slots: {
+              ...before,
+              dislikedIds: [...disliked],
+              pinnedIds: pinsAfter.length ? pinsAfter : undefined,
+              lastRoutine: rebuilt.map((item) => item.id),
+            },
             products: rebuilt,
             language: spoken,
             rtl: isRtl(spoken),
@@ -664,14 +768,35 @@ export async function POST(request: Request) {
 
     if (where === "hair" || isHairConcern(slots.mainConcern ?? "")) {
       const hairMatches = await inStockOnly(
-        pickHairProducts(pickable, slots.mainConcern ?? "", profile, tenant.id, safety),
+        applyPins(
+          pickHairProducts(pickable, slots.mainConcern ?? "", profile, tenant.id, safety),
+          slots.pinnedIds,
+          products,
+          profile,
+          tenant.id,
+          safety,
+        ),
       );
+      // The face path has said "same 3 steps — tell me what you'd change"
+      // instead of re-reading itself for a while; the hair path read the
+      // identical routine out loud every time anything fell through to it.
+      const hairIds = hairMatches.map((match) => match.id);
+      const sameHair =
+        Boolean(before.gaveRoutine) &&
+        before.lastRoutine?.length === hairIds.length &&
+        before.lastRoutine.every((id, index) => id === hairIds[index]);
       const hairLine = `${switchLead}${heard}${copy.hairResult(hairMatches.length)}`;
       return NextResponse.json({
-        reply: await say(hairMatches.length ? `${hairLine} ${copy.anythingElse}` : copy.noHairProducts),
-        speech: hairMatches.length ? speakable(spoken, hairLine, copy.anythingElse) : undefined,
+        reply: await say(
+          !hairMatches.length
+            ? copy.noHairProducts
+            : sameHair
+              ? copy.sameAgain(hairMatches.length)
+              : `${hairLine} ${copy.anythingElse}`,
+        ),
+        speech: hairMatches.length && !sameHair ? speakable(spoken, hairLine, copy.anythingElse) : undefined,
         phase: hairMatches.length ? "result" : "referral",
-        slots: { ...slots, gaveRoutine: true, lastRoutine: hairMatches.map((match) => match.id) },
+        slots: { ...slots, gaveRoutine: true, lastRoutine: hairIds },
         safetyLevel: safety.level,
         language: spoken,
         rtl: isRtl(spoken),
@@ -685,14 +810,32 @@ export async function POST(request: Request) {
     if (where === "body") {
       const area = areaLabel(slots.bodyArea as BodyArea, lang);
       const bodyMatches = await inStockOnly(
-        pickBodyProducts(pickable, slots.mainConcern ?? "", profile, tenant.id, safety),
+        applyPins(
+          pickBodyProducts(pickable, slots.mainConcern ?? "", profile, tenant.id, safety),
+          slots.pinnedIds,
+          products,
+          profile,
+          tenant.id,
+          safety,
+        ),
       );
+      const bodyIds = bodyMatches.map((match) => match.id);
+      const sameBody =
+        Boolean(before.gaveRoutine) &&
+        before.lastRoutine?.length === bodyIds.length &&
+        before.lastRoutine.every((id, index) => id === bodyIds[index]);
       const bodyLine = `${switchLead}${heard}${copy.bodyResult(bodyMatches.length, area)}`;
       return NextResponse.json({
-        reply: await say(bodyMatches.length ? `${bodyLine} ${copy.anythingElse}` : copy.noBodyProducts(area)),
-        speech: bodyMatches.length ? speakable(spoken, bodyLine, copy.anythingElse) : undefined,
+        reply: await say(
+          !bodyMatches.length
+            ? copy.noBodyProducts(area)
+            : sameBody
+              ? copy.sameAgain(bodyMatches.length)
+              : `${bodyLine} ${copy.anythingElse}`,
+        ),
+        speech: bodyMatches.length && !sameBody ? speakable(spoken, bodyLine, copy.anythingElse) : undefined,
         phase: bodyMatches.length ? "result" : "referral",
-        slots: { ...slots, gaveRoutine: true, lastRoutine: bodyMatches.map((match) => match.id) },
+        slots: { ...slots, gaveRoutine: true, lastRoutine: bodyIds },
         safetyLevel: safety.level,
         language: spoken,
         rtl: isRtl(spoken),
@@ -738,8 +881,16 @@ export async function POST(request: Request) {
       });
     }
 
-    const count = recommendation.items.length;
-    const routineIds = recommendation.items.map((item) => item.product.id);
+    const faceItems = applyPins(
+      recommendation.items.map(routineItemToProduct),
+      slots.pinnedIds,
+      products,
+      profile,
+      tenant.id,
+      safety,
+    );
+    const count = faceItems.length;
+    const routineIds = faceItems.map((item) => item.id);
 
     // Did anything we just did actually change what they are looking at? The
     // routine that was on screen is carried in the slots, so this is an exact
@@ -810,23 +961,8 @@ export async function POST(request: Request) {
       slots: { ...slots, gaveRoutine: true, lastRoutine: routineIds },
       safetyLevel: safety.level,
       language: spoken,
-        rtl: isRtl(spoken),
-      products: recommendation.items.map((item) => ({
-        id: item.product.id,
-        name: item.product.name,
-        brand: item.product.brand,
-        category: item.product.category,
-        price: item.product.price,
-        currency: item.product.currency,
-        imageUrl: item.product.imageUrl ?? null,
-        url: item.product.url,
-        step: item.step,
-        slot: item.slot,
-        reason: item.reason,
-        expectedResults: item.expectedResults,
-        cautions: item.cautions,
-        sponsored: item.sponsored,
-      })),
+      rtl: isRtl(spoken),
+      products: faceItems,
       disclosure: recommendation.disclosureText,
     });
   } catch (error) {
@@ -1072,6 +1208,57 @@ const HAIR_ROUTINE: { step: RoutineStep; label: string }[] = [
   { step: "oil", label: "hair oil" },
   { step: "mask", label: "weekly mask" },
 ];
+
+function slotLabelFor(step: RoutineStep): string {
+  return HAIR_ROUTINE.find((entry) => entry.step === step)?.label ?? BODY_LABELS[step] ?? step;
+}
+
+/**
+ * Products the shopper asked for BY NAME, held in the routine across rebuilds.
+ *
+ * "Do you have any hair serum?" swapped the serum in; without this, the very
+ * next "make it stronger" would rebuild the routine and silently drop the one
+ * product the shopper specifically requested. A pin replaces the item on its
+ * step or joins the end, still subject to the same hard safety filters as
+ * everything else — a pinned product an allergy excludes stays out.
+ */
+function applyPins(
+  items: ReturnType<typeof routineItemToProduct>[],
+  pinnedIds: string[] | undefined,
+  catalogue: ProductCatalogItem[],
+  profile: IntakeProfileInput,
+  tenantId: string,
+  safety: SafetyTriage,
+): ReturnType<typeof routineItemToProduct>[] {
+  if (!pinnedIds?.length) return items;
+  const result = [...items];
+  for (const id of pinnedIds) {
+    if (result.some((item) => item.id === id)) continue;
+    const product = catalogue.find((row) => row.id === id);
+    if (!product || !passesHardFilters(product, profile, tenantId, safety)) continue;
+    const step = routineStep(product);
+    const pinned = {
+      id: product.id,
+      name: product.name,
+      brand: product.brand,
+      category: product.category,
+      price: product.price,
+      currency: product.currency,
+      imageUrl: product.imageUrl ?? null,
+      url: product.url,
+      step,
+      slot: slotLabelFor(step),
+      reason: "In because you asked for it by name.",
+      expectedResults: "Give it the same few weeks of regular use you'd give anything new.",
+      cautions: ["Patch test before first use.", "Follow the label directions."],
+      sponsored: false,
+    };
+    const index = result.findIndex((item) => item.step === step);
+    if (index >= 0) result[index] = pinned;
+    else result.push(pinned);
+  }
+  return result;
+}
 
 /**
  * Hair and scalp matching. Runs the same hard safety filters as the routine
