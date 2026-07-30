@@ -478,10 +478,17 @@ export function VoiceAgent({
       orbRef.current?.attachElement(audio);
 
       let objectUrl: string | null = null;
-      const finish = () => {
+      // One exit only. A failed load fires BOTH the element's onerror and the
+      // rejection of play(), so the browser fallback ran twice — two listen()
+      // calls, the second aborting the first mid-answer.
+      let exited = false;
+      const once = (run: () => void) => {
+        if (exited) return;
+        exited = true;
         if (objectUrl) URL.revokeObjectURL(objectUrl);
-        onDone();
+        run();
       };
+      const finish = () => once(onDone);
 
       try {
         if (isScriptedLine(text)) {
@@ -503,13 +510,10 @@ export function VoiceAgent({
         }
 
         audio.onended = finish;
-        audio.onerror = () => {
-          if (objectUrl) URL.revokeObjectURL(objectUrl);
-          speakWithBrowser(text, onDone);
-        };
+        audio.onerror = () => once(() => speakWithBrowser(text, onDone));
         await audio.play();
       } catch {
-        speakWithBrowser(text, onDone);
+        once(() => speakWithBrowser(text, onDone));
       }
     },
     [lang, speakWithBrowser],
@@ -633,6 +637,8 @@ export function VoiceAgent({
       recognition.continuous = false;
       let heard = false;
 
+      let lastInterim = "";
+
       recognition.onresult = (event) => {
         let live = "";
         let settled = "";
@@ -643,6 +649,7 @@ export function VoiceAgent({
           else live += text;
         }
         setInterim(live);
+        if (live.trim()) lastInterim = live;
         if (live.trim() || settled.trim()) {
           heard = true;
           silentRestartsRef.current = 0;
@@ -673,6 +680,17 @@ export function VoiceAgent({
         recognitionRef.current = null;
         if (!continueRef.current || modeRef.current !== "voice") {
           setPhase((current) => (current === "listening" ? "idle" : current));
+          return;
+        }
+        // iOS Safari routinely ends recognition — above all on one-word answers
+        // like "no" — without ever flagging a final result. The words arrived as
+        // interims; dropping them and restarting looped the microphone forever
+        // while the shopper repeated themselves at a listening orb. If it ended
+        // with words heard and nothing settled, the words ARE the answer.
+        const flush = lastInterim.trim();
+        if (flush) {
+          setInterim("");
+          void send(flush);
           return;
         }
         silentRestartsRef.current = heard ? 0 : silentRestartsRef.current + 1;
