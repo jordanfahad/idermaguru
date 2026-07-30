@@ -603,6 +603,13 @@ export function VoiceAgent({
         return;
       }
 
+      // Asking to listen IS asking to keep listening. stop() clears this flag
+      // and nothing ever set it back, so a shopper who stopped once and then
+      // tapped the mic again got a single recognition session with no restart
+      // behind it — the browser ends one at the first pause, onend saw the flag
+      // was false, and the microphone went quiet mid-answer.
+      continueRef.current = true;
+
       if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
       // Detach before aborting, so the replaced session's onend knows it is no
       // longer the live one and doesn't queue a restart of its own.
@@ -769,6 +776,18 @@ export function VoiceAgent({
 
       const observations: string[] = payload.observations ?? [];
       const concerns: string[] = payload.concerns ?? [];
+      const seen = [...observations, ...concerns].filter(Boolean).join(", ");
+
+      // A photo the model could describe nothing in used to blank mainConcern,
+      // and an empty utterance with empty slots is precisely how the API is told
+      // a session is starting — so it answered with the greeting and reset every
+      // answer already given. That is the whole consultation, gone.
+      if (!seen && !(slotsRef.current as Record<string, unknown>).mainConcern) {
+        setNotice(t.cameraUnusable);
+        setPhase("idle");
+        return;
+      }
+
       setTurns((current) => [
         ...current,
         { role: "user", text: t.cameraShared },
@@ -778,12 +797,16 @@ export function VoiceAgent({
       // Fold what was seen into the intake, then continue the same conversation
       // so the routine reflects it. Safety slots are untouched.
       const slots = slotsRef.current as Record<string, unknown>;
-      const seen = [...observations, ...concerns].join(", ");
       slotsRef.current = {
         ...slots,
-        mainConcern: slots.mainConcern ? `${slots.mainConcern}. Visible: ${seen}` : seen,
+        ...(seen ? { mainConcern: slots.mainConcern ? `${slots.mainConcern}. Visible: ${seen}` : seen } : {}),
         ...(payload.skinType && !slots.skinType ? { skinType: payload.skinType } : {}),
       };
+      // Taking a photo mid-conversation means the conversation continues. The
+      // shopper almost certainly tapped the orb to stop talking before reaching
+      // for the camera, which cleared this — so the advisor asked its next
+      // question into a microphone it had never reopened.
+      if (modeRef.current === "voice") continueRef.current = true;
       void send("");
     } catch {
       setNotice(t.cameraError);
