@@ -563,3 +563,8 @@ merchant catalogue of 876 in-stock products.
 - **Fix:** a finished routine from a DIFFERENT domain is KEPT when the topic changes (`keptConcerns`, capped at two, same-domain switches still replace so steps never double). Every result rebuilds the kept concerns' routines beside the new one — hair section and face section on one screen, deduped, stock-checked, honouring every dislike, brand ban and origin preference — and the cart button carries the combined list, because it always shipped whatever the panel showed. Switching back to a kept concern shows both, so "did you remove it?" answers itself.
 - **Found on the way:** the kept list was silently lost from the SECOND switch onward — the slots spread overwrote the freshly computed value whenever the key already existed.
 - **Verified** by replaying the transcript against the real hair rows plus a Korean face catalogue: after "Super oily" the screen holds shampoo/conditioner/scalp/oil AND cleanser/serum/moisturiser/sunscreen, and the dandruff check-back keeps both. 386 tests passing.
+
+### R-065 — The advisor's own voice stopped mid-call
+- **Symptom:** after the call-mode rebuild, the ADVISOR's speech stopped mid-conversation on iPhone.
+- **Leading cause:** iOS can suppress a page's audio playback while a capture session is actively recording — the one new interaction call mode introduced.
+- **Fix:** the call microphone track is MUTED (`track.enabled = false`) the moment the advisor starts speaking and re-enabled when the next recorded turn begins. The stream stays open, so no permission re-prompt and the audio session stays in its one state; capture is simply quiet during playback.

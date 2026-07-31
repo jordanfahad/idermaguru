@@ -577,6 +577,12 @@ export function VoiceAgent({
         liveRecognition.abort();
       }
       cancelRecordedTurn();
+      // iOS can suppress page audio while a capture session is actively
+      // recording. The call's microphone track is MUTED while the advisor
+      // speaks — the stream stays open (no re-prompt), it just goes quiet.
+      callStreamRef.current?.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+      });
       setPhase("speaking");
       setSpeakingLine(text);
 
@@ -940,6 +946,9 @@ export function VoiceAgent({
 
         setPhase("listening");
         setNotice(null);
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
         try {
           recorder.start();
         } catch {
