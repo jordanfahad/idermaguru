@@ -817,8 +817,12 @@ export function VoiceAgent({
         }
         recorderRef.current = recorder;
 
-        // Turn-taking by level. Without an analyser (blocked context), turns
-        // fall back to a fixed recording window and the transcriber decides.
+        // Turn-taking by level — but the level meter is an ACCELERATOR, never
+        // a gatekeeper. iOS starts an AudioContext created outside a tap
+        // suspended, and a suspended analyser reads flat silence: gating the
+        // transcription on it made the advisor deaf while the shopper talked
+        // at a LISTENING orb. Whatever gets recorded is transcribed; the
+        // meter's only job is ending the turn quickly after the shopper stops.
         const Ctor =
           window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (!callCtxRef.current && Ctor) {
@@ -858,14 +862,14 @@ export function VoiceAgent({
           setPhase("idle");
         };
 
-        const finishTurn = (hadSpeech: boolean) => {
+        const finishTurn = () => {
           if (token !== recordedTurnRef.current) return;
           if (vadFrameRef.current) window.cancelAnimationFrame(vadFrameRef.current);
           vadFrameRef.current = null;
           recorderRef.current = null;
           recorder.onstop = () => {
             if (token !== recordedTurnRef.current || modeRef.current !== "voice") return;
-            if (!hadSpeech || !chunks.length) {
+            if (!chunks.length) {
               silentRestartsRef.current += 1;
               if (silentRestartsRef.current > MAX_SILENT_RESTARTS) return standDown();
               restartTimerRef.current = window.setTimeout(recordTurn, 120);
@@ -924,9 +928,13 @@ export function VoiceAgent({
               lastVoiceAt = now;
             }
           }
-          if (voiceAt && now - lastVoiceAt > 900) return finishTurn(true);
-          if (!voiceAt && now - startedAt > (analyser ? 8000 : 6000)) return finishTurn(!analyser);
-          if (now - startedAt > 15000) return finishTurn(true);
+          // The meter ends a turn EARLY when it works; the timers end every
+          // turn regardless, and the transcriber is the judge of whether
+          // anything was said. A deaf meter costs a slower cadence, never
+          // a lost turn.
+          if (voiceAt && now - lastVoiceAt > 900) return finishTurn();
+          if (!voiceAt && now - startedAt > 5000) return finishTurn();
+          if (now - startedAt > 15000) return finishTurn();
           vadFrameRef.current = window.requestAnimationFrame(tick);
         };
 
@@ -1140,8 +1148,23 @@ export function VoiceAgent({
       orbRef.current.startHum();
     } else {
       // Open the call inside the tap, so the permission prompt appears now and
-      // the first listen starts with the microphone already granted.
+      // the first listen starts with the microphone already granted. The
+      // analyser's context is created here too: iOS starts an AudioContext
+      // made outside a user gesture SUSPENDED, and a suspended analyser reads
+      // flat silence — the deaf turn-meter behind "still getting stuck".
       void ensureCallStream();
+      if (!callCtxRef.current) {
+        const Ctor =
+          window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (Ctor) {
+          try {
+            callCtxRef.current = new Ctor();
+          } catch {
+            callCtxRef.current = null;
+          }
+        }
+      }
+      if (callCtxRef.current?.state === "suspended") void callCtxRef.current.resume().catch(() => {});
     }
     continueRef.current = true;
     silentRestartsRef.current = 0;
