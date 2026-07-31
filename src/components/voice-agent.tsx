@@ -176,6 +176,8 @@ const UI = {
     micTrouble:
       "I'm not hearing anything from the microphone. Tap the orb to try again — or switch to Chat and type, that always works.",
     micIdle: "Still with you — tap the orb whenever you're ready to carry on.",
+    youSpeaking: "You're speaking — I'm listening →",
+    advisorSpeaking: "Your advisor speaking →",
     showSkin: "Show your skin",
     cameraTitle: "Let the advisor look at your skin?",
     cameraBody:
@@ -227,6 +229,8 @@ const UI = {
     error: "حدث خطأ. اضغط الميكروفون للمحاولة مرة أخرى.",
     micTrouble: "لا يصلني صوت من الميكروفون. اضغط الكرة للمحاولة مجدداً — أو انتقل إلى «محادثة» واكتب، فهذا يعمل دائماً.",
     micIdle: "ما زلت معك — اضغط الكرة متى أردت المتابعة.",
+    youSpeaking: "أنت تتحدث — أنا أُصغي ←",
+    advisorSpeaking: "مستشارك يتحدث ←",
     showSkin: "أرِ بشرتك",
     cameraTitle: "هل تسمح للمستشار برؤية بشرتك؟",
     cameraBody:
@@ -282,6 +286,8 @@ export function VoiceAgent({
   const [phase, setPhase] = useState<Phase>("idle");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [interim, setInterim] = useState("");
+  // The sentence the advisor is saying right now, for the call bar.
+  const [speakingLine, setSpeakingLine] = useState("");
   const [draft, setDraft] = useState("");
   const [products, setProducts] = useState<AgentProduct[]>([]);
   const [disclosure, setDisclosure] = useState<string | null>(null);
@@ -320,7 +326,58 @@ export function VoiceAgent({
   // the remainder of a short settle window on iOS.
   const lastMicActivityRef = useRef(0);
   const restartTimerRef = useRef<number | null>(null);
+  // iOS call mode: Apple's on-device recognition was the least reliable part
+  // of the product (sessions that never produce a result, short answers that
+  // never finalise, ducked playback around every listen). On iOS the mic is
+  // held open like a phone call, each turn is RECORDED and transcribed
+  // server-side, and the audio session stays in one state — one volume —
+  // from greeting to goodbye.
+  const callStreamRef = useRef<MediaStream | null>(null);
+  const callCtxRef = useRef<AudioContext | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const vadFrameRef = useRef<number | null>(null);
+  const recordedTurnRef = useRef(0);
   const t = UI[lang];
+
+  /** The held call stream, opened on demand (and inside the tap in begin()). */
+  const ensureCallStream = useCallback(async (): Promise<MediaStream | null> => {
+    const current = callStreamRef.current;
+    if (current?.getAudioTracks().some((track) => track.readyState === "live")) return current;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      callStreamRef.current = stream;
+      return stream;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  /** Ends any in-flight recorded turn without acting on its audio. */
+  const cancelRecordedTurn = useCallback(() => {
+    recordedTurnRef.current += 1;
+    if (vadFrameRef.current) window.cancelAnimationFrame(vadFrameRef.current);
+    vadFrameRef.current = null;
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.onstop = null;
+      recorder.ondataavailable = null;
+      try {
+        recorder.stop();
+      } catch {
+        // already stopped
+      }
+    }
+  }, []);
+
+  /** Hangs up the call: recorder, analyser context and microphone released. */
+  const releaseCall = useCallback(() => {
+    cancelRecordedTurn();
+    callStreamRef.current?.getTracks().forEach((track) => track.stop());
+    callStreamRef.current = null;
+    void callCtxRef.current?.close().catch(() => {});
+    callCtxRef.current = null;
+  }, [cancelRecordedTurn]);
 
   /**
    * Bring the routine to the shopper on a phone.
@@ -466,6 +523,10 @@ export function VoiceAgent({
       continueRef.current = false;
       if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
       recognitionRef.current?.abort();
+      recordedTurnRef.current += 1;
+      if (vadFrameRef.current) window.cancelAnimationFrame(vadFrameRef.current);
+      callStreamRef.current?.getTracks().forEach((track) => track.stop());
+      void callCtxRef.current?.close().catch(() => {});
       window.speechSynthesis?.cancel();
       audioElRef.current?.pause();
       orbRef.current?.dispose();
@@ -515,7 +576,9 @@ export function VoiceAgent({
         lastMicActivityRef.current = Date.now();
         liveRecognition.abort();
       }
+      cancelRecordedTurn();
       setPhase("speaking");
+      setSpeakingLine(text);
 
       let audio = audioElRef.current;
       if (!audio) {
@@ -585,7 +648,7 @@ export function VoiceAgent({
         once(() => speakWithBrowser(text, onDone));
       }
     },
-    [lang, speakWithBrowser],
+    [lang, speakWithBrowser, cancelRecordedTurn],
   );
 
   /**
@@ -686,7 +749,15 @@ export function VoiceAgent({
       const keepGoing =
         payload.phase !== "referral" && payload.phase !== "farewell" && continueRef.current;
       const parts: string[] = Array.isArray(payload.speech) && payload.speech.length ? payload.speech : [reply];
-      speakSequence(parts, () => (keepGoing ? listen() : setPhase("idle")));
+      speakSequence(parts, () => {
+        if (keepGoing) {
+          listen();
+          return;
+        }
+        // The visit is over — hang up the call so the mic indicator goes out.
+        releaseCall();
+        setPhase("idle");
+      });
     },
     // eslint-disable-next-line
     [speakSequence],
@@ -709,6 +780,171 @@ export function VoiceAgent({
   );
 
   /**
+   * One recorded turn of the iOS call.
+   *
+   * Records from the held stream, watches the level, stops a beat after the
+   * shopper goes quiet, and sends the audio for server transcription. There is
+   * no on-device recognition anywhere in this path — the thing that kept
+   * getting stuck is simply not used.
+   */
+  const startRecordedTurn = useCallback(
+    function recordTurn() {
+      continueRef.current = true;
+      if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+      cancelRecordedTurn();
+      const token = recordedTurnRef.current;
+
+      void (async () => {
+        const stream = await ensureCallStream();
+        if (token !== recordedTurnRef.current || modeRef.current !== "voice") return;
+        if (!stream) {
+          setNotice(t.denied);
+          continueRef.current = false;
+          setPhase("idle");
+          return;
+        }
+
+        const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((candidate) =>
+          MediaRecorder.isTypeSupported?.(candidate),
+        );
+        let recorder: MediaRecorder;
+        try {
+          recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+        } catch {
+          setNotice(t.micTrouble);
+          setPhase("idle");
+          return;
+        }
+        recorderRef.current = recorder;
+
+        // Turn-taking by level. Without an analyser (blocked context), turns
+        // fall back to a fixed recording window and the transcriber decides.
+        const Ctor =
+          window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!callCtxRef.current && Ctor) {
+          try {
+            callCtxRef.current = new Ctor();
+          } catch {
+            callCtxRef.current = null;
+          }
+        }
+        const ctx = callCtxRef.current;
+        let analyser: AnalyserNode | null = null;
+        if (ctx) {
+          try {
+            if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+            const source = ctx.createMediaStreamSource(stream);
+            analyser = ctx.createAnalyser();
+            analyser.fftSize = 1024;
+            source.connect(analyser);
+          } catch {
+            analyser = null;
+          }
+        }
+
+        const chunks: BlobPart[] = [];
+        recorder.ondataavailable = (event) => {
+          if (event.data && event.data.size) chunks.push(event.data);
+        };
+
+        const startedAt = Date.now();
+        let voiceAt = 0;
+        let lastVoiceAt = 0;
+        const bins = analyser ? new Uint8Array(analyser.fftSize) : null;
+
+        const standDown = () => {
+          silentRestartsRef.current = 0;
+          setNotice(everHeardRef.current ? t.micIdle : t.micTrouble);
+          setPhase("idle");
+        };
+
+        const finishTurn = (hadSpeech: boolean) => {
+          if (token !== recordedTurnRef.current) return;
+          if (vadFrameRef.current) window.cancelAnimationFrame(vadFrameRef.current);
+          vadFrameRef.current = null;
+          recorderRef.current = null;
+          recorder.onstop = () => {
+            if (token !== recordedTurnRef.current || modeRef.current !== "voice") return;
+            if (!hadSpeech || !chunks.length) {
+              silentRestartsRef.current += 1;
+              if (silentRestartsRef.current > MAX_SILENT_RESTARTS) return standDown();
+              restartTimerRef.current = window.setTimeout(recordTurn, 120);
+              return;
+            }
+            const blob = new Blob(chunks, { type: mime ?? "audio/mp4" });
+            setPhase("thinking");
+            void fetch(`/api/voice-agent/transcribe?lang=${spokenLangRef.current === "ar" ? "ar" : "en"}`, {
+              method: "POST",
+              headers: { "content-type": blob.type },
+              body: blob,
+            })
+              .then((response) => (response.ok ? response.json() : { text: "" }))
+              .then((payload: { text?: string }) => {
+                if (token !== recordedTurnRef.current || modeRef.current !== "voice") return;
+                const text = (payload.text ?? "").trim();
+                if (text) {
+                  everHeardRef.current = true;
+                  silentRestartsRef.current = 0;
+                  void send(text);
+                  return;
+                }
+                // Energy without words — noise, a cough. Listen again.
+                silentRestartsRef.current += 1;
+                if (silentRestartsRef.current > MAX_SILENT_RESTARTS) return standDown();
+                setPhase("listening");
+                restartTimerRef.current = window.setTimeout(recordTurn, 120);
+              })
+              .catch(() => {
+                if (token !== recordedTurnRef.current) return;
+                setNotice(t.error);
+                setPhase("idle");
+              });
+          };
+          try {
+            recorder.stop();
+          } catch {
+            // Already stopped: run the handler with whatever was captured.
+            recorder.onstop?.(new Event("stop"));
+          }
+        };
+
+        const tick = () => {
+          if (token !== recordedTurnRef.current) return;
+          const now = Date.now();
+          if (analyser && bins) {
+            analyser.getByteTimeDomainData(bins);
+            let sum = 0;
+            for (let i = 0; i < bins.length; i += 1) {
+              const deviation = (bins[i] - 128) / 128;
+              sum += deviation * deviation;
+            }
+            const rms = Math.sqrt(sum / bins.length);
+            if (rms > 0.035) {
+              if (!voiceAt) voiceAt = now;
+              lastVoiceAt = now;
+            }
+          }
+          if (voiceAt && now - lastVoiceAt > 900) return finishTurn(true);
+          if (!voiceAt && now - startedAt > (analyser ? 8000 : 6000)) return finishTurn(!analyser);
+          if (now - startedAt > 15000) return finishTurn(true);
+          vadFrameRef.current = window.requestAnimationFrame(tick);
+        };
+
+        setPhase("listening");
+        setNotice(null);
+        try {
+          recorder.start();
+        } catch {
+          setPhase("idle");
+          return;
+        }
+        vadFrameRef.current = window.requestAnimationFrame(tick);
+      })();
+    },
+    [ensureCallStream, cancelRecordedTurn, send, t.denied, t.micTrouble, t.micIdle, t.error],
+  );
+
+  /**
    * Opens the microphone and keeps it open.
    *
    * Browsers end recognition on every pause — including pauses in the middle of
@@ -719,6 +955,11 @@ export function VoiceAgent({
    */
   const listen = useCallback(
     function startListening() {
+      // iOS: the recorded call replaces on-device recognition wholesale.
+      if (IOS && typeof MediaRecorder !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia)) {
+        startRecordedTurn();
+        return;
+      }
       const w = window as unknown as {
         SpeechRecognition?: SpeechRecognitionCtor;
         webkitSpeechRecognition?: SpeechRecognitionCtor;
@@ -882,7 +1123,7 @@ export function VoiceAgent({
         restartTimerRef.current = window.setTimeout(startListening, 250);
       }
     },
-    [lang, send, t.noVoice, t.denied, t.micTrouble, t.micIdle],
+    [lang, send, startRecordedTurn, t.noVoice, t.denied, t.micTrouble, t.micIdle],
   );
 
   function begin() {
@@ -897,6 +1138,10 @@ export function VoiceAgent({
     if (!IOS) {
       if (!orbRef.current) orbRef.current = createOrbAudio();
       orbRef.current.startHum();
+    } else {
+      // Open the call inside the tap, so the permission prompt appears now and
+      // the first listen starts with the microphone already granted.
+      void ensureCallStream();
     }
     continueRef.current = true;
     silentRestartsRef.current = 0;
@@ -1119,6 +1364,7 @@ export function VoiceAgent({
     // new one rather than leaving it listening for the wrong language.
     if (phase === "listening") {
       recognitionRef.current?.abort();
+      cancelRecordedTurn();
       restartTimerRef.current = window.setTimeout(() => listen(), 150);
     }
   }
@@ -1130,6 +1376,7 @@ export function VoiceAgent({
       // Leaving voice: release the mic and silence playback.
       continueRef.current = false;
       recognitionRef.current?.abort();
+      releaseCall();
       window.speechSynthesis?.cancel();
       audioElRef.current?.pause();
       orbRef.current?.detachMic();
@@ -1143,6 +1390,7 @@ export function VoiceAgent({
     continueRef.current = false;
     if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
     recognitionRef.current?.abort();
+    releaseCall();
     window.speechSynthesis?.cancel();
     audioElRef.current?.pause();
     orbRef.current?.detachMic();
@@ -1184,6 +1432,18 @@ export function VoiceAgent({
 
   return (
     <div className={`va va-${phase}${lang === "ar" ? " va-rtl" : ""}`} dir={lang === "ar" ? "rtl" : "ltr"}>
+     {/* The call bar follows the shopper wherever they scroll: who is talking
+         and what is being said, without climbing back up to the orb. */}
+     {started && mode === "voice" && active ? (
+       <div className={`va-callbar va-callbar-${phase}`} aria-live="polite">
+         <span className="va-callbar-who">
+           {phase === "listening" ? t.youSpeaking : phase === "speaking" ? t.advisorSpeaking : t.thinking}
+         </span>
+         <span className="va-callbar-text">
+           {phase === "listening" ? interim || "…" : phase === "speaking" ? speakingLine : "…"}
+         </span>
+       </div>
+     ) : null}
      <div className="va-grid">
       <aside className={turns.length ? "va-side va-side-live" : "va-side"}>
         {turns.length ? (
