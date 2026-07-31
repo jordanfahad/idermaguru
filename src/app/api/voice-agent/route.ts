@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { seedTenant } from "@/data/seed-catalog";
-import { ESCALATION_MESSAGE, type IntakeProfileInput, type ProductCatalogItem, type SafetyTriage } from "@/domain/skincare";
+import { ESCALATION_MESSAGE, escalationMessage, type IntakeProfileInput, type ProductCatalogItem, type SafetyTriage } from "@/domain/skincare";
 import { getTenantBySlug, listTenantProducts } from "@/services/catalog";
 import { getLLMProvider, UNREADABLE_ANSWER } from "@/services/llm/provider";
 import { buildRecommendations, passesHardFilters } from "@/services/recommendation-engine";
@@ -118,6 +118,10 @@ export async function POST(request: Request) {
     // the English line, so the dialogue and its safety rules stay single-source.
     const lang: AgentLang = spoken === "ar" ? "ar" : "en";
     const copy = agentCopy(lang);
+    // Triage authors its referral in English; the shopper hears it in the
+    // conversation's own language. Anything else a merchant might configure
+    // one day passes through untouched.
+    const referralLine = (message?: string) => (message === ESCALATION_MESSAGE ? escalationMessage(lang) : message);
     const say = (text: string) => localise(text, spoken, getLLMProvider());
 
     // Opening turn: greet and ask for the concern.
@@ -213,7 +217,7 @@ export async function POST(request: Request) {
     });
     if (!turnSafety.recommendationAllowed) {
       return NextResponse.json({
-        reply: await say(turnSafety.referralMessage ?? copy.noProducts),
+        reply: await say(referralLine(turnSafety.referralMessage) ?? copy.noProducts),
         phase: "referral",
         slots: before,
         products: [],
@@ -805,7 +809,7 @@ export async function POST(request: Request) {
       // patterns missed, never wave one through.
       if (reading.needsClinician) {
         return NextResponse.json({
-          reply: await say(ESCALATION_MESSAGE),
+          reply: await say(escalationMessage(lang)),
           phase: "referral",
           slots: before,
           products: [],
@@ -934,7 +938,7 @@ export async function POST(request: Request) {
 
     if (!safety.recommendationAllowed) {
       return NextResponse.json({
-        reply: await say(safety.referralMessage ?? copy.noProducts),
+        reply: await say(referralLine(safety.referralMessage) ?? copy.noProducts),
         phase: "referral",
         slots,
         products: [],

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "../src/app/api/voice-agent/route";
 import { resetStockCache } from "../src/services/stock";
+import { ESCALATION_MESSAGE, ESCALATION_MESSAGE_AR } from "../src/domain/skincare";
 
 /**
  * Whole turns, through the real route.
@@ -55,6 +56,29 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+/**
+ * The clinician referral is authored in both languages now. An Arabic session
+ * that trips a red flag must hear the ARABIC referral — localise() returns
+ * authored languages untouched, so before this the most frightening moment of
+ * an Arabic conversation was answered in English.
+ */
+describe("the referral speaks the shopper's language", () => {
+  it("answers an Arabic-language red flag with the Arabic referral", async () => {
+    // Bilingual phrasing, the way Gulf shoppers actually talk: Arabic framing
+    // around the English words the triage vocabulary knows.
+    const payload = await ask("\u0639\u0646\u062f\u064a \u0634\u0627\u0645\u0629 \u062a\u0646\u0632\u0641 mole changed color and is bleeding");
+    expect(payload.phase).toBe("referral");
+    expect(payload.language).toBe("ar");
+    expect(payload.reply).toBe(ESCALATION_MESSAGE_AR);
+  });
+
+  it("keeps the English referral for an English session", async () => {
+    const payload = await ask("I have a mole that changed color and is bleeding");
+    expect(payload.phase).toBe("referral");
+    expect(payload.reply).toBe(ESCALATION_MESSAGE);
+  });
 });
 
 describe("a whole conversation", () => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentCopy, acknowledgements, fixedLines, scriptedLines } from "../src/services/voice-agent";
 import { distressCopy, feelingCopy } from "../src/services/empathy";
-import { ESCALATION_MESSAGE } from "../src/domain/skincare";
+import { ESCALATION_MESSAGE, ESCALATION_MESSAGE_AR, escalationMessage } from "../src/domain/skincare";
 import { GET as speechGET } from "../src/app/api/voice-agent/speech/route";
 
 /**
@@ -42,7 +42,14 @@ describe("everything we wrote can be spoken from cache", () => {
       expect(fixed.has(copy.intimateArea)).toBe(true);
       expect(fixed.has(copy.noProducts)).toBe(true);
       expect(fixed.has(copy.noHairProducts)).toBe(true);
-      expect(fixed.has(ESCALATION_MESSAGE)).toBe(true);
+      // The clinician referral is AUTHORED in each language — an Arabic
+      // conversation must never hear the English version of its most
+      // sensitive line.
+      expect(fixed.has(escalationMessage(lang))).toBe(true);
+      if (lang === "ar") {
+        expect(escalationMessage(lang)).not.toBe(ESCALATION_MESSAGE);
+        expect(/[؀-ۿ]/.test(escalationMessage(lang))).toBe(true);
+      }
     });
 
     it(`${lang}: covers every routine length a plan can produce`, () => {
@@ -105,6 +112,7 @@ describe("the GET door speaks every line we wrote — and nothing else", () => {
       expect(line.length).toBeGreaterThan(400);
       expect((await ask(line)).status).not.toBe(400);
     }
+    expect((await ask(ESCALATION_MESSAGE_AR, "ar")).status).not.toBe(400);
   });
 
   it("refuses text that is not the advisor's script", async () => {

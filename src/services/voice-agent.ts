@@ -1,4 +1,4 @@
-import { ESCALATION_MESSAGE, type IntakeProfileInput } from "@/domain/skincare";
+import { escalationMessage, type IntakeProfileInput } from "@/domain/skincare";
 import { distressCopy, feelingCopy, sorrowCopy } from "./empathy";
 import { areaRoute, extractBodyArea, namesSkinType, needsBodyArea, type BodyArea } from "./body-area";
 import { readsAge, readsThirdParty } from "./audience";
@@ -1128,7 +1128,7 @@ export function fixedLines(lang: AgentLang): string[] {
     copy.checkedClean,
     copy.originOnly("korean"),
     copy.originOnly("french"),
-    ESCALATION_MESSAGE,
+    escalationMessage(lang),
     ...COUNTS.map((count) => copy.result(count)),
     ...COUNTS.map((count) => copy.hairResult(count)),
     ...COUNTS.map((count) => copy.sameAgain(count)),

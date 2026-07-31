@@ -134,6 +134,17 @@ export const SPONSORED_DISCLOSURE =
 export const ESCALATION_MESSAGE =
   "Thanks for telling me — and I'd rather be straight with you: what you're describing is one for a real clinician, not a shop's advisor. I can help with everyday over-the-counter skincare, but I can't diagnose this or work out what's behind it, and guessing wouldn't be fair to you. Please get it looked at by a dermatologist or doctor. If there's trouble breathing, swelling of the lips, tongue or face, a fever, redness spreading quickly, severe pain, or anything involving your eyes, don't wait for an appointment — go to urgent care.";
 
+// The same words, authored in Arabic rather than machine-translated: safety
+// copy is spoken at the most frightening moment of a session, and its wording
+// must be as deliberate in Arabic as it is in English.
+export const ESCALATION_MESSAGE_AR =
+  "شكراً لأنك أخبرتني — وأفضّل أن أكون صريحاً معك: ما تصفه يحتاج طبيباً حقيقياً، لا مستشار متجر. أستطيع مساعدتك في العناية اليومية بالبشرة بمنتجات لا تحتاج وصفة، لكن لا يمكنني تشخيص حالتك أو معرفة ما وراءها، والتخمين ليس إنصافاً لك. من فضلك اعرض الأمر على طبيب جلدية أو طبيب. وإن كان هناك صعوبة في التنفس، أو تورّم في الشفتين أو اللسان أو الوجه، أو حمّى، أو احمرار ينتشر بسرعة، أو ألم شديد، أو أي شيء يخص العينين — فلا تنتظر موعداً، وتوجّه إلى الطوارئ فوراً.";
+
+/** The clinician referral in the conversation's authored language. */
+export function escalationMessage(lang: "en" | "ar"): string {
+  return lang === "ar" ? ESCALATION_MESSAGE_AR : ESCALATION_MESSAGE;
+}
+
 // Replaces assistant output that slips a diagnostic conclusion, a treat/cure/prevent
 // claim, or a guaranteed-result claim through the model (output gate, spec §3.3).
 export const OUTPUT_GATE_FALLBACK_MESSAGE =
