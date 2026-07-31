@@ -590,6 +590,26 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.va-callbar-replay {
+  pointer-events: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-inline-start: 2px;
+  padding: 5px 11px;
+  border: 1px solid rgba(250, 247, 242, 0.3);
+  border-radius: 999px;
+  background: rgba(250, 247, 242, 0.12);
+  color: #faf7f2;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.va-callbar-replay:active {
+  background: rgba(250, 247, 242, 0.24);
+}
 .va-callbar-listening .va-callbar-who { color: #93d8c9; }
 .va-callbar-speaking .va-callbar-who { color: #f3c78f; }
 .va-callbar-thinking .va-callbar-who { color: #cfc8bf; }

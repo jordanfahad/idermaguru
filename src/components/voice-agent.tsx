@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, Clock, ExternalLink, Heart, Loader2, MessageSquare, Mic, Send, ShoppingCart, Sparkles, Square } from "lucide-react";
+import { Camera, Clock, ExternalLink, Heart, Loader2, MessageSquare, Mic, RotateCcw, Send, ShoppingCart, Sparkles, Square } from "lucide-react";
 import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
 import { speechLocale } from "@/services/language";
 import { acknowledgements, describePhoto, fixedLines, scriptedLines } from "@/services/voice-agent";
@@ -178,6 +178,7 @@ const UI = {
     micIdle: "Still with you — tap the orb whenever you're ready to carry on.",
     youSpeaking: "You're speaking — I'm listening →",
     advisorSpeaking: "Your advisor speaking →",
+    hearAgain: "Hear that again",
     showSkin: "Show your skin",
     cameraTitle: "Let the advisor look at your skin?",
     cameraBody:
@@ -231,6 +232,7 @@ const UI = {
     micIdle: "ما زلت معك — اضغط الكرة متى أردت المتابعة.",
     youSpeaking: "أنت تتحدث — أنا أُصغي ←",
     advisorSpeaking: "مستشارك يتحدث ←",
+    hearAgain: "أعِد السماع",
     showSkin: "أرِ بشرتك",
     cameraTitle: "هل تسمح للمستشار برؤية بشرتك؟",
     cameraBody:
@@ -288,6 +290,10 @@ export function VoiceAgent({
   const [interim, setInterim] = useState("");
   // The sentence the advisor is saying right now, for the call bar.
   const [speakingLine, setSpeakingLine] = useState("");
+  // The advisor's whole last reply, so "Hear that again" can replay every
+  // part of it — the recovery when a line was missed or the phone stayed
+  // quiet — inside a fresh tap, which is the gesture iOS trusts most.
+  const replayRef = useRef<string[]>([]);
   const [draft, setDraft] = useState("");
   const [products, setProducts] = useState<AgentProduct[]>([]);
   const [disclosure, setDisclosure] = useState<string | null>(null);
@@ -334,6 +340,7 @@ export function VoiceAgent({
   // from greeting to goodbye.
   const callStreamRef = useRef<MediaStream | null>(null);
   const callCtxRef = useRef<AudioContext | null>(null);
+  const vadNodesRef = useRef<{ source: MediaStreamAudioSourceNode; analyser: AnalyserNode } | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const vadFrameRef = useRef<number | null>(null);
   const recordedTurnRef = useRef(0);
@@ -357,6 +364,19 @@ export function VoiceAgent({
     recordedTurnRef.current += 1;
     if (vadFrameRef.current) window.cancelAnimationFrame(vadFrameRef.current);
     vadFrameRef.current = null;
+    // Unplug the turn's level-meter graph. Left connected, every turn adds
+    // another live microphone tap to the context — a growing render graph
+    // that keeps the audio session looking busy even between turns.
+    const nodes = vadNodesRef.current;
+    vadNodesRef.current = null;
+    if (nodes) {
+      try {
+        nodes.source.disconnect();
+        nodes.analyser.disconnect();
+      } catch {
+        // already gone
+      }
+    }
     const recorder = recorderRef.current;
     recorderRef.current = null;
     if (recorder && recorder.state !== "inactive") {
@@ -577,12 +597,26 @@ export function VoiceAgent({
         liveRecognition.abort();
       }
       cancelRecordedTurn();
-      // iOS can suppress page audio while a capture session is actively
-      // recording. The call's microphone track is MUTED while the advisor
-      // speaks — the stream stays open (no re-prompt), it just goes quiet.
-      callStreamRef.current?.getAudioTracks().forEach((track) => {
-        track.enabled = false;
-      });
+      // iOS keeps the page's audio session in CALL mode while anything still
+      // captures — a live microphone track (merely muting it is not enough)
+      // or a running Web Audio context with a microphone source — and in
+      // that state the advisor's playback is ducked to nothing or routed to
+      // the earpiece: the bar says "Advisor speaking" and the phone stays
+      // silent. So for the length of the line the capture stack comes down
+      // COMPLETELY: recorder cancelled above, microphone tracks STOPPED,
+      // analyser context suspended. The next recorded turn re-acquires the
+      // microphone — same page, already granted, no second prompt.
+      const callTracks = callStreamRef.current?.getAudioTracks() ?? [];
+      if (callTracks.some((track) => track.readyState === "live")) {
+        // iOS releases the record session a beat AFTER the tracks stop, and
+        // playback that starts inside that beat keeps call-mode volume for
+        // the whole line — so the settle clock below starts here.
+        lastMicActivityRef.current = Date.now();
+        callTracks.forEach((track) => track.stop());
+      }
+      if (callCtxRef.current?.state === "running") {
+        void callCtxRef.current.suspend().catch(() => {});
+      }
       setPhase("speaking");
       setSpeakingLine(text);
 
@@ -669,6 +703,7 @@ export function VoiceAgent({
         onDone();
         return;
       }
+      replayRef.current = queue;
       // Fetch the audio for EVERY part now, in parallel, as blobs. The old
       // version warmed the HTTP cache and let the <audio> element re-request
       // each line when its turn came — but Safari's media loader bypasses the
@@ -847,6 +882,7 @@ export function VoiceAgent({
             analyser = ctx.createAnalyser();
             analyser.fftSize = 1024;
             source.connect(analyser);
+            vadNodesRef.current = { source, analyser };
           } catch {
             analyser = null;
           }
@@ -1184,6 +1220,7 @@ export function VoiceAgent({
     // the audio was prewarmed on page load so it plays on the tap itself.
     const greeting = GREETING[lang];
     setTurns([{ role: "agent", text: greeting }]);
+    replayRef.current = [greeting];
     setPhase("speaking");
     void speak(greeting, () => listen());
   }
@@ -1474,6 +1511,16 @@ export function VoiceAgent({
          <span className="va-callbar-text">
            {phase === "listening" ? interim || "…" : phase === "speaking" ? speakingLine : "…"}
          </span>
+         {phase === "listening" && replayRef.current.length ? (
+           <button
+             type="button"
+             className="va-callbar-replay"
+             onClick={() => speakSequence(replayRef.current, () => listen())}
+           >
+             <RotateCcw size={12} aria-hidden="true" />
+             {t.hearAgain}
+           </button>
+         ) : null}
        </div>
      ) : null}
      <div className="va-grid">
