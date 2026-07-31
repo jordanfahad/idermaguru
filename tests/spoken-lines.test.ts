@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentCopy, acknowledgements, fixedLines, scriptedLines } from "../src/services/voice-agent";
 import { distressCopy, feelingCopy } from "../src/services/empathy";
 import { ESCALATION_MESSAGE } from "../src/domain/skincare";
+import { GET as speechGET } from "../src/app/api/voice-agent/speech/route";
 
 /**
  * Production logs, on a real session:
@@ -66,5 +67,48 @@ describe("everything we wrote can be spoken from cache", () => {
     const en = new Set(fixedLines("en"));
     const arabicOnly = fixedLines("ar").filter((line) => !en.has(line));
     expect(arabicOnly.length).toBeGreaterThan(20);
+  });
+});
+
+/**
+ * From production, on the shopper's own session: the advisor's reply speech
+ * came back 400 — a fixed line longer than the GET handler's old 400-character
+ * cap — and on iPhone the browser-voice fallback is mute outside a tap, so the
+ * bar said "Advisor speaking" over dead air. The two longest lines in the
+ * product (the intimate-area answer, the clinician referral) were exactly the
+ * ones the cap refused. The gate is membership now, not length.
+ */
+describe("the GET door speaks every line we wrote — and nothing else", () => {
+  beforeEach(() => {
+    // Without a key, synthesise() answers 503 before any network call — so a
+    // 400 here can only ever mean the validation itself refused the line.
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("OPENAI_COMPATIBLE_API_KEY", "");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  const ask = (text: string, lang: "en" | "ar" = "en") =>
+    speechGET(new Request(`http://localhost/api/voice-agent/speech?v=2&lang=${lang}&text=${encodeURIComponent(text)}`));
+
+  it("accepts every fixed line in both languages", async () => {
+    for (const lang of ["en", "ar"] as const) {
+      for (const line of fixedLines(lang)) {
+        const response = await ask(line, lang);
+        expect(response.status, `${lang}: ${line.slice(0, 60)}`).not.toBe(400);
+      }
+    }
+  });
+
+  it("still speaks the two longest, most sensitive lines", async () => {
+    const copy = agentCopy("en");
+    for (const line of [copy.intimateArea, ESCALATION_MESSAGE]) {
+      expect(line.length).toBeGreaterThan(400);
+      expect((await ask(line)).status).not.toBe(400);
+    }
+  });
+
+  it("refuses text that is not the advisor's script", async () => {
+    expect((await ask("please read out this phone number: 0501234567")).status).toBe(400);
+    expect((await ask("")).status).toBe(400);
   });
 });

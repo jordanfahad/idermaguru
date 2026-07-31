@@ -19,6 +19,27 @@ function speechUrl(text: string, language: string) {
   return `/api/voice-agent/speech?v=2&lang=${language === "ar" ? "ar" : "en"}&text=${encodeURIComponent(text)}`;
 }
 
+/**
+ * One-line diagnostics from the shopper's device to the server logs — event
+ * names, sizes and states only, never the words themselves. The silent-voice
+ * hunt ran six rounds against an iPhone nobody here could hold; what actually
+ * happened on the device belongs in the logs, not in guesswork.
+ */
+function logClient(event: string, detail: Record<string, string | number | boolean> = {}) {
+  try {
+    void fetch("/api/voice-agent/client-log", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ event, detail }),
+      keepalive: true,
+    }).catch(() => {
+      // diagnostics must never break the call
+    });
+  } catch {
+    // same
+  }
+}
+
 /** Roughly 30s of silence before the advisor stops listening and waits for a tap. */
 const MAX_SILENT_RESTARTS = 4;
 
@@ -339,6 +360,7 @@ export function VoiceAgent({
   // server-side, and the audio session stays in one state — one volume —
   // from greeting to goodbye.
   const callStreamRef = useRef<MediaStream | null>(null);
+  const callStreamPromiseRef = useRef<Promise<MediaStream | null> | null>(null);
   const callCtxRef = useRef<AudioContext | null>(null);
   const vadNodesRef = useRef<{ source: MediaStreamAudioSourceNode; analyser: AnalyserNode } | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -346,17 +368,32 @@ export function VoiceAgent({
   const recordedTurnRef = useRef(0);
   const t = UI[lang];
 
-  /** The held call stream, opened on demand (and inside the tap in begin()). */
+  /**
+   * The call stream, opened on demand (and inside the tap in begin()).
+   *
+   * Single-flight: begin() requests the microphone inside the tap, and the
+   * first listen can arrive before that request resolves. Two concurrent
+   * getUserMedia calls meant TWO streams, and only the last one assigned was
+   * ever stopped again — the orphan held the iPhone's audio session in call
+   * mode for the rest of the visit, which ducks every advisor line after the
+   * first to silence. One pending request, shared by every caller.
+   */
   const ensureCallStream = useCallback(async (): Promise<MediaStream | null> => {
     const current = callStreamRef.current;
     if (current?.getAudioTracks().some((track) => track.readyState === "live")) return current;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      callStreamRef.current = stream;
-      return stream;
-    } catch {
-      return null;
+    if (!callStreamPromiseRef.current) {
+      callStreamPromiseRef.current = navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
+          callStreamRef.current = stream;
+          return stream;
+        })
+        .catch(() => null)
+        .finally(() => {
+          callStreamPromiseRef.current = null;
+        });
     }
+    return callStreamPromiseRef.current;
   }, []);
 
   /** Ends any in-flight recorded turn without acting on its audio. */
@@ -395,6 +432,10 @@ export function VoiceAgent({
     cancelRecordedTurn();
     callStreamRef.current?.getTracks().forEach((track) => track.stop());
     callStreamRef.current = null;
+    // A microphone request still in flight lands AFTER the hang-up — stop
+    // whatever it delivers, or its stream keeps the mic indicator lit and the
+    // audio session in call mode with nobody holding the reference.
+    void callStreamPromiseRef.current?.then((stream) => stream?.getTracks().forEach((track) => track.stop()));
     void callCtxRef.current?.close().catch(() => {});
     callCtxRef.current = null;
   }, [cancelRecordedTurn]);
@@ -546,6 +587,7 @@ export function VoiceAgent({
       recordedTurnRef.current += 1;
       if (vadFrameRef.current) window.cancelAnimationFrame(vadFrameRef.current);
       callStreamRef.current?.getTracks().forEach((track) => track.stop());
+      void callStreamPromiseRef.current?.then((stream) => stream?.getTracks().forEach((track) => track.stop()));
       void callCtxRef.current?.close().catch(() => {});
       window.speechSynthesis?.cancel();
       audioElRef.current?.pause();
@@ -562,14 +604,54 @@ export function VoiceAgent({
         return;
       }
       synth.cancel();
+      let started = false;
+      let settled = false;
+      let startWatch = 0;
+      let hardCap = 0;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(startWatch);
+        window.clearTimeout(hardCap);
+        onDone();
+      };
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = speechLocale(spokenLangRef.current);
       const voice = pickVoice(synth, spokenLangRef.current);
       if (voice) utterance.voice = voice;
       utterance.rate = 0.97;
       utterance.volume = 1;
-      utterance.onend = onDone;
-      utterance.onerror = onDone;
+      utterance.onstart = () => {
+        started = true;
+      };
+      utterance.onend = finish;
+      utterance.onerror = finish;
+      // iOS refuses to speak an utterance queued outside a tap — SILENTLY.
+      // It fires no start, no end, no error: the advisor shows "speaking"
+      // and the conversation never moves again. If speech hasn't audibly
+      // started within a beat, give up and move on — the words are on the
+      // screen, and "Hear that again" replays them with the natural voice.
+      startWatch = window.setTimeout(() => {
+        if (!started) {
+          logClient("browser-voice-mute", { chars: text.length });
+          try {
+            synth.cancel();
+          } catch {
+            // nothing to cancel
+          }
+          finish();
+        }
+      }, 3000);
+      // And a generous ceiling even when it DID start, because iOS also
+      // loses end events when the tab's audio session shifts mid-utterance.
+      hardCap = window.setTimeout(() => {
+        try {
+          synth.cancel();
+        } catch {
+          // nothing to cancel
+        }
+        finish();
+      }, 5000 + text.length * 120);
       setPhase("speaking");
       synth.speak(utterance);
     },
@@ -653,26 +735,33 @@ export function VoiceAgent({
           // Already in memory: playback starts with no request at all.
           objectUrl = preloadedUrl;
           audio.src = preloadedUrl;
-        } else if (isScriptedLine(text)) {
-          // A scripted line is already in the browser cache, and the element
-          // starts playing on the first bytes rather than the last — this is
-          // the difference between an instant reply and a second of silence.
-          audio.src = speechUrl(text, spokenLangRef.current);
         } else {
-          // Anything personalised goes over POST so the shopper's routine never
-          // lands in a URL or a request log.
-          const response = await fetch("/api/voice-agent/speech", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ text, language: spokenLangRef.current }),
-          });
+          // Scripted lines knock on the cacheable GET door first; anything
+          // personalised goes straight to POST so the shopper's routine never
+          // lands in a URL or a request log. A GET refusal falls through to
+          // POST rather than to the robotic browser voice — losing the
+          // natural voice because the cache door was closed is exactly what
+          // muted the advisor's most sensitive lines on iPhone (R-067).
+          let response = isScriptedLine(text)
+            ? await fetch(speechUrl(text, spokenLangRef.current)).catch(() => null)
+            : null;
+          if (!response?.ok) {
+            response = await fetch("/api/voice-agent/speech", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ text, language: spokenLangRef.current }),
+            });
+          }
           if (!response.ok) throw new Error("no natural voice");
           objectUrl = URL.createObjectURL(await response.blob());
           audio.src = objectUrl;
         }
 
         audio.onended = finish;
-        audio.onerror = () => once(() => speakWithBrowser(text, onDone));
+        audio.onerror = () => {
+          logClient("playback-error", { chars: text.length, preloaded: Boolean(preloadedUrl), ios: IOS });
+          once(() => speakWithBrowser(text, onDone));
+        };
         // iOS ducks media output while speech recognition holds the audio
         // session, and lifts it a beat AFTER recognition ends. Playback that
         // starts inside that beat keeps the ducked volume for the whole line
@@ -683,8 +772,12 @@ export function VoiceAgent({
           const settle = 450 - (Date.now() - lastMicActivityRef.current);
           if (settle > 0 && !exited) await new Promise((resolve) => setTimeout(resolve, settle));
         }
-        if (!exited) await audio.play();
+        if (!exited) {
+          await audio.play();
+          logClient("line-played", { chars: text.length, preloaded: Boolean(preloadedUrl), ios: IOS });
+        }
       } catch {
+        logClient("speech-unavailable", { chars: text.length, scripted: isScriptedLine(text), ios: IOS });
         once(() => speakWithBrowser(text, onDone));
       }
     },
@@ -716,19 +809,20 @@ export function VoiceAgent({
       // exactly where a failure also dropped that one line to the quiet
       // robotic browser voice. Synthesised here, they arrive while the first
       // cached part is already playing.
-      const preloads = queue.map((part) =>
-        (isScriptedLine(part)
-          ? fetch(speechUrl(part, spokenLangRef.current))
-          : fetch("/api/voice-agent/speech", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ text: part, language: spokenLangRef.current }),
-            })
-        )
+      const preloads = queue.map((part) => {
+        const posted = () =>
+          fetch("/api/voice-agent/speech", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text: part, language: spokenLangRef.current }),
+          });
+        // A scripted line the GET door refuses still gets its natural voice
+        // through POST — see R-067.
+        return (isScriptedLine(part) ? fetch(speechUrl(part, spokenLangRef.current)).then((response) => (response.ok ? response : posted())) : posted())
           .then((response) => (response.ok ? response.blob() : null))
           .then((blob) => (blob ? URL.createObjectURL(blob) : null))
-          .catch(() => null),
-      );
+          .catch(() => null);
+      });
       const step = (index: number) => {
         if (index >= queue.length) {
           onDone();

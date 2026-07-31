@@ -1,8 +1,19 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { fixedLines } from "@/services/voice-agent";
 import { jsonError, parseJson, RequestValidationError } from "../../_shared";
 
 export const runtime = "nodejs";
+
+/**
+ * The only lines GET will speak — the advisor's own script, the same list the
+ * client uses to decide which door to knock on. Membership is the gate, not
+ * length: a 400-character cap here silently refused the two LONGEST lines in
+ * the product (the intimate-area answer and the clinician referral), and on
+ * iPhone the browser-voice fallback is mute outside a tap — so the advisor's
+ * most sensitive answers played as dead air with "Advisor speaking" showing.
+ */
+const SCRIPTED = new Set([...fixedLines("en"), ...fixedLines("ar")].map((line) => line.trim()));
 
 /**
  * Per-instance cache of synthesised lines. The interview asks the same handful
@@ -199,7 +210,8 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const text = url.searchParams.get("text")?.trim() ?? "";
   const language = url.searchParams.get("lang") === "ar" ? "ar" : "en";
-  if (!text || text.length > 400) return jsonError("A short line of text is required.");
-  // GET only ever carries a line we wrote ourselves — see fixedLines().
+  // Anything that is not the advisor's own script goes through POST — which
+  // also keeps arbitrary text out of the CDN's forever-cache.
+  if (!text || !SCRIPTED.has(text)) return jsonError("GET speaks only the advisor's scripted lines.");
   return synthesise(text, language, true);
 }
