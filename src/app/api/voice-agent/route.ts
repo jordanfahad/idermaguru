@@ -86,6 +86,7 @@ const SlotsSchema = z.object({
   pinnedIds: z.array(z.string()).optional(),
   dislikedBrands: z.array(z.string()).optional(),
   preferredOrigin: z.enum(["korean", "french"]).optional(),
+  keptConcerns: z.array(z.string()).optional(),
 });
 
 const AgentSchema = z.object({
@@ -988,7 +989,12 @@ export async function POST(request: Request) {
       // The face path has said "same 3 steps — tell me what you'd change"
       // instead of re-reading itself for a while; the hair path read the
       // identical routine out loud every time anything fell through to it.
-      const hairIds = hairMatches.map((match) => match.id);
+      const keptForHair = await keptRoutineItems(slots, pickable, profile, tenant.id, safety);
+      const hairCombined = [
+        ...keptForHair.filter((item) => !hairMatches.some((match) => match.id === item.id)),
+        ...hairMatches,
+      ];
+      const hairIds = hairCombined.map((match) => match.id);
       const sameHair =
         Boolean(before.gaveRoutine) &&
         before.lastRoutine?.length === hairIds.length &&
@@ -1011,7 +1017,7 @@ export async function POST(request: Request) {
         safetyLevel: safety.level,
         language: spoken,
         rtl: isRtl(spoken),
-        products: hairMatches,
+        products: hairCombined,
       });
     }
 
@@ -1098,7 +1104,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const faceItems = applyPins(
+    const faceOwn = applyPins(
       recommendation.items.map(routineItemToProduct),
       slots.pinnedIds,
       products,
@@ -1106,7 +1112,12 @@ export async function POST(request: Request) {
       tenant.id,
       safety,
     );
-    const count = faceItems.length;
+    const keptForFace = await keptRoutineItems(slots, pickable, profile, tenant.id, safety);
+    const faceItems = [
+      ...keptForFace.filter((item) => !faceOwn.some((own) => own.id === item.id)),
+      ...faceOwn,
+    ];
+    const count = faceOwn.length;
     const routineIds = faceItems.map((item) => item.id);
 
     // Did anything we just did actually change what they are looking at? The
@@ -1376,6 +1387,34 @@ function speakParts(spoken: LanguageCode, ...parts: (string | undefined)[]): str
  * that skips what the catalogue cannot fill is honest.
  */
 /** Which routine item an utterance is talking about, by product or step name. */
+/**
+ * The routines already FINISHED in this visit, rebuilt so they stay on
+ * screen beside the new one — dandruff products above, acne products below,
+ * one cart carrying both.
+ */
+async function keptRoutineItems(
+  slots: AgentSlots,
+  products: ProductCatalogItem[],
+  profile: IntakeProfileInput,
+  tenantId: string,
+  safety: SafetyTriage,
+): Promise<ReturnType<typeof routineItemToProduct>[]> {
+  const kept: ReturnType<typeof routineItemToProduct>[] = [];
+  for (const concern of slots.keptConcerns ?? []) {
+    const built = isHairConcern(concern)
+      ? pickHairProducts(products, concern, profile, tenantId, safety)
+      : buildRecommendations({
+          tenantId,
+          profile: { ...profile, mainConcern: concern },
+          safety,
+          products,
+          sponsoredEnabled: true,
+        }).items.map(routineItemToProduct);
+    kept.push(...(await inStockOnly(built)));
+  }
+  return kept;
+}
+
 /** True when any rejected brand word matches this product's name. */
 function blockedByBrand(name: string, brands: string[] | undefined): boolean {
   return Boolean(brands?.some((token) => nameMatchesBrandToken(name, token)));

@@ -71,6 +71,13 @@ export type AgentSlots = {
   dislikedBrands?: string[];
   /** "Only Korean brands" — honoured wherever the brand registry knows origins. */
   preferredOrigin?: "korean" | "french";
+  /**
+   * Concerns whose routines are FINISHED and must stay on screen. Switching
+   * from dandruff to acne used to REPLACE the hair routine with the face one;
+   * the shopper asked "did you remove it?" and the cart could only ever carry
+   * whichever routine happened to be visible.
+   */
+  keptConcerns?: string[];
 };
 
 /**
@@ -160,8 +167,16 @@ export function readNewConcern(utterance: string, currentConcern: string | undef
 export function beginConcern(slots: AgentSlots, utterance: string): AgentSlots {
   const text = utterance.trim();
   const area = extractBodyArea(text) ?? (isHairConcern(text) ? "scalp" : undefined);
+  // A finished routine from a DIFFERENT domain stays on screen. Same-domain
+  // switches replace (two face routines would double every step).
+  const oldConcern = slots.gaveRoutine ? slots.mainConcern : undefined;
+  const differentDomain = oldConcern && isHairConcern(oldConcern) !== isHairConcern(text);
+  const kept = differentDomain
+    ? [...(slots.keptConcerns ?? []).filter((concern) => concern !== oldConcern), oldConcern].slice(-2)
+    : slots.keptConcerns;
   return {
     ...slots,
+    keptConcerns: kept,
     mainConcern: text,
     bodyArea: area,
     bodyAreaUnknown: undefined,

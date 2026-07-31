@@ -108,7 +108,9 @@ describe("a second concern starts a second conversation", () => {
     expect((payload.products ?? []).length).toBeGreaterThan(0);
     const slotsUsed = (payload.products ?? []).map((product: { slot: string }) => product.slot);
     expect(slotsUsed).toContain("cleanser");
-    expect(slotsUsed).not.toContain("shampoo");
+    // The dandruff routine deliberately STAYS beside the acne one now —
+    // two concerns, two sections, one cart.
+    expect(slotsUsed).toContain("shampoo");
   });
 });
 
