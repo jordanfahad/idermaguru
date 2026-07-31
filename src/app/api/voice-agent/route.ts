@@ -33,10 +33,12 @@ import {
   readProductQuery,
   readAdjustment,
   readFollowup,
+  nameMatchesBrandToken,
   readNewConcern,
   readsDone,
   readsMicCheck,
   readsMore,
+  readsStillThere,
   slotsToProfile,
   summariseSlots,
   updateSlots,
@@ -81,6 +83,7 @@ const SlotsSchema = z.object({
   sawPhoto: z.boolean().optional(),
   awaitingConcern: z.boolean().optional(),
   pinnedIds: z.array(z.string()).optional(),
+  dislikedBrands: z.array(z.string()).optional(),
 });
 
 const AgentSchema = z.object({
@@ -301,6 +304,9 @@ export async function POST(request: Request) {
       !done && !wantsMore && !newConcern && !adjusting && !awaitingAllergens && !awaitingArea
         ? readProductQuery(input.utterance)
         : null;
+    // "It's still there" is a complaint about the routine, not a tangent —
+    // it got "outside my world" at the exact moment trust needed repairing.
+    const grievance = routineSettled && !newConcern && readsStillThere(input.utterance);
     const aside =
       before.mainConcern &&
       !awaitingAllergens &&
@@ -311,7 +317,8 @@ export async function POST(request: Request) {
       !done &&
       !wantsMore &&
       !newConcern &&
-      !productQuery
+      !productQuery &&
+      !grievance
         ? classifyAside(input.utterance)
         : null;
 
@@ -379,7 +386,7 @@ export async function POST(request: Request) {
     // of these used to bounce: the first two off the tangent classifier, the
     // last into a verbatim re-read of the routine. A new concern outranks
     // every one of them: that sentence is about the new thing.
-    if ((followup || productQuery) && !newConcern) {
+    if ((followup || productQuery || grievance) && !newConcern) {
       const tenantF = await getTenantBySlug(input.tenantSlug);
       if (tenantF) {
         const profileF = slotsToProfile(before, input.sessionId);
@@ -397,8 +404,11 @@ export async function POST(request: Request) {
         const build = (
           exclude: Set<string>,
           pins: string[] | undefined = before.pinnedIds,
+          brands: string[] | undefined = before.dislikedBrands,
         ): ReturnType<typeof routineItemToProduct>[] => {
-          const available = exclude.size ? productsF.filter((product) => !exclude.has(product.id)) : productsF;
+          const available = productsF.filter(
+            (product) => !exclude.has(product.id) && !blockedByBrand(product.name, brands),
+          );
           const built = hairF
             ? pickHairProducts(available, before.mainConcern ?? "", profileF, tenantF.id, safetyF)
             : bodyF
@@ -530,8 +540,68 @@ export async function POST(request: Request) {
           }
         }
 
-        const current = followup ? build(disliked) : [];
+        const current = followup || grievance ? build(disliked) : [];
+
+        // "IT'S STILL THERE." The shopper says the routine still holds what
+        // they rejected. Believe them: re-read the sentence for a brand or
+        // product word, apply every exclusion again, and answer with either
+        // the apology and the fix, or proof that the screen is clean.
+        if (grievance) {
+          const complaint = readBrandComplaint(input.utterance, current, false);
+          let brands = before.dislikedBrands;
+          if (complaint) {
+            brands = [...(brands ?? []).filter((token) => token !== complaint.token), complaint.token];
+            complaint.hits.forEach((hit) => disliked.add(hit.id));
+          }
+          const rebuilt = await inStockOnly(build(disliked, before.pinnedIds, brands));
+          const ids = rebuilt.map((item) => item.id);
+          const unchanged =
+            before.lastRoutine?.length === ids.length && before.lastRoutine.every((id, index) => id === ids[index]);
+          const line = unchanged ? copy.checkedClean : copy.youAreRight;
+          return NextResponse.json({
+            reply: await say(line),
+            speech: speakable(spoken, "", line),
+            phase: "result",
+            slots: {
+              ...before,
+              dislikedIds: disliked.size ? [...disliked] : before.dislikedIds,
+              dislikedBrands: brands,
+              lastRoutine: unchanged ? before.lastRoutine : ids,
+            },
+            products: unchanged ? [] : rebuilt,
+            language: spoken,
+            rtl: isRtl(spoken),
+          });
+        }
+
         if (followup && current.length) {
+          // A rejected BRAND leaves whole. "I don't like laroche, only Korean
+          // brands" used to swap ONE product — for another La Roche-Posay.
+          if (followup === "swap") {
+            const complaint = readBrandComplaint(input.utterance, current, true);
+            if (complaint) {
+              const brands = [
+                ...(before.dislikedBrands ?? []).filter((token) => token !== complaint.token),
+                complaint.token,
+              ];
+              complaint.hits.forEach((hit) => disliked.add(hit.id));
+              const rebuilt = await inStockOnly(build(disliked, before.pinnedIds, brands));
+              return NextResponse.json({
+                reply: await say(copy.brandDropped),
+                speech: speakable(spoken, "", copy.brandDropped),
+                phase: "result",
+                slots: {
+                  ...before,
+                  dislikedIds: [...disliked],
+                  dislikedBrands: brands,
+                  lastRoutine: rebuilt.map((item) => item.id),
+                },
+                products: rebuilt,
+                language: spoken,
+                rtl: isRtl(spoken),
+              });
+            }
+          }
           const target = matchRoutineItem(input.utterance, current);
 
           if (followup === "why") {
@@ -815,7 +885,9 @@ export async function POST(request: Request) {
     // directly, so without this a "make it stronger" after a swap brought the
     // disliked product straight back.
     const dislikedNow = new Set(slots.dislikedIds ?? []);
-    const pickable = dislikedNow.size ? products.filter((product) => !dislikedNow.has(product.id)) : products;
+    const pickable = products.filter(
+      (product) => !dislikedNow.has(product.id) && !blockedByBrand(product.name, slots.dislikedBrands),
+    );
 
     // Hair and scalp concerns don't fit the face-routine slot model, so match
     // them directly against the catalogue instead of building an AM/PM routine.
@@ -913,7 +985,10 @@ export async function POST(request: Request) {
       tenantId: tenant.id,
       profile,
       safety,
-      products,
+      // Disliked products and brands are gone from the LIST, not just the
+      // exclusion set — the sold-out rebuild overwrites excludeProductIds,
+      // and an exclusion that lives in the list cannot be overwritten.
+      products: pickable,
       sponsoredEnabled: true,
       // A swapped-away product stays away, whatever else changes later.
       excludeProductIds: new Set(slots.dislikedIds ?? []),
@@ -1225,6 +1300,46 @@ function speakParts(spoken: LanguageCode, ...parts: (string | undefined)[]): str
  * that skips what the catalogue cannot fill is honest.
  */
 /** Which routine item an utterance is talking about, by product or step name. */
+/** True when any rejected brand word matches this product's name. */
+function blockedByBrand(name: string, brands: string[] | undefined): boolean {
+  return Boolean(brands?.some((token) => nameMatchesBrandToken(name, token)));
+}
+
+const BRAND_COMPLAINT_STOPWORDS = new Set([
+  "dont", "like", "want", "hate", "avoid", "without", "remove", "drop", "never", "this", "that",
+  "these", "those", "only", "just", "please", "brand", "brands", "korean", "japanese", "french",
+  "product", "products", "anything", "everything", "with", "from", "more", "again", "still",
+  "there", "here", "recommendation", "routine", "saying", "said", "have", "some", "something",
+]);
+
+/**
+ * A brand-level rejection, read against the routine on screen.
+ *
+ * The token must actually match something being shown — that is what keeps
+ * "I don't like the cleanser" a single-product swap (one hit, no brand cue)
+ * and makes "I don't like laroche, only korean brands" a brand eviction
+ * (several hits, or one hit plus a brand-shaped sentence).
+ */
+function readBrandComplaint<T extends { id: string; name: string }>(
+  utterance: string,
+  items: T[],
+  requireCue: boolean,
+): { token: string; hits: T[] } | null {
+  const text = utterance.toLowerCase();
+  if (requireCue && !/(?:don'?t|do not|dont)\s+(?:like|want)|no more|hate|avoid|without|remove|drop|never/.test(text)) {
+    return null;
+  }
+  const tokens = text
+    .split(/[^a-z0-9\u0600-\u06ff]+/)
+    .filter((token) => token.length >= 4 && !BRAND_COMPLAINT_STOPWORDS.has(token));
+  for (const token of tokens) {
+    const hits = items.filter((item) => nameMatchesBrandToken(item.name, token));
+    if (hits.length >= 2) return { token, hits };
+    if (hits.length === 1 && /\b(?:brand|brands|only|all|anything|everything)\b/.test(text)) return { token, hits };
+  }
+  return null;
+}
+
 // Face-side concern words, used only to spot a two-concern opening — the hair
 // side is isHairConcern, which routing already trusts.
 const FACE_CONCERN =

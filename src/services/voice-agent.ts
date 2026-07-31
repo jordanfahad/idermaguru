@@ -62,6 +62,13 @@ export type AgentSlots = {
    * specifically requested.
    */
   pinnedIds?: string[];
+  /**
+   * Brand words the shopper rejected ("I don't like laroche — only Korean
+   * brands"). Matched fuzzily against product NAMES, because merchant feeds
+   * put the store's own name in the brand column. A brand dislike is about
+   * the person, not the concern: it survives topic switches.
+   */
+  dislikedBrands?: string[];
 };
 
 /**
@@ -208,7 +215,7 @@ export function readProductQuery(input: string): string[] | null {
  * Whether two tokens are within two edits of each other — the scale of damage
  * speech-to-text does to a brand name ("Miley" for "Mielle").
  */
-function closeEnough(a: string, b: string): boolean {
+export function closeEnough(a: string, b: string): boolean {
   if (Math.abs(a.length - b.length) > 2) return false;
   const rows = a.length + 1;
   const cols = b.length + 1;
@@ -287,6 +294,40 @@ export function readsDone(utterance: string): boolean {
 
 export function readsMore(utterance: string): boolean {
   return WANTS_MORE.test(utterance.trim());
+}
+
+/**
+ * "It's still there" — the shopper says the routine still contains the thing
+ * they rejected. It named nothing in the skin vocabulary, so it got "That
+ * one's outside my world" at the exact moment trust needed repairing.
+ */
+const STILL_THERE =
+  /\b(?:(?:it'?s?|is|are|they'?re?) still (?:there|here|showing|in|the same)|still (?:there|showing|in the (?:routine|list|recommendation))|didn'?t (?:change|swap|remove|listen)|hasn'?t (?:changed|gone)|not (?:changed|removed|gone)|you kept (?:it|them)|(?:same|identical) (?:thing|product|routine|list) again)\b|ما زال موجود|لا يزال موجود|لم يتغير|نفس الشيء/i;
+
+export function readsStillThere(input: string): boolean {
+  return STILL_THERE.test(normaliseTranscript(input)) || STILL_THERE.test(input);
+}
+
+/**
+ * The word a shopper used for a brand they reject, matched against a product
+ * name. Fuzzy on purpose: speech-to-text writes "laroche" for La Roche-Posay,
+ * and name words are also tried joined in pairs so split brand names match.
+ */
+export function nameMatchesBrandToken(productName: string, token: string): boolean {
+  const needle = token.toLowerCase();
+  if (needle.length < 4) return false;
+  const words = productName
+    .toLowerCase()
+    .split(/[^a-z0-9؀-ۿ]+/)
+    .filter(Boolean);
+  const candidates = [...words];
+  for (let i = 0; i < words.length - 1; i += 1) candidates.push(`${words[i]}${words[i + 1]}`);
+  return candidates.some(
+    (word) =>
+      word === needle ||
+      (word.length >= 4 && (word.startsWith(needle) || needle.startsWith(word))) ||
+      (word.length >= 5 && needle.length >= 5 && closeEnough(word, needle)),
+  );
 }
 
 /**
@@ -820,6 +861,14 @@ const COPY = {
     // plain refusal claimed to be the only product that fits, which was untrue.
     swapSoldOut:
       "There is an alternative for that step, but it's out of stock right now — I'd rather leave you something you can actually buy today than swap in something you can't.",
+    // A rejected BRAND leaves whole, not one product at a time — swapping one
+    // La Roche-Posay for another La Roche-Posay is the opposite of listening.
+    brandDropped:
+      "Fair enough — everything with that name on it is out, for good. Here's your routine without it.",
+    // "It's still there" answered with an apology and the fix, never a shrug.
+    youAreRight: "You're right — my mistake, and it's gone now. Here's the corrected routine.",
+    checkedClean:
+      "I've just double-checked the routine on your screen — the one you didn't want isn't in it. If something still looks wrong, name the product and I'll take it out.",
   },
   ar: {
     greeting: "مرحباً — أنا مستشار البشرة. أخبرني ما الذي يزعج بشرتك أو شعرك.",
@@ -931,6 +980,10 @@ const COPY = {
     twoThings: "فهمت — هذان أمران، فلنأخذهما واحداً تلو الآخر: الشعر أولاً.",
     swapSoldOut:
       "يوجد بديل لهذه الخطوة فعلاً، لكنه نافد من المخزون حالياً — أفضّل أن أترك لك ما يمكنك شراؤه اليوم بدل أن أضع ما لا يمكنك شراؤه.",
+    brandDropped: "تمام — استبعدت كل ما يحمل هذا الاسم نهائياً. هذا روتينك من دونه.",
+    youAreRight: "معك حق — كان خطئي، وقد أزلته الآن. هذا هو الروتين المصحّح.",
+    checkedClean:
+      "راجعت الروتين المعروض أمامك للتو — المنتج الذي لم ترغب به ليس فيه. إن كان شيء آخر يبدو خاطئاً، سمِّ المنتج وسأزيله.",
   },
 };
 
@@ -1035,6 +1088,9 @@ export function fixedLines(lang: AgentLang): string[] {
     copy.productNotStocked,
     copy.swapSoldOut,
     copy.twoThings,
+    copy.brandDropped,
+    copy.youAreRight,
+    copy.checkedClean,
     ESCALATION_MESSAGE,
     ...COUNTS.map((count) => copy.result(count)),
     ...COUNTS.map((count) => copy.hairResult(count)),
