@@ -64,6 +64,57 @@ afterEach(() => {
  * authored languages untouched, so before this the most frightening moment of
  * an Arabic conversation was answered in English.
  */
+/**
+ * From two screenshots of one live session: the shopper tried to leave three
+ * times. "Goodbye." was answered with a rebuilt routine ("I'd still put you on
+ * the same 3 steps"), "Goodbye, thank you so much." with "Any time.", and
+ * "Bye-bye." with "That one's outside my world" — the worst possible reply to
+ * someone saying goodbye. A farewell ends the visit warmly, from anywhere.
+ */
+describe("the advisor can say goodbye", () => {
+  const toRoutine = () => converse(["I have dark spots and dull skin", "combination", "no", "no"]);
+
+  it("hears 'Goodbye.' after a routine instead of rebuilding it", async () => {
+    const { slots } = await toRoutine();
+    const payload = await ask("Goodbye.", slots);
+    expect(payload.phase).toBe("farewell");
+    expect(payload.reply).toMatch(/whenever you're ready/i);
+    expect(payload.reply).not.toMatch(/same 3|another look/i);
+  });
+
+  it("hears a goodbye wrapped in thanks", async () => {
+    const { slots } = await toRoutine();
+    const payload = await ask("Goodbye, thank you so much.", slots);
+    expect(payload.phase).toBe("farewell");
+  });
+
+  it("hears 'Bye-bye.' instead of calling it off-topic", async () => {
+    const { slots } = await toRoutine();
+    const payload = await ask("Bye-bye.", slots);
+    expect(payload.phase).toBe("farewell");
+    expect(payload.reply).not.toMatch(/outside my world/i);
+  });
+
+  it("still treats plain thanks as a moment, not an exit", async () => {
+    const { slots } = await toRoutine();
+    const payload = await ask("Anu, thank you so much. You are super smart. I love you.", slots);
+    expect(payload.phase).not.toBe("farewell");
+    expect(payload.reply).toMatch(/any time/i);
+  });
+
+  it("lets a shopper leave mid-interview too", async () => {
+    const first = await ask("I have dark spots and dull skin");
+    const payload = await ask("goodbye", first.slots);
+    expect(payload.phase).toBe("farewell");
+  });
+
+  it("ends an Arabic visit on \u0645\u0639 \u0627\u0644\u0633\u0644\u0627\u0645\u0629", async () => {
+    const { slots } = await toRoutine();
+    const payload = await ask("\u0645\u0639 \u0627\u0644\u0633\u0644\u0627\u0645\u0629", slots);
+    expect(payload.phase).toBe("farewell");
+  });
+});
+
 describe("the referral speaks the shopper's language", () => {
   it("answers an Arabic-language red flag with the Arabic referral", async () => {
     // Bilingual phrasing, the way Gulf shoppers actually talk: Arabic framing

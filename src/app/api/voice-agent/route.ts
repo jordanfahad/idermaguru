@@ -37,6 +37,7 @@ import {
   readNewConcern,
   readOriginPreference,
   readsDone,
+  readsFarewell,
   readsMicCheck,
   readsMore,
   readsStillThere,
@@ -293,7 +294,14 @@ export async function POST(request: Request) {
     // after "anything else?" was answered yes, the next utterance IS the new
     // concern whatever words it uses.
     const routineSettled = Boolean(before.gaveRoutine) && !nextQuestion(before, lang);
-    const done = (routineSettled || Boolean(before.awaitingConcern)) && readsDone(input.utterance);
+    // A goodbye ends the visit from ANYWHERE — mid-interview, over a routine,
+    // while the closer waits. It outranks every conversational reader below:
+    // left to them, "Goodbye." rebuilt the routine, "Goodbye, thank you so
+    // much." was answered "Any time.", and "Bye-bye." got the off-topic
+    // brush-off — a shopper trying to leave three times, never heard.
+    const done =
+      readsFarewell(input.utterance) ||
+      ((routineSettled || Boolean(before.awaitingConcern)) && readsDone(input.utterance));
     const wantsMore = routineSettled && !before.awaitingConcern && readsMore(input.utterance);
     const newConcern = done
       ? null

@@ -314,6 +314,29 @@ export function readsMore(utterance: string): boolean {
 }
 
 /**
+ * "Goodbye", however it is said — with thanks, with warmth, in either
+ * language. From a live session: "Goodbye." was answered with a rebuilt
+ * routine, "Goodbye, thank you so much." with "Any time.", and "Bye-bye."
+ * with the off-topic brush-off — three attempts to leave, none heard. A
+ * farewell is one or more goodbye words surrounded by nothing but courtesy;
+ * any substantive word ("bye bye blackheads") means it is not a goodbye.
+ */
+const FAREWELL_CORE =
+  "(?:good\\s?bye|bye(?: ?bye)?|farewell|ciao|cya|see (?:you|ya)(?: later| soon| around)?|take care|good night|catch you later|i(?:'m| am) (?:off|leaving|heading (?:off|out))|(?:i )?(?:got|gotta|have) to (?:go|run)|مع السلامة|السلامة|سلامات|وداعا|وداعاً|باي(?: باي)?|تصبح على خير|تصبحين على خير)";
+const FAREWELL_COURTESY =
+  "(?:thank(?:s| you)?(?: so much| a lot| very much)?|so much|really|ok(?:ay)?|all right|alright|great|perfect|lovely|wonderful|amazing|that'?s all|my dear|dear|i love you|love you|good|then|for now|and|شكرا|شكراً|جزيلا|جزيلاً|لك|كثير|يا عزيزي|يا عزيزتي|حبيبي|حبيبتي|تمام|خلاص)";
+const FAREWELL = new RegExp(`^(?:${FAREWELL_COURTESY} )*${FAREWELL_CORE}(?: ${FAREWELL_COURTESY})*$`, "i");
+
+export function readsFarewell(utterance: string): boolean {
+  const clean = utterance
+    .toLowerCase()
+    .replace(/[.,!?؟…—-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return FAREWELL.test(clean);
+}
+
+/**
  * "It's still there" — the shopper says the routine still contains the thing
  * they rejected. It named nothing in the skin vocabulary, so it got "That
  * one's outside my world" at the exact moment trust needed repairing.

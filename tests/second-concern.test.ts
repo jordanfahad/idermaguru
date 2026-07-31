@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { seedProducts, seedTenant } from "../src/data/seed-catalog";
-import { agentCopy, beginConcern, readNewConcern, readsDone, readsMore } from "../src/services/voice-agent";
+import { agentCopy, beginConcern, readNewConcern, readsDone, readsFarewell, readsMore } from "../src/services/voice-agent";
 import { resetStockCache } from "../src/services/stock";
 
 /**
@@ -151,6 +151,37 @@ describe("the routine ends with the door held open", () => {
     expect(readsDone("no")).toBe(true);
     expect(readsMore("yes")).toBe(true);
     expect(readsDone("no salicylic acid")).toBe(false);
+  });
+
+  it("hears a goodbye however it is wrapped", () => {
+    // From a live session: three goodbyes in a row, none of them heard.
+    for (const line of [
+      "Goodbye.",
+      "Goodbye, thank you so much.",
+      "Bye-bye.",
+      "bye",
+      "ok bye",
+      "see you later",
+      "take care",
+      "thank you so much goodbye",
+      "مع السلامة",
+      "باي",
+      "وداعاً",
+    ]) {
+      expect(readsFarewell(line), line).toBe(true);
+    }
+  });
+
+  it("does not mistake substance next to a goodbye word for a farewell", () => {
+    for (const line of [
+      "bye bye blackheads",
+      "goodbye to my dark spots",
+      "thank you so much",
+      "I love you",
+      "my mole is bleeding, goodbye",
+    ]) {
+      expect(readsFarewell(line), line).toBe(false);
+    }
   });
 
   it("keeps the person when the topic changes", () => {
