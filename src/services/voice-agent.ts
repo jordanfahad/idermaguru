@@ -69,6 +69,8 @@ export type AgentSlots = {
    * the person, not the concern: it survives topic switches.
    */
   dislikedBrands?: string[];
+  /** "Only Korean brands" — honoured wherever the brand registry knows origins. */
+  preferredOrigin?: "korean" | "french";
 };
 
 /**
@@ -103,7 +105,7 @@ const ASKS_WHY =
 // Word-bounded throughout: without \b, "whatever" contains "hate" and a
 // perfectly agreeable sentence reads as a demand to swap.
 const ASKS_SWAP =
-  /\b(?:swap|replace|different one|something else|another (?:one|option|product)|other options?|alternative)\b|\bdon'?t (?:like|want|trust)\b|\bnot a fan\b|\bhate\b|\binstead of\b|\btoo expensive\b|\bcheaper\b/;
+  /\b(?:swap|replace|remove|different one|something else|another (?:one|option|product)|other options?|alternative)\b|\btake (?:it|that|this)? ?(?:out|off)\b|\bget rid of\b|\bdon'?t (?:like|want|trust|need)\b|\bnot a fan\b|\bhate\b|\binstead of\b|\btoo expensive\b|\bcheaper\b/;
 export function readFollowup(input: string): RoutineFollowup | null {
   const text = normaliseTranscript(input);
   if (!text) return null;
@@ -302,7 +304,19 @@ export function readsMore(utterance: string): boolean {
  * one's outside my world" at the exact moment trust needed repairing.
  */
 const STILL_THERE =
-  /\b(?:(?:it'?s?|is|are|they'?re?) still (?:there|here|showing|in|the same)|still (?:there|showing|in the (?:routine|list|recommendation))|didn'?t (?:change|swap|remove|listen)|hasn'?t (?:changed|gone)|not (?:changed|removed|gone)|you kept (?:it|them)|(?:same|identical) (?:thing|product|routine|list) again)\b|ما زال موجود|لا يزال موجود|لم يتغير|نفس الشيء/i;
+  /\b(?:(?:it'?s?|is|are|they'?re?) still (?:there|here|showing|in|the same)|still (?:there|showing|see|selling|sells?|shows?|stocks?|in the (?:routine|list|recommendation))|can still see|didn'?t (?:change|swap|remove|listen)|hasn'?t (?:changed|gone)|not (?:changed|removed|gone)|you kept (?:it|them)|(?:same|identical) (?:thing|product|routine|list) again)\b|ما زال موجود|لا يزال موجود|لم يتغير|نفس الشيء/i;
+
+const ONLY_KOREAN =
+  /\b(?:only|just) (?:korean|k[- ]?beauty)\b|\bkorean (?:brands?|products?)?\s*only\b|\bkorean brands? please\b|كوري(?:ة)? فقط|فقط الكوري/i;
+const ONLY_FRENCH = /\b(?:only|just) french\b|\bfrench (?:pharmacy |brands? )?only\b|فرنسي(?:ة)? فقط/i;
+
+/** "Only Korean brands please" — a standing preference, not a one-off swap. */
+export function readOriginPreference(input: string): "korean" | "french" | undefined {
+  const text = normaliseTranscript(input);
+  if (ONLY_KOREAN.test(text) || ONLY_KOREAN.test(input)) return "korean";
+  if (ONLY_FRENCH.test(text) || ONLY_FRENCH.test(input)) return "french";
+  return undefined;
+}
 
 export function readsStillThere(input: string): boolean {
   return STILL_THERE.test(normaliseTranscript(input)) || STILL_THERE.test(input);
@@ -315,7 +329,9 @@ export function readsStillThere(input: string): boolean {
  */
 export function nameMatchesBrandToken(productName: string, token: string): boolean {
   const needle = token.toLowerCase();
-  if (needle.length < 4) return false;
+  // Three-letter words ("oil", "gel") match exactly or not at all; the fuzzy
+  // paths below already demand longer words on both sides.
+  if (needle.length < 3) return false;
   const words = productName
     .toLowerCase()
     .split(/[^a-z0-9؀-ۿ]+/)
@@ -869,6 +885,8 @@ const COPY = {
     youAreRight: "You're right — my mistake, and it's gone now. Here's the corrected routine.",
     checkedClean:
       "I've just double-checked the routine on your screen — the one you didn't want isn't in it. If something still looks wrong, name the product and I'll take it out.",
+    originOnly: (origin: "korean" | "french") =>
+      `Done — from here I'll only pick from ${origin === "korean" ? "Korean" : "French"} brands. Here's your routine, rebuilt around that.`,
   },
   ar: {
     greeting: "مرحباً — أنا مستشار البشرة. أخبرني ما الذي يزعج بشرتك أو شعرك.",
@@ -984,6 +1002,8 @@ const COPY = {
     youAreRight: "معك حق — كان خطئي، وقد أزلته الآن. هذا هو الروتين المصحّح.",
     checkedClean:
       "راجعت الروتين المعروض أمامك للتو — المنتج الذي لم ترغب به ليس فيه. إن كان شيء آخر يبدو خاطئاً، سمِّ المنتج وسأزيله.",
+    originOnly: (origin: "korean" | "french") =>
+      `تم — من الآن سأختار من العلامات ${origin === "korean" ? "الكورية" : "الفرنسية"} فقط. هذا روتينك بعد إعادة بنائه.`,
   },
 };
 
@@ -1091,6 +1111,8 @@ export function fixedLines(lang: AgentLang): string[] {
     copy.brandDropped,
     copy.youAreRight,
     copy.checkedClean,
+    copy.originOnly("korean"),
+    copy.originOnly("french"),
     ESCALATION_MESSAGE,
     ...COUNTS.map((count) => copy.result(count)),
     ...COUNTS.map((count) => copy.hairResult(count)),

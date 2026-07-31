@@ -76,6 +76,8 @@ export type ProductCatalogItem = {
   approvedClaimsJson: string[];
   merchantPriority: number;
   sponsoredBidCpc: number;
+  /** From the merchant's brand registry, when one exists for this catalogue. */
+  originBucket?: "korean" | "french" | "other" | "unknown";
 };
 
 export type SafetyTriage = {

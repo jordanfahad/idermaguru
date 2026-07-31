@@ -35,6 +35,7 @@ import {
   readFollowup,
   nameMatchesBrandToken,
   readNewConcern,
+  readOriginPreference,
   readsDone,
   readsMicCheck,
   readsMore,
@@ -84,6 +85,7 @@ const SlotsSchema = z.object({
   awaitingConcern: z.boolean().optional(),
   pinnedIds: z.array(z.string()).optional(),
   dislikedBrands: z.array(z.string()).optional(),
+  preferredOrigin: z.enum(["korean", "french"]).optional(),
 });
 
 const AgentSchema = z.object({
@@ -307,6 +309,7 @@ export async function POST(request: Request) {
     // "It's still there" is a complaint about the routine, not a tangent —
     // it got "outside my world" at the exact moment trust needed repairing.
     const grievance = routineSettled && !newConcern && readsStillThere(input.utterance);
+    const originPref = !newConcern ? readOriginPreference(input.utterance) : undefined;
     const aside =
       before.mainConcern &&
       !awaitingAllergens &&
@@ -318,7 +321,8 @@ export async function POST(request: Request) {
       !wantsMore &&
       !newConcern &&
       !productQuery &&
-      !grievance
+      !grievance &&
+      !originPref
         ? classifyAside(input.utterance)
         : null;
 
@@ -386,7 +390,7 @@ export async function POST(request: Request) {
     // of these used to bounce: the first two off the tangent classifier, the
     // last into a verbatim re-read of the routine. A new concern outranks
     // every one of them: that sentence is about the new thing.
-    if ((followup || productQuery || grievance) && !newConcern) {
+    if ((followup || productQuery || grievance || originPref) && !newConcern) {
       const tenantF = await getTenantBySlug(input.tenantSlug);
       if (tenantF) {
         const profileF = slotsToProfile(before, input.sessionId);
@@ -405,9 +409,16 @@ export async function POST(request: Request) {
           exclude: Set<string>,
           pins: string[] | undefined = before.pinnedIds,
           brands: string[] | undefined = before.dislikedBrands,
+          // Defaults to the STANDING preference: `current` must mirror the
+          // screen the shopper is looking at. A preference stated THIS turn
+          // is passed explicitly by the branches that apply it.
+          origin: "korean" | "french" | undefined = before.preferredOrigin,
         ): ReturnType<typeof routineItemToProduct>[] => {
           const available = productsF.filter(
-            (product) => !exclude.has(product.id) && !blockedByBrand(product.name, brands),
+            (product) =>
+              !exclude.has(product.id) &&
+              !blockedByBrand(product.name, brands) &&
+              (!origin || product.originBucket === origin),
           );
           const built = hairF
             ? pickHairProducts(available, before.mainConcern ?? "", profileF, tenantF.id, safetyF)
@@ -540,7 +551,11 @@ export async function POST(request: Request) {
           }
         }
 
-        const current = followup || grievance ? build(disliked) : [];
+        // The debate is about the routine ON SCREEN — the stock filter has
+        // already hidden what cannot be bought, and matching a dislike
+        // against an invisible product produced a refusal about a product
+        // the shopper had never seen.
+        const current = followup || grievance ? await inStockOnly(build(disliked)) : [];
 
         // "IT'S STILL THERE." The shopper says the routine still holds what
         // they rejected. Believe them: re-read the sentence for a brand or
@@ -548,6 +563,42 @@ export async function POST(request: Request) {
         // the apology and the fix, or proof that the screen is clean.
         if (grievance) {
           const complaint = readBrandComplaint(input.utterance, current, false);
+          // "On the website I can still see Ordinary Multipeptide Hair
+          // Serum" is not about the routine — it names a product the store
+          // sells and the advisor refused to use. Find it and use it.
+          if (!complaint) {
+            const namedTokens = input.utterance
+              .toLowerCase()
+              .split(/[^a-z0-9\u0600-\u06ff]+/)
+              .filter((token) => token.length >= 4 && !BRAND_COMPLAINT_STOPWORDS.has(token));
+            const named = namedTokens.length ? findProductByQuery(productsF, namedTokens) : null;
+            if (
+              named &&
+              !current.some((item) => item.id === named.id) &&
+              passesHardFilters(named, profileF, tenantF.id, safetyF)
+            ) {
+              const soldOutNamed = await soldOutProductIds([{ id: named.id, url: named.url }], STOCK_BUDGET_MS);
+              if (!soldOutNamed.has(named.id)) {
+                const pinnedNow = [...(before.pinnedIds ?? []).filter((id) => id !== named.id), named.id];
+                const replacedNow = current.find(
+                  (item) => item.step === routineStep(named) && item.id !== named.id,
+                );
+                const rebuiltNow = await inStockOnly(build(disliked, pinnedNow));
+                return NextResponse.json({
+                  reply: await say(
+                    replacedNow
+                      ? copy.productSwappedIn(named.name, replacedNow.name)
+                      : copy.productAdded(named.name, slotLabelFor(routineStep(named))),
+                  ),
+                  phase: "result",
+                  slots: { ...before, pinnedIds: pinnedNow, lastRoutine: rebuiltNow.map((item) => item.id) },
+                  products: rebuiltNow,
+                  language: spoken,
+                  rtl: isRtl(spoken),
+                });
+              }
+            }
+          }
           let brands = before.dislikedBrands;
           if (complaint) {
             brands = [...(brands ?? []).filter((token) => token !== complaint.token), complaint.token];
@@ -574,6 +625,25 @@ export async function POST(request: Request) {
           });
         }
 
+        // "ONLY KOREAN BRANDS PLEASE" — a standing preference. The registry
+        // knows each product's origin; from here every rebuild honours it.
+        if (originPref && !followup) {
+          const rebuilt = await inStockOnly(build(disliked, before.pinnedIds, before.dislikedBrands, originPref));
+          return NextResponse.json({
+            reply: await say(rebuilt.length ? copy.originOnly(originPref) : copy.noProducts),
+            speech: rebuilt.length ? speakable(spoken, "", copy.originOnly(originPref)) : undefined,
+            phase: "result",
+            slots: {
+              ...before,
+              preferredOrigin: originPref,
+              lastRoutine: rebuilt.length ? rebuilt.map((item) => item.id) : before.lastRoutine,
+            },
+            products: rebuilt,
+            language: spoken,
+            rtl: isRtl(spoken),
+          });
+        }
+
         if (followup && current.length) {
           // A rejected BRAND leaves whole. "I don't like laroche, only Korean
           // brands" used to swap ONE product — for another La Roche-Posay.
@@ -585,7 +655,9 @@ export async function POST(request: Request) {
                 complaint.token,
               ];
               complaint.hits.forEach((hit) => disliked.add(hit.id));
-              const rebuilt = await inStockOnly(build(disliked, before.pinnedIds, brands));
+              const rebuilt = await inStockOnly(
+                build(disliked, before.pinnedIds, brands, originPref ?? before.preferredOrigin),
+              );
               return NextResponse.json({
                 reply: await say(copy.brandDropped),
                 speech: speakable(spoken, "", copy.brandDropped),
@@ -594,6 +666,7 @@ export async function POST(request: Request) {
                   ...before,
                   dislikedIds: [...disliked],
                   dislikedBrands: brands,
+                  ...(originPref ? { preferredOrigin: originPref } : {}),
                   lastRoutine: rebuilt.map((item) => item.id),
                 },
                 products: rebuilt,
@@ -886,7 +959,10 @@ export async function POST(request: Request) {
     // disliked product straight back.
     const dislikedNow = new Set(slots.dislikedIds ?? []);
     const pickable = products.filter(
-      (product) => !dislikedNow.has(product.id) && !blockedByBrand(product.name, slots.dislikedBrands),
+      (product) =>
+        !dislikedNow.has(product.id) &&
+        !blockedByBrand(product.name, slots.dislikedBrands) &&
+        (!slots.preferredOrigin || product.originBucket === slots.preferredOrigin),
     );
 
     // Hair and scalp concerns don't fit the face-routine slot model, so match
@@ -1310,6 +1386,10 @@ const BRAND_COMPLAINT_STOPWORDS = new Set([
   "these", "those", "only", "just", "please", "brand", "brands", "korean", "japanese", "french",
   "product", "products", "anything", "everything", "with", "from", "more", "again", "still",
   "there", "here", "recommendation", "routine", "saying", "said", "have", "some", "something",
+  // Domain words describe every product at once; a complaint naming one of
+  // these alone must never evict the whole routine.
+  "hair", "skin", "face", "scalp", "body", "the", "and", "for", "you", "your", "added", "list",
+  "website", "see", "can", "now", "what", "that", "was", "step", "steps",
 ]);
 
 /**
@@ -1326,12 +1406,17 @@ function readBrandComplaint<T extends { id: string; name: string }>(
   requireCue: boolean,
 ): { token: string; hits: T[] } | null {
   const text = utterance.toLowerCase();
-  if (requireCue && !/(?:don'?t|do not|dont)\s+(?:like|want)|no more|hate|avoid|without|remove|drop|never/.test(text)) {
+  if (
+    requireCue &&
+    !/(?:don'?t|do not|dont)\s+(?:like|want|need)|no more|hate|avoid|without|remove|take (?:it |that )?out|get rid of|drop|never/.test(
+      text,
+    )
+  ) {
     return null;
   }
   const tokens = text
     .split(/[^a-z0-9\u0600-\u06ff]+/)
-    .filter((token) => token.length >= 4 && !BRAND_COMPLAINT_STOPWORDS.has(token));
+    .filter((token) => token.length >= 3 && !BRAND_COMPLAINT_STOPWORDS.has(token));
   for (const token of tokens) {
     const hits = items.filter((item) => nameMatchesBrandToken(item.name, token));
     if (hits.length >= 2) return { token, hits };

@@ -1,6 +1,7 @@
 import type { Product } from "@prisma/client";
 import type { ProductCatalogItem } from "@/domain/skincare";
 import { seedProducts, seedTenant } from "@/data/seed-catalog";
+import { BRAND_BY_HANDLE } from "@/data/brand-registry";
 import { getPrisma } from "@/server/db";
 import { withTenant } from "@/lib/tenant-context";
 import { productHandle } from "@/services/product-taxonomy";
@@ -212,12 +213,16 @@ export async function deleteProductForTenant(productId: string, tenantSlug: stri
 }
 
 function mapPrismaProduct(product: Product): ProductCatalogItem {
+  // The importer writes the STORE's name into brand; the registry carries the
+  // real brand and its origin, keyed by the product's stable handle.
+  const registered = BRAND_BY_HANDLE[productHandle(product.url ?? "")];
   return {
+    ...(registered ? { originBucket: registered.origin } : {}),
     id: product.id,
     tenantId: product.tenantId,
     sku: product.sku,
     name: product.name,
-    brand: product.brand,
+    brand: registered?.brand || product.brand,
     category: product.category,
     description: product.description,
     url: product.url,

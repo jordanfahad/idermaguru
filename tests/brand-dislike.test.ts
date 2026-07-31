@@ -35,13 +35,13 @@ const row = (id: string, name: string, category: string, concerns: string[]) => 
 });
 
 const catalogue = [
-  row("lrp-wash", "La Roche-Posay Toleriane Face Wash Cleanser, 400ml", "cleansers", ["dark spots"]),
-  row("lrp-gel", "La Roche-Posay Mela B3 Gel Cleanser, 200 ml", "cleansers", ["dark spots"]),
-  row("krx-clean", "COSRX Low pH Good Morning Gel Cleanser 150ml", "cleansers", ["dark spots"]),
-  row("lrp-moist", "La Roche-Posay Effaclar Duo+M Gel Moisturiser 40ml", "moisturizers", ["dark spots"]),
-  row("krx-moist", "Beauty of Joseon Dynasty Cream Moisturiser 50ml", "moisturizers", ["dark spots"]),
-  row("krx-serum", "KSECRET Seoul 1988 Glow Serum Niacinamide 30ml", "serums", ["dark spots", "dullness"]),
-  row("krx-spf", "Celimax Pore + Dark Spot Brightening Care Sunscreen SPF50 50ml", "sunscreens", ["dark spots"]),
+  { ...row("lrp-wash", "La Roche-Posay Toleriane Face Wash Cleanser, 400ml", "cleansers", ["dark spots"]), originBucket: "french" },
+  { ...row("lrp-gel", "La Roche-Posay Mela B3 Gel Cleanser, 200 ml", "cleansers", ["dark spots"]), originBucket: "french" },
+  { ...row("krx-clean", "COSRX Low pH Good Morning Gel Cleanser 150ml", "cleansers", ["dark spots"]), originBucket: "korean" },
+  { ...row("lrp-moist", "La Roche-Posay Effaclar Duo+M Gel Moisturiser 40ml", "moisturizers", ["dark spots"]), originBucket: "french" },
+  { ...row("krx-moist", "Beauty of Joseon Dynasty Cream Moisturiser 50ml", "moisturizers", ["dark spots"]), originBucket: "korean" },
+  { ...row("krx-serum", "KSECRET Seoul 1988 Glow Serum Niacinamide 30ml", "serums", ["dark spots", "dullness"]), originBucket: "korean" },
+  { ...row("krx-spf", "Celimax Pore + Dark Spot Brightening Care Sunscreen SPF50 50ml", "sunscreens", ["dark spots"]), originBucket: "korean" },
 ];
 
 vi.mock("@/services/catalog", () => ({
@@ -109,6 +109,31 @@ describe("a rejected brand leaves whole", () => {
     const payload = await ask("I don't like the cleanser", slots);
     expect(payload.reply).toMatch(/out goes .* in comes/i);
     expect(payload.slots.dislikedBrands).toBeUndefined();
+  });
+});
+
+describe("only Korean brands means only Korean brands", () => {
+  it("records the preference said in the same breath as the dislike", async () => {
+    const slots = await toRoutine();
+    const payload = await ask("I don't like laroche only korean brands please", slots);
+    expect(payload.slots.preferredOrigin).toBe("korean");
+    const buckets = (payload.products ?? []).map((product: { id: string }) =>
+      catalogue.find((row) => row.id === product.id)?.originBucket,
+    );
+    expect(buckets.length).toBeGreaterThan(0);
+    expect(buckets.every((bucket: string) => bucket === "korean")).toBe(true);
+  });
+
+  it("honours the preference on its own, and on every later rebuild", async () => {
+    const slots = await toRoutine();
+    const only = await ask("only korean brands please", slots);
+    expect(only.reply).toMatch(/korean brands/i);
+    expect(only.slots.preferredOrigin).toBe("korean");
+    const stronger = await ask("make it stronger", only.slots);
+    const buckets = (stronger.products ?? []).map((product: { id: string }) =>
+      catalogue.find((row) => row.id === product.id)?.originBucket,
+    );
+    expect(buckets.every((bucket: string) => bucket === "korean")).toBe(true);
   });
 });
 
