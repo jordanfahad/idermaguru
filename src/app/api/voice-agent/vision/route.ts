@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { PHOTO_REVIEW, rateLimit } from "@/lib/rate-limit";
 import { runSafetyTriage } from "@/services/safety-triage";
 import { jsonError, parseJson, RequestValidationError } from "../../_shared";
 
@@ -65,6 +66,12 @@ const SUBJECT_AREAS: Record<string, string> = {
 };
 
 export async function POST(request: Request) {
+  // Before the body is parsed: the schema allows six megabytes of base64, and
+  // decoding that for a caller who is already over budget is the cost this is
+  // meant to avoid. Works as a general image captioner otherwise.
+  const limited = rateLimit(request, PHOTO_REVIEW);
+  if (limited) return limited;
+
   let input: z.infer<typeof VisionSchema>;
   try {
     input = await parseJson(request, VisionSchema);

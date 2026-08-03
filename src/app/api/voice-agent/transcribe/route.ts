@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rateLimit, TRANSCRIPTION } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,12 @@ export const runtime = "nodejs";
  *   OPENAI_STT_MODEL          default gpt-4o-mini-transcribe
  */
 export async function POST(request: Request) {
+  // Before the body is read: the ten-megabyte ceiling below is a ceiling on
+  // what we accept, not on what an abuser can make us receive, and there is no
+  // reason to buffer a recording from a caller who is already over budget.
+  const limited = rateLimit(request, TRANSCRIPTION);
+  if (limited) return limited;
+
   const apiKey = process.env.OPENAI_COMPATIBLE_API_KEY ?? process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json({ error: "Transcription is not configured." }, { status: 503 });

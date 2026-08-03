@@ -1,26 +1,54 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { seedTenant } from "@/data/seed-catalog";
+import { getAdminSession } from "@/lib/admin-guard";
+import { withTenant } from "@/lib/tenant-context";
 import "@/components/dg-home.css";
 import "@/components/dg-home-extra.css";
 
 export const metadata: Metadata = {
   title: "Overview — Merchant dashboard | AI Derma Guru",
   description: "Your DermaGuru merchant dashboard: recommendation pages, outbound product clicks, and top products.",
+  robots: { index: false, follow: false },
 };
+
+// One store's commercial figures, keyed to whoever is signed in. Reading the
+// session already forces this route dynamic; saying so here means a later edit
+// that moves the cookie read elsewhere cannot quietly turn the console back
+// into a static page served to everyone from a CDN.
+export const dynamic = "force-dynamic";
 
 type ProductMetric = {
-  product_id: string;
-  product_name: string;
+  productId: string;
+  productName: string;
   clicks: number;
-  last_click: string;
+  lastClick: string;
 };
 
-export default async function DashboardPage() {
-  const metrics = await getMetrics();
-  const totalClicks = metrics.reduce((sum, metric) => sum + Number(metric.clicks), 0);
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ merchant?: string }>;
+}) {
+  const session = await getAdminSession();
+  // Before any data access, and outside any try/catch: redirect() signals Next
+  // by throwing, so a catch around it would swallow the signal and carry on
+  // rendering the console for a signed-out visitor.
+  if (!session) redirect("/admin/login?next=/dashboard");
+
+  const params = await searchParams;
+  // super_admin administers every store, so it may name the one it wants to
+  // look at. Any other session gets the default tenant regardless of what the
+  // URL asks for — merchant sessions are not yet bound to a tenant
+  // (see docs/SECURITY-AUDIT.md), so an honoured selector would be a way to
+  // read someone else's store by typing its id.
+  const tenantId = session.role === "super_admin" && params.merchant ? params.merchant : seedTenant.id;
+
+  const metrics = await getMetrics(tenantId);
+  const totalClicks = metrics.reduce((sum, metric) => sum + metric.clicks, 0);
   const uniqueProducts = metrics.length;
-  const generatedPages = await getRecommendationCount();
+  const generatedPages = await getRecommendationCount(tenantId);
 
   return (
     <div className="dg">
@@ -78,9 +106,9 @@ export default async function DashboardPage() {
                 <div className="delta" style={{ color: "var(--muted)" }}>Outbound product intent</div>
               </div>
               <div className="metric">
-                <div className="lbl">SEO pages</div>
+                <div className="lbl">Recommendations</div>
                 <div className="val">{generatedPages.toLocaleString()}</div>
-                <div className="delta" style={{ color: "var(--muted)" }}>Generated recommendation pages</div>
+                <div className="delta" style={{ color: "var(--muted)" }}>Routines generated for your shoppers</div>
               </div>
               <div className="metric">
                 <div className="lbl">Products clicked</div>
@@ -108,19 +136,19 @@ export default async function DashboardPage() {
                   </thead>
                   <tbody>
                     {metrics.map((metric) => (
-                      <tr key={metric.product_id}>
+                      <tr key={metric.productId}>
                         <td>
-                          <strong style={{ color: "var(--ink)", fontWeight: 600 }}>{metric.product_name}</strong>
+                          <strong style={{ color: "var(--ink)", fontWeight: 600 }}>{metric.productName}</strong>
                         </td>
                         <td style={{ textAlign: "right" }}>{metric.clicks}</td>
-                        <td style={{ textAlign: "right" }}>{new Date(metric.last_click).toLocaleDateString()}</td>
+                        <td style={{ textAlign: "right" }}>{new Date(metric.lastClick).toLocaleDateString()}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               ) : (
                 <p className="muted" style={{ fontSize: ".9rem" }}>
-                  No Supabase click data yet. Once outbound clicks are tracked, your top products appear here.
+                  No outbound clicks tracked yet. Once shoppers follow a recommendation to a product, your top products appear here.
                 </p>
               )}
             </div>
@@ -151,38 +179,48 @@ export default async function DashboardPage() {
   );
 }
 
-async function getMetrics(): Promise<ProductMetric[]> {
-  const supabase = getSupabaseAdmin();
-  if (!supabase) return [];
-
-  const { data } = await supabase
-    .from("outbound_clicks")
-    .select("product_id, product_name, created_at")
-    .order("created_at", { ascending: false })
-    .limit(500);
+/**
+ * Top products by outbound intent for one store.
+ *
+ * A click becomes a PRODUCT_CLICK event in /api/r/[recommendationItemId], which
+ * is the only place the owning tenant is known. The legacy Supabase
+ * `outbound_clicks` table this page read before has no tenant column at all —
+ * and nothing in the app writes to it any more — so the console was showing
+ * every merchant the product intent of every other merchant.
+ *
+ * The 500-row window is the one the page has always used: recent clicks are what
+ * a merchant acts on, and it keeps the in-memory grouping cheap.
+ */
+async function getMetrics(tenantId: string): Promise<ProductMetric[]> {
+  const clicks = await withTenant(tenantId, (tx) =>
+    tx.event.findMany({
+      where: { tenantId, type: "PRODUCT_CLICK", productId: { not: null } },
+      select: { productId: true, createdAt: true, product: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+    }),
+  );
 
   const grouped = new Map<string, ProductMetric>();
 
-  for (const click of data ?? []) {
-    const current = grouped.get(click.product_id);
-    grouped.set(click.product_id, {
-      product_id: click.product_id,
-      product_name: click.product_name,
+  for (const click of clicks ?? []) {
+    if (!click.productId) continue;
+    const current = grouped.get(click.productId);
+    grouped.set(click.productId, {
+      productId: click.productId,
+      // A product deleted since the click leaves the event pointing at nothing;
+      // showing the id beats dropping the click out of the totals.
+      productName: click.product?.name ?? click.productId,
       clicks: (current?.clicks ?? 0) + 1,
-      last_click: current?.last_click ?? click.created_at,
+      // Newest first, so the first row seen for a product is its last click.
+      lastClick: current?.lastClick ?? click.createdAt.toISOString(),
     });
   }
 
   return Array.from(grouped.values()).sort((a, b) => b.clicks - a.clicks).slice(0, 25);
 }
 
-async function getRecommendationCount() {
-  const supabase = getSupabaseAdmin();
-  if (!supabase) return 0;
-
-  const { count } = await supabase
-    .from("recommendations")
-    .select("slug", { count: "exact", head: true });
-
+async function getRecommendationCount(tenantId: string) {
+  const count = await withTenant(tenantId, (tx) => tx.recommendation.count({ where: { tenantId } }));
   return count ?? 0;
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { DYNAMIC_SPEECH, rateLimit, SCRIPTED_SPEECH } from "@/lib/rate-limit";
 import { fixedLines } from "@/services/voice-agent";
 import { jsonError, parseJson, RequestValidationError } from "../../_shared";
 
@@ -195,6 +196,13 @@ async function collect(stream: ReadableStream<Uint8Array>) {
  *   OPENAI_TTS_SPEED           optional playback rate multiplier
  */
 export async function POST(request: Request) {
+  // Arbitrary text, synthesised fresh every time: this is the door that makes
+  // the merchant's speech credit a public utility. A refusal costs the shopper
+  // the natural voice for that line, not the line — speak() falls through to
+  // the browser voice on any non-ok response.
+  const limited = rateLimit(request, DYNAMIC_SPEECH);
+  if (limited) return limited;
+
   let input: z.infer<typeof SpeechSchema>;
   try {
     input = await parseJson(request, SpeechSchema);
@@ -207,6 +215,11 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
+  // Counted before the scripted-line check, so hammering this with junk text
+  // costs a caller their allowance rather than an unlimited supply of 400s.
+  const limited = rateLimit(request, SCRIPTED_SPEECH);
+  if (limited) return limited;
+
   const url = new URL(request.url);
   const text = url.searchParams.get("text")?.trim() ?? "";
   const language = url.searchParams.get("lang") === "ar" ? "ar" : "en";
