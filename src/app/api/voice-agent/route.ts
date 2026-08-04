@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { seedTenant } from "@/data/seed-catalog";
+import { tenantSlugForHost } from "@/lib/advisor-hosts";
 import { ESCALATION_MESSAGE, escalationMessage, type IntakeProfileInput, type ProductCatalogItem, type SafetyTriage } from "@/domain/skincare";
 import { getTenantBySlug, listTenantProducts } from "@/services/catalog";
 import { getLLMProvider, UNREADABLE_ANSWER } from "@/services/llm/provider";
@@ -110,7 +111,17 @@ const AgentSchema = z.object({
  */
 export async function POST(request: Request) {
   try {
-    const input = await parseJson(request, AgentSchema);
+    const parsed = await parseJson(request, AgentSchema);
+    // Whose catalogue this turn recommends from.
+    //
+    // On a host that serves exactly one merchant, that host decides and the
+    // body is ignored: the request came from a page whose HTML the shopper can
+    // edit, and a merchant who has pointed DNS at us should not be one devtools
+    // change away from having their advisor recommend somebody else's shelf.
+    // Everywhere else — the shared bubble on our own origin — there is no
+    // hostname to ask, so the embed's slug stands, as it always has for chat.
+    const pinned = tenantSlugForHost(request.headers.get("host"));
+    const input = pinned ? { ...parsed, tenantSlug: pinned } : parsed;
     // Detect from what was actually said; the shopper may switch mid-session.
     const spoken: LanguageCode = input.utterance.trim()
       ? detectLanguage(input.utterance)

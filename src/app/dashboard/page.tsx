@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { seedTenant } from "@/data/seed-catalog";
-import { getAdminSession } from "@/lib/admin-guard";
+import { getConsoleAccess, type ConsoleAccess } from "@/lib/merchant-access";
+import { getTenantBySlug } from "@/services/catalog";
 import { withTenant } from "@/lib/tenant-context";
 import "@/components/dg-home.css";
 import "@/components/dg-home-extra.css";
@@ -31,19 +32,23 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<{ merchant?: string }>;
 }) {
-  const session = await getAdminSession();
+  const access = await getConsoleAccess();
   // Before any data access, and outside any try/catch: redirect() signals Next
   // by throwing, so a catch around it would swallow the signal and carry on
   // rendering the console for a signed-out visitor.
-  if (!session) redirect("/admin/login?next=/dashboard");
+  //
+  // /login, not /admin/login: this is the merchant console, and the magic link
+  // is how a merchant gets in. Sending them to the staff form was the whole of
+  // the dead end. Staff signing in at /admin/login still arrive here fine.
+  if (!access) redirect("/login?next=/dashboard");
 
   const params = await searchParams;
-  // super_admin administers every store, so it may name the one it wants to
-  // look at. Any other session gets the default tenant regardless of what the
-  // URL asks for — merchant sessions are not yet bound to a tenant
-  // (see docs/SECURITY-AUDIT.md), so an honoured selector would be a way to
-  // read someone else's store by typing its id.
-  const tenantId = session.role === "super_admin" && params.merchant ? params.merchant : seedTenant.id;
+  // Which store's figures. super_admin administers every one, so it may name
+  // the one it wants to look at. A merchant is bound to exactly one by
+  // MERCHANT_USERS and is shown that one, whatever the URL asks for — an
+  // honoured selector would be a way to read a competitor's store by typing
+  // its id.
+  const tenantId = await resolveTenantId(access, params.merchant);
 
   const metrics = await getMetrics(tenantId);
   const totalClicks = metrics.reduce((sum, metric) => sum + metric.clicks, 0);
@@ -191,6 +196,21 @@ export default async function DashboardPage({
  * The 500-row window is the one the page has always used: recent clicks are what
  * a merchant acts on, and it keeps the in-memory grouping cheap.
  */
+/**
+ * The tenant id whose figures this visitor is entitled to.
+ *
+ * A merchant bound to a slug is resolved to that store's id; if the slug names
+ * no tenant they are given the default rather than a page of somebody else's
+ * numbers, because a typo in an env var must not become a data leak.
+ */
+async function resolveTenantId(access: ConsoleAccess, requested: string | undefined): Promise<string> {
+  if (access.tenantSlug) {
+    const tenant = await getTenantBySlug(access.tenantSlug);
+    return tenant?.id ?? seedTenant.id;
+  }
+  return access.superAdmin && requested ? requested : seedTenant.id;
+}
+
 async function getMetrics(tenantId: string): Promise<ProductMetric[]> {
   const clicks = await withTenant(tenantId, (tx) =>
     tx.event.findMany({

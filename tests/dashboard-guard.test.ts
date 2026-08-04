@@ -64,7 +64,10 @@ describe("the merchant dashboard refuses to render without a session", () => {
     );
 
     expect(error).not.toBeNull();
-    expect(redirectTarget(error)).toBe("/admin/login?next=/dashboard");
+    // /login, not /admin/login. This is the merchant console and the magic
+    // link is how a merchant gets in; pointing them at the staff form was a
+    // dead end — they hold a Supabase session and no admin credential.
+    expect(redirectTarget(error)).toBe("/login?next=/dashboard");
   });
 
   it("bails out before touching the data plane, so a signed-out hit cannot leak a partial render", async () => {

@@ -58,7 +58,7 @@ the editor to HTML (`<>`), and paste:
 ```html
 <div style="max-width:1200px;margin:0 auto;padding:0 16px">
   <iframe
-    src="https://idermaguru.com/advisor"
+    src="https://idermaguru.com/advisor?tenant=cicabelle"
     title="Cicabelle skin advisor"
     allow="microphone; camera; autoplay"
     style="width:100%;height:min(900px,88vh);border:0;border-radius:20px;display:block"
@@ -70,7 +70,13 @@ the editor to HTML (`<>`), and paste:
 Then **Navigation → Main menu → Add menu item** pointing at
 `/pages/skin-advisor`.
 
-Arabic: `https://idermaguru.com/advisor?lang=ar`.
+Arabic: add `&lang=ar` — `https://idermaguru.com/advisor?tenant=cicabelle&lang=ar`.
+
+`?tenant=cicabelle` is what makes it Cicabelle's advisor rather than a demo.
+Drop it and the advisor answers from the seed catalogue: a complete, confident
+routine built from products the shop does not sell. On
+`advisor.cicabelle.com` it can be left off — the hostname says who the shop is,
+and says it in a way the page cannot contradict.
 
 `allow="microphone; camera; autoplay"` is not optional, and every entry in it
 earns its place. Without `microphone` the advisor loads, looks correct, and
@@ -99,6 +105,7 @@ version of the experience and it is a DNS change, not a code change.
   async
   src="https://idermaguru.com/dermaguru-widget.js"
   data-mode="voice"
+  data-tenant="cicabelle"
   data-position="bottom-right"
   data-primary="#8f1d2e"
   data-locale="en"
@@ -116,7 +123,7 @@ pays nothing on page views that ignore it.
 | Attribute | Meaning |
 |---|---|
 | `data-mode="voice"` | The default since the launcher was fixed. Write it anyway. |
-| `data-tenant` | **Chat build only** — the voice advisor ignores it, see below. |
+| `data-tenant` | **Required.** Whose catalogue to recommend from. Overruled by `ADVISOR_HOSTS` when the advisor is served on a host that names a merchant. |
 | `data-position` | `bottom-right` (default) or `bottom-left`. |
 | `data-primary` | Launcher colour. |
 | `data-locale` | `en` or `ar`. |
@@ -125,14 +132,15 @@ pays nothing on page views that ignore it.
 
 ## Before it goes on the storefront
 
-- **The voice advisor does not read `data-tenant` yet, and this is a blocker.**
-  `mountVoice` never passes it on, `/advisor` takes no tenant, and `VoiceAgent`
-  posts no `tenantSlug` — so `/api/voice-agent` falls back to its default, the
-  seed tenant `ai-derma-guru`, for every consultation. Put the bubble on a
-  storefront today and it will confidently recommend the seed catalogue rather
-  than that merchant's. Setting `data-tenant` does not change this; it is read
-  only by the chat build. This has to be wired — by host or by an explicit
-  attribute — before the bubble goes on anyone's live theme.
+- **`data-tenant` must be the Cicabelle tenant slug**, and for the bubble it is
+  the only thing that says so. It rides the frame's URL to `/advisor` and back
+  to the API with every turn. Wrong slug, wrong catalogue — the advisor will
+  confidently recommend another store's products.
+- **Better: pin the tenant to a hostname.** Add `advisor.cicabelle.com=cicabelle`
+  to `ADVISOR_HOSTS` and that host decides, overruling whatever the page says.
+  `data-tenant` lives in the storefront's HTML, where a shopper can edit it; a
+  Host header is our own routing. With DNS pointed at us there is no reason not
+  to.
 - **The catalogue must be synced and current.** The advisor checks each
   recommended product against the storefront before showing it, but that is a
   safety net, not a substitute for a sync.

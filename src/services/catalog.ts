@@ -10,7 +10,15 @@ import { productHandle } from "@/services/product-taxonomy";
 // look up a tenant by slug without already knowing its id.
 export async function getTenantBySlug(slug = seedTenant.slug) {
   const prisma = getPrisma();
-  if (!prisma) return seedTenant;
+  // Without a database the only tenant that exists is the built-in demo one,
+  // and it answers to its own slug ONLY. Returning it for every slug meant a
+  // deployment with DATABASE_URL unset resolved "cicabelle" to the demo tenant
+  // and then served the twelve seed products — a real shop's advisor
+  // confidently recommending generic demo stock it does not sell, with nothing
+  // logged and nothing on screen to say so. An unknown slug resolves to no
+  // tenant and no catalogue, which the advisor can at least be honest about.
+  // The catch below has always drawn this line; this branch did not.
+  if (!prisma) return slug === seedTenant.slug ? seedTenant : null;
 
   try {
     return prisma.tenant.findUnique({ where: { slug } });

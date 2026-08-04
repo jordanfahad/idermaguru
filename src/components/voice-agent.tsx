@@ -299,10 +299,18 @@ function pickVoice(synth: SpeechSynthesis, code: string): SpeechSynthesisVoice |
 export function VoiceAgent({
   initialLang = "en",
   variant = "full",
+  tenantSlug,
 }: {
   initialLang?: Lang;
   /** "full" is the shopper product; "compact" is the homepage demo. */
   variant?: "full" | "compact";
+  /**
+   * Whose catalogue to recommend from. Undefined on our own pages, where the
+   * API's default is the right answer; set by /advisor, which is the surface a
+   * merchant embeds. The server does not take this on trust when the request
+   * arrives on a host that already names a merchant — see /api/voice-agent.
+   */
+  tenantSlug?: string;
 }) {
   const [lang, setLang] = useState<Lang>(initialLang);
   const [mode, setMode] = useState<Mode>("voice");
@@ -884,16 +892,26 @@ export function VoiceAgent({
   );
 
   /** One turn's round trip, with no side effects — so callers can overlap it. */
-  const requestTurn = useCallback(async (utterance: string) => {
-    const response = await fetch("/api/voice-agent", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ utterance, slots: slotsRef.current, language: spokenLangRef.current }),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload?.error ?? "agent error");
-    return payload;
-  }, []);
+  const requestTurn = useCallback(
+    async (utterance: string) => {
+      const response = await fetch("/api/voice-agent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          utterance,
+          slots: slotsRef.current,
+          language: spokenLangRef.current,
+          // Omitted rather than sent empty: the route defaults the field, and a
+          // blank string would be a slug that matches no merchant.
+          ...(tenantSlug ? { tenantSlug } : {}),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error ?? "agent error");
+      return payload;
+    },
+    [tenantSlug],
+  );
 
   /** Applies a turn's payload: state, transcript, and the spoken reply. */
   const handleTurn = useCallback(

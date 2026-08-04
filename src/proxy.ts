@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAdminSessionCookieName, verifyAdminSession } from "@/lib/admin-auth";
+import { isAdvisorHost } from "@/lib/advisor-hosts";
 
 // Endpoints the embeddable widget calls cross-origin from a merchant's store.
 const WIDGET_API_PREFIXES = ["/api/widget", "/api/chat", "/api/recommendations", "/api/events"];
@@ -40,18 +41,12 @@ function corsHeaders(): Record<string, string> {
  * that subdomain also serves DermaGuru's marketing site, pricing, login and
  * admin — on the merchant's own brand.
  *
- * Set ADVISOR_HOSTS to a comma-separated list to be explicit; otherwise any
- * host beginning "advisor." is treated as one.
+ * The list lives in src/lib/advisor-hosts.ts because the same entries now also
+ * say WHICH merchant each host serves, and the advisor page and the voice API
+ * both need to read that. Re-exported here so this stays the import site for
+ * anything reasoning about the middleware.
  */
-export function isAdvisorHost(host: string | null): boolean {
-  const name = (host ?? "").toLowerCase().split(":")[0].trim();
-  if (!name) return false;
-  const configured = (process.env.ADVISOR_HOSTS ?? "")
-    .split(",")
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-  return configured.length ? configured.includes(name) : name.startsWith("advisor.");
-}
+export { isAdvisorHost } from "@/lib/advisor-hosts";
 
 /**
  * What an advisor host is allowed to serve. Everything the advisor itself

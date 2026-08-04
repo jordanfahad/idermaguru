@@ -526,7 +526,16 @@
         // by a visible button, and without the delegation pressing it fails
         // silently on the merchant's page while working on ours.
         frame.setAttribute("allow", "microphone; camera; autoplay; clipboard-write");
-        frame.src = origin + "/advisor?lang=" + encodeURIComponent(loc);
+        // Whose catalogue to recommend from travels in the URL. Without it the
+        // advisor answered every shopper from the seed catalogue, so the bubble
+        // on a merchant's storefront recommended products that were not theirs.
+        // A subdomain pointed at us overrides this server-side; on the shared
+        // origin it is the only thing that says who the shop is.
+        frame.src =
+          origin +
+          "/advisor?lang=" +
+          encodeURIComponent(loc) +
+          (cfg.tenant ? "&tenant=" + encodeURIComponent(cfg.tenant) : "");
         frame.style.cssText = "border:0;width:100%;height:100%;display:block";
         panel.appendChild(frame);
       }
@@ -590,6 +599,7 @@
     if (mode !== "chat" && mode !== "iframe") {
       mountVoice(origin, {
         position: position,
+        tenant: tenant,
         locale: script.getAttribute("data-locale") || "en",
         primary: script.getAttribute("data-primary"),
         onPrimary: script.getAttribute("data-on-primary"),
