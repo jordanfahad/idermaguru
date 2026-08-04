@@ -1,5 +1,9 @@
 # Putting the advisor on cicabelle.com
 
+> Doing it, in order, with the environment variables and the checks:
+> **[docs/LAUNCH-CICABELLE.md](./LAUNCH-CICABELLE.md)**. This page is the
+> reasoning behind the choices it asks you to make.
+
 ## Read this first: there are two advisors in this repo
 
 They are not the same product and they do not share a code path.
