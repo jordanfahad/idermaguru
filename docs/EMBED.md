@@ -62,7 +62,7 @@ the editor to HTML (`<>`), and paste:
 ```html
 <div style="max-width:1200px;margin:0 auto;padding:0 16px">
   <iframe
-    src="https://idermaguru.com/advisor?tenant=cicabelle"
+    src="https://idermaguru.com/advisor?tenant=ai-derma-guru"
     title="Cicabelle skin advisor"
     allow="microphone; camera; autoplay"
     style="width:100%;height:min(900px,88vh);border:0;border-radius:20px;display:block"
@@ -74,13 +74,18 @@ the editor to HTML (`<>`), and paste:
 Then **Navigation → Main menu → Add menu item** pointing at
 `/pages/skin-advisor`.
 
-Arabic: add `&lang=ar` — `https://idermaguru.com/advisor?tenant=cicabelle&lang=ar`.
+Arabic: add `&lang=ar` — `https://idermaguru.com/advisor?tenant=ai-derma-guru&lang=ar`.
 
-`?tenant=cicabelle` is what makes it Cicabelle's advisor rather than a demo.
-Drop it and the advisor answers from the seed catalogue: a complete, confident
-routine built from products the shop does not sell. On
-`advisor.cicabelle.com` it can be left off — the hostname says who the shop is,
-and says it in a way the page cannot contradict.
+`ai-derma-guru`, not `cicabelle`, because that is the slug the 461 Cicabelle
+products actually sit under — see
+[LAUNCH-CICABELLE.md](./LAUNCH-CICABELLE.md), step 0. There is no `cicabelle`
+tenant, and naming one resolves an empty catalogue.
+
+It is also the slug the API defaults to, so omitting `?tenant=` lands on the
+same products today. Write it anyway: when the catalogue moves onto its own
+tenant, or a second merchant appears, the default stops being Cicabelle. On
+`advisor.cicabelle.com` it can be left off for good — the hostname says who the
+shop is, in a way the page cannot contradict.
 
 `allow="microphone; camera; autoplay"` is not optional, and every entry in it
 earns its place. Without `microphone` the advisor loads, looks correct, and
@@ -109,7 +114,7 @@ version of the experience and it is a DNS change, not a code change.
   async
   src="https://idermaguru.com/dermaguru-widget.js"
   data-mode="voice"
-  data-tenant="cicabelle"
+  data-tenant="ai-derma-guru"
   data-position="bottom-right"
   data-primary="#8f1d2e"
   data-locale="en"
@@ -140,7 +145,7 @@ pays nothing on page views that ignore it.
   the only thing that says so. It rides the frame's URL to `/advisor` and back
   to the API with every turn. Wrong slug, wrong catalogue — the advisor will
   confidently recommend another store's products.
-- **Better: pin the tenant to a hostname.** Add `advisor.cicabelle.com=cicabelle`
+- **Better: pin the tenant to a hostname.** Add `advisor.cicabelle.com=ai-derma-guru`
   to `ADVISOR_HOSTS` and that host decides, overruling whatever the page says.
   `data-tenant` lives in the storefront's HTML, where a shopper can edit it; a
   Host header is our own routing. With DNS pointed at us there is no reason not

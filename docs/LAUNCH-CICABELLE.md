@@ -12,13 +12,33 @@ Everything below assumes the branch `claude/peaceful-cori-mj17rm` is deployed.
 These are not code. Skipping them produces an advisor that works perfectly and
 recommends the wrong products, which is worse than one that fails.
 
-**A tenant with the slug `cicabelle` exists.** The whole embed chain passes that
-slug; nothing creates it. If it does not exist the advisor resolves no
-catalogue and has nothing to recommend. Check in the admin merchants view, or:
+**Use the slug that actually holds the catalogue — it is `ai-derma-guru`, not
+`cicabelle`.** Checked against the live database on 2026-08-04:
 
 ```sql
-select id, slug, name from "Tenant" where slug = 'cicabelle';
+select t.slug, t.name, count(p.id) as products
+from "Tenant" t left join "Product" p on p."tenantId" = t.id
+group by t.slug, t.name order by products desc;
+
+--  ai-derma-guru | AI Cosmetologist / AI Derma Guru | 461   <- Cicabelle's catalogue
+--  sikabale      | Sikabale / Cicabelle             |   0   <- empty placeholder
 ```
+
+There is **no `cicabelle` tenant**. All 461 products are `cicabelle.com/products/…`
+URLs sitting under the tenant named *AI Derma Guru*, which is also the slug the
+API defaults to. The `sikabale` row looks like the intended home and has
+nothing in it.
+
+So `data-tenant="cicabelle"` — the obvious guess, and what an earlier draft of
+this page told you to use — resolves **no tenant at all**. The advisor would
+hold an empty catalogue and recommend nothing. Two ways to be right:
+
+- **Today, no data migration:** use `data-tenant="ai-derma-guru"`, or leave the
+  attribute off entirely — that slug is the default.
+- **Properly, later:** move the 461 rows onto a `cicabelle` tenant and switch
+  the slug in one step. Worth doing before a second merchant exists, because
+  until then "the default tenant" and "Cicabelle" are the same row and every
+  bug in that area hides.
 
 **Its catalogue is synced and current.** The advisor checks each product
 against the storefront before showing it, but that is a safety net, not a
@@ -52,8 +72,8 @@ Optional, and both worth setting for a real launch:
 
 | Variable | Value | Why |
 |---|---|---|
-| `ADVISOR_HOSTS` | `advisor.cicabelle.com=cicabelle` | pins the tenant to the hostname; see step 3 |
-| `MERCHANT_USERS` | `owner@cicabelle.com=cicabelle` | lets the merchant open `/dashboard` |
+| `ADVISOR_HOSTS` | `advisor.cicabelle.com=ai-derma-guru` | pins the tenant to the hostname; see step 3 |
+| `MERCHANT_USERS` | `owner@cicabelle.com=ai-derma-guru` | lets the merchant open `/dashboard` |
 
 ---
 
@@ -77,16 +97,19 @@ second**.
   async
   src="https://idermaguru.com/dermaguru-widget.js"
   data-mode="voice"
-  data-tenant="cicabelle"
+  data-tenant="ai-derma-guru"
   data-position="bottom-right"
   data-primary="#8f1d2e"
   data-locale="en"
 ></script>
 ```
 
-`data-tenant="cicabelle"` is the part that matters and the part that was
-missing. Without it the advisor answers from the seed catalogue — a complete,
-confident routine built from products Cicabelle does not sell.
+`data-tenant="ai-derma-guru"` is belt-and-braces **today**: that slug is also
+what the API defaults to, so omitting it currently lands on the same 461
+products. Write it anyway. The moment the catalogue moves onto its own tenant —
+or a second merchant is added — the default stops being Cicabelle, and a
+snippet that never said whose shop it was will quietly start recommending
+somebody else's.
 
 `data-mode="voice"` is now the default, so a snippet without it still installs
 the voice advisor. Write it anyway; it says what you meant.
@@ -96,7 +119,7 @@ the voice advisor. Write it anyway; it says what you meant.
 ```html
 <div style="max-width:1200px;margin:0 auto;padding:0 16px">
   <iframe
-    src="https://idermaguru.com/advisor?tenant=cicabelle"
+    src="https://idermaguru.com/advisor?tenant=ai-derma-guru"
     title="Cicabelle skin advisor"
     allow="microphone; camera; autoplay"
     style="width:100%;height:min(900px,88vh);border:0;border-radius:20px;display:block"
@@ -119,11 +142,28 @@ Arabic: add `&lang=ar`.
 
 ## 3. The subdomain (recommended, and it is a DNS change not a code change)
 
-Point `advisor.cicabelle.com` at this deployment:
+Point `advisor.cicabelle.com` at this deployment. **The order matters**, and it
+is not the obvious one:
 
-1. Vercel → Project → Settings → Domains → add `advisor.cicabelle.com`.
-2. In Cicabelle's DNS, add the CNAME Vercel gives you.
-3. Set `ADVISOR_HOSTS=advisor.cicabelle.com=cicabelle` and redeploy.
+1. **Vercel → Project → Settings → Domains → add `advisor.cicabelle.com`.**
+   Do this *first*. Vercel then tells you the exact record it wants, and it is
+   the authority on that — for a **subdomain** it normally asks for a
+   **CNAME to `cname.vercel-dns.com`**, not the `A → 76.76.21.21` record that
+   is for an apex domain. Adding DNS before the domain exists in Vercel gets
+   you a certificate error and a negative cache entry to wait out.
+
+2. **Set `ADVISOR_HOSTS=advisor.cicabelle.com=ai-derma-guru` and redeploy —
+   still before the DNS record.** Until that variable is set, the host resolves
+   *no* tenant: `/advisor` visited directly has no `?tenant=` to fall back on,
+   so the advisor answers from whatever the API defaults to. Setting it first
+   means the subdomain is correct from its very first request rather than for
+   its second deploy.
+
+   (The host is guarded either way — anything starting `advisor.` is treated as
+   an advisor host even with the variable unset, so our marketing site and admin
+   login are never exposed on their brand. It is the *tenant* that is missing.)
+
+3. **Now add the DNS record** Vercel asked for, and wait for it to resolve.
 
 What that buys, beyond the microphone prompt saying the merchant's name:
 
@@ -163,14 +203,33 @@ On a real iPhone, on the real domain, over HTTPS — not the simulator:
 
 ## 5. What is still open
 
-- **Four off-brand rows in the catalogue.** From the repo's brand registry the
-  candidates are the bare `acm` handle (mapped to K18, a hair brand), `dental
-  -floss`, and the two IPL hair-removal handsets — none of which are skincare.
-  They are rows in the merchant's catalogue, not code, so removing them is an
-  admin/re-sync job against the live database. Worth confirming with the
-  merchant before deleting: product `category` is free-form text and the engine
-  matches on it, so there is no hard gate stopping a non-skincare row from
-  surfacing if it happens to be tagged with a skin concern.
+- **Four off-brand rows, now identified.** All four are `inStock`, so all four
+  are recommendable:
+
+  | Product | Category | Why it does not belong |
+  |---|---|---|
+  | Antibacterial Charcoal Dental Floss Picks | `dental floss` | oral care |
+  | IceCool IPL Laser Hair Removal Handset | `ipl hair removal devices` | a device |
+  | Pro IPL Laser Hair Removal Handset | `ipl hair removal devices` | a device |
+  | `[draft version] K18 Leave-in Molecular Repair Hair Mask` | `hair care` | a draft duplicate of a live row |
+
+  Hair care generally is **in** scope — the advisor builds hair routines and
+  the catalogue carries ~40 legitimate hair rows. The K18 row above is listed
+  only because it is a draft that was published by mistake.
+
+  These are rows in the merchant's live catalogue, not code, and deleting a
+  merchant's product rows is their call. Marking them `inStock = false` is the
+  reversible version and is enough — the advisor already excludes out-of-stock
+  products.
+
+  Worth knowing either way: product `category` is free-form text and the engine
+  matches on it, so nothing structurally prevents a non-skincare row from
+  surfacing if it is tagged with a skin concern.
+
+- **A few miscategorised rows** found while looking: a Some By Mi eye cream
+  filed under `eye shadows`, a HaruHaru cleansing gel under `makeup removers`.
+  They are real products in the right shop, so they are a ranking-quality
+  issue rather than a launch blocker.
 - **`MerchantUser` accounts.** `MERCHANT_USERS` is an env allowlist that fails
   closed and needs no migration. The intended replacement is a row bound to a
   tenant — see `docs/SECURITY-AUDIT.md`, "Residual / follow-ups".
