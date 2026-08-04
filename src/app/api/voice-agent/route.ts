@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { seedTenant } from "@/data/seed-catalog";
-import { tenantSlugForHost } from "@/lib/advisor-hosts";
+import { tenantSlugForRequestHost } from "@/services/merchant-domains";
 import { ESCALATION_MESSAGE, escalationMessage, type IntakeProfileInput, type ProductCatalogItem, type SafetyTriage } from "@/domain/skincare";
 import { getTenantBySlug, listTenantProducts } from "@/services/catalog";
 import { getLLMProvider, UNREADABLE_ANSWER } from "@/services/llm/provider";
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     // change away from having their advisor recommend somebody else's shelf.
     // Everywhere else — the shared bubble on our own origin — there is no
     // hostname to ask, so the embed's slug stands, as it always has for chat.
-    const pinned = tenantSlugForHost(request.headers.get("host"));
+    const pinned = await tenantSlugForRequestHost(request.headers.get("host"));
     const input = pinned ? { ...parsed, tenantSlug: pinned } : parsed;
     // Detect from what was actually said; the shopper may switch mid-session.
     const spoken: LanguageCode = input.utterance.trim()

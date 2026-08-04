@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { VoiceAgent } from "@/components/voice-agent";
-import { tenantSlugForHost } from "@/lib/advisor-hosts";
+import { tenantSlugForRequestHost } from "@/services/merchant-domains";
 import "./advisor-embed.css";
 
 /**
@@ -53,7 +53,7 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
   // page can edit; the shared bubble on idermaguru.com has no such hostname, so
   // it says who it is in the frame's URL. Host first, so pointing the DNS also
   // takes the decision away from the storefront's HTML.
-  const tenantSlug = tenantSlugForHost((await headers()).get("host")) ?? asSlug(params.tenant);
+  const tenantSlug = (await tenantSlugForRequestHost((await headers()).get("host"))) ?? asSlug(params.tenant);
 
   return (
     <main className="advisor-embed" dir={initialLang === "ar" ? "rtl" : "ltr"}>

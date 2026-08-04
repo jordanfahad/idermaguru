@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { seedTenant } from "@/data/seed-catalog";
 import { getConsoleAccess, type ConsoleAccess } from "@/lib/merchant-access";
+import { DomainConnect } from "@/components/domain-connect";
 import { getTenantBySlug } from "@/services/catalog";
 import { withTenant } from "@/lib/tenant-context";
 import "@/components/dg-home.css";
@@ -48,7 +49,7 @@ export default async function DashboardPage({
   // MERCHANT_USERS and is shown that one, whatever the URL asks for — an
   // honoured selector would be a way to read a competitor's store by typing
   // its id.
-  const tenantId = await resolveTenantId(access, params.merchant);
+  const { id: tenantId, slug: tenantSlug } = await resolveTenant(access, params.merchant);
 
   const metrics = await getMetrics(tenantId);
   const totalClicks = metrics.reduce((sum, metric) => sum + metric.clicks, 0);
@@ -171,11 +172,15 @@ export default async function DashboardPage({
                 }}
               >{`<script async src="https://idermaguru.com/dermaguru-widget.js"
   data-mode="voice"
+  data-tenant="${tenantSlug}"
   data-primary="#1F6F5C"
   data-locale="en"></script>`}</code>
               <p className="muted" style={{ fontSize: ".78rem", marginTop: 14, lineHeight: 1.5 }}>
-                Paste once into your storefront theme. The advisor themes to your brand and recommends only your catalog.
+                Paste once into your storefront theme. <code>data-tenant</code> is what makes it
+                recommend <em>your</em> catalogue rather than a demo — it is filled in for you above.
               </p>
+
+              <DomainConnect />
             </div>
           </div>
         </main>
@@ -203,12 +208,17 @@ export default async function DashboardPage({
  * no tenant they are given the default rather than a page of somebody else's
  * numbers, because a typo in an env var must not become a data leak.
  */
-async function resolveTenantId(access: ConsoleAccess, requested: string | undefined): Promise<string> {
+async function resolveTenant(
+  access: ConsoleAccess,
+  requested: string | undefined,
+): Promise<{ id: string; slug: string }> {
   if (access.tenantSlug) {
     const tenant = await getTenantBySlug(access.tenantSlug);
-    return tenant?.id ?? seedTenant.id;
+    return tenant ? { id: tenant.id, slug: tenant.slug } : { id: seedTenant.id, slug: seedTenant.slug };
   }
-  return access.superAdmin && requested ? requested : seedTenant.id;
+  return access.superAdmin && requested
+    ? { id: requested, slug: seedTenant.slug }
+    : { id: seedTenant.id, slug: seedTenant.slug };
 }
 
 async function getMetrics(tenantId: string): Promise<ProductMetric[]> {

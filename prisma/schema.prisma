@@ -60,8 +60,41 @@ model Tenant {
   recommendations Recommendation[]
   events         Event[]
   conversions    Conversion[]
+  domains        MerchantDomain[]
 
   @@index([slug])
+}
+
+enum DomainStatus {
+  PENDING
+  VERIFIED
+}
+
+/**
+ * A hostname a merchant has connected to their own advisor.
+ *
+ * This is the grown-up version of the ADVISOR_HOSTS environment variable. That
+ * worked for one merchant and cannot work for the product: a merchant cannot
+ * edit a Vercel environment variable, and every new domain would need a
+ * redeploy before it resolved to anybody. A row can be written by the merchant
+ * console and read on the next request.
+ *
+ * `host` is unique across all tenants on purpose — a hostname resolves to
+ * exactly one merchant, and letting two rows claim one host would make which
+ * catalogue a shopper sees depend on row order.
+ */
+model MerchantDomain {
+  id         String       @id @default(cuid())
+  tenantId   String
+  tenant     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /** Lowercased, no port, no scheme — "advisor.cicabelle.com". */
+  host       String       @unique
+  status     DomainStatus @default(PENDING)
+  verifiedAt DateTime?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([tenantId])
 }
 
 model MerchantPlan {

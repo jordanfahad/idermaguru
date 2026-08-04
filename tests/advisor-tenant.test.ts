@@ -83,9 +83,9 @@ describe("the tenant reaches the advisor from the snippet", () => {
   });
 
   it("the advisor page reads it, and prefers the hostname over it", () => {
-    expect(advisorPage).toContain("tenantSlugForHost");
+    expect(advisorPage).toContain("tenantSlugForRequestHost");
     // Host first: `?tenant=` is only consulted when no host names a merchant.
-    expect(advisorPage).toMatch(/tenantSlugForHost\(.*\)\s*\?\?\s*asSlug\(params\.tenant\)/);
+    expect(advisorPage).toMatch(/tenantSlugForRequestHost\(.*\)\)\s*\?\?\s*asSlug\(params\.tenant\)/);
   });
 
   it("the page passes it to the advisor component", () => {
@@ -105,7 +105,7 @@ describe("what the server trusts", () => {
     // The body came from a page whose HTML a shopper can edit. A merchant who
     // has pointed DNS at us must not be one devtools change away from having
     // their advisor recommend a competitor's shelf.
-    expect(route).toContain("tenantSlugForHost(request.headers.get(\"host\"))");
+    expect(route).toContain("await tenantSlugForRequestHost(request.headers.get(\"host\"))");
     expect(route).toMatch(/pinned \? \{ \.\.\.parsed, tenantSlug: pinned \} : parsed/);
   });
 

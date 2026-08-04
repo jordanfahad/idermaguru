@@ -74,6 +74,7 @@ Optional, and both worth setting for a real launch:
 |---|---|---|
 | `ADVISOR_HOSTS` | `advisor.cicabelle.com=ai-derma-guru` | pins the tenant to the hostname; see step 3 |
 | `MERCHANT_USERS` | `owner@cicabelle.com=ai-derma-guru` | lets the merchant open `/dashboard` |
+| `VERCEL_API_TOKEN` + `VERCEL_PROJECT_ID` | from Vercel | turns on self-serve domain connection — step 3b |
 
 ---
 
@@ -179,6 +180,28 @@ What that buys, beyond the microphone prompt saying the merchant's name:
 Once it resolves, the page embed can drop `?tenant=` and use
 `https://advisor.cicabelle.com` as the iframe `src`.
 
+### 3b. Or let the merchant do all of that themselves
+
+Steps 1–3 are what an operator does. They do not scale past the first merchant,
+and no merchant should need a Vercel account to put your product on their shop.
+
+Set `VERCEL_API_TOKEN` and `VERCEL_PROJECT_ID`, and **Your own domain** appears
+in `/dashboard`. The merchant types `advisor.theirshop.com`, we register it
+against the project with our token, and the console shows the single record to
+add — a CNAME for a subdomain, an A record for an apex, because a CNAME on an
+apex is illegal and some registrars accept it anyway and break the domain's
+mail. It polls and flips to **Live** on its own.
+
+The one step that cannot be automated by anyone is the merchant adding that
+record: only the owner of a domain can write DNS for it. Shopify, Webflow and
+every platform built on Vercel has the same step. What is removed is the Vercel
+account, the project settings page, and the guessing.
+
+A connected-and-verified domain resolves to its merchant from the
+`MerchantDomain` table, so `ADVISOR_HOSTS` is no longer needed for it —
+though an entry there still wins, since it is set by whoever runs the
+deployment rather than by someone typing into a form.
+
 ---
 
 ## 4. Check it actually works
@@ -203,8 +226,11 @@ On a real iPhone, on the real domain, over HTTPS — not the simulator:
 
 ## 5. What is still open
 
-- **Four off-brand rows, now identified.** All four are `inStock`, so all four
-  are recommendable:
+- **The four off-brand rows are handled, but not permanently.** They were set
+  `inStock = false` on 2026-08-04, which is enough — the advisor excludes
+  out-of-stock products. **A catalogue re-sync will revive them**, because an
+  import writes `inStock` straight from the feed. The durable fix is for the
+  merchant to unpublish them in Shopify. They were:
 
   | Product | Category | Why it does not belong |
   |---|---|---|
@@ -216,11 +242,6 @@ On a real iPhone, on the real domain, over HTTPS — not the simulator:
   Hair care generally is **in** scope — the advisor builds hair routines and
   the catalogue carries ~40 legitimate hair rows. The K18 row above is listed
   only because it is a draft that was published by mistake.
-
-  These are rows in the merchant's live catalogue, not code, and deleting a
-  merchant's product rows is their call. Marking them `inStock = false` is the
-  reversible version and is enough — the advisor already excludes out-of-stock
-  products.
 
   Worth knowing either way: product `category` is free-form text and the engine
   matches on it, so nothing structurally prevents a non-skincare row from
