@@ -549,6 +549,54 @@ export function VoiceAgent({
     return () => window.clearInterval(id);
   }, [started]);
 
+  // Hang up when the storefront closes the launcher, or when the page goes
+  // away. Embedded in a merchant's shop this component is inside an iframe the
+  // widget merely HIDES on close — hiding does not pause a document, so
+  // without this the advisor kept listening and talking behind a closed panel
+  // with the recording indicator lit on someone else's site. The frame stays
+  // alive so the conversation is still there when it is reopened; only the
+  // microphone and the voice stop.
+  useEffect(() => {
+    const hangUp = () => {
+      continueRef.current = false;
+      if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+      recognitionRef.current?.abort();
+      recognitionRef.current = null;
+      // releaseCall is the one place that knows how to put the microphone down
+      // — including stopping a getUserMedia request that lands *after* the
+      // hang-up. Spelling that out again here would be the same six lines with
+      // its own future bugs.
+      releaseCall();
+      // The photo flow holds a second, separate stream. Closing the panel has
+      // to put that light out too, and this is newly reachable: until the
+      // frame delegated `camera`, the button could not open one in an embed.
+      stopCamera();
+      window.speechSynthesis?.cancel();
+      audioElRef.current?.pause();
+      setInterim("");
+      setPhase("idle");
+    };
+    // The sender is the merchant's page, so its origin is whatever storefront
+    // we are embedded in and cannot be checked against a list. That is fine
+    // for this one message and would not be for any other: "stop" only ever
+    // turns things OFF, and anything on that page could achieve the same by
+    // removing the frame. Accept it only from the window that framed us, and
+    // only by exact name, so it stays the one instruction we take from
+    // outside.
+    const onMessage = (event: MessageEvent) => {
+      if (window.parent === window || event.source !== window.parent) return;
+      if ((event.data as { type?: string } | null)?.type === "dg:stop") hangUp();
+    };
+    window.addEventListener("message", onMessage);
+    // A storefront navigation puts this page in the back/forward cache rather
+    // than unmounting it, so the effect cleanup below never runs.
+    window.addEventListener("pagehide", hangUp);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener("pagehide", hangUp);
+    };
+  }, [releaseCall]);
+
   // Synthesise the scripted lines before anyone taps. The greeting goes first
   // so the very first word is instant; the interview questions follow a beat
   // later so they don't compete with it for bandwidth. Both the server cache

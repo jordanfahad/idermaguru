@@ -133,11 +133,14 @@ panel on first open, uses fixed positioning (no layout shift), and supports full
 tokens are passed via `data-*` attributes and injected as CSS custom properties; the tenant name and
 safety disclaimer are fetched from `GET /api/widget/config`.
 
+The default install is the **voice** advisor; the chat build described above is
+opt-in with `data-mode="chat"`.
+
 ```html
 <script
   async
   src="https://your-domain.com/dermaguru-widget.js"
-  data-tenant="ai-derma-guru"
+  data-mode="voice"
   data-position="bottom-right"
   data-primary="#1f6f5c"
   data-locale="en"

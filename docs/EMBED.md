@@ -15,9 +15,12 @@ body and intimate routing, the allergy read-back, "make it more intense", the
 sold-out check — is in the **voice advisor** only. The chat widget is the older
 build and has none of it.
 
-This matters because the existing one-line install (`dermaguru-widget.js` with
-no `data-mode`) mounts the **chat widget**. Shipping that to cicabelle.com would
-put the old advisor live. Use `data-mode="voice"`, or the page embed below.
+A snippet with no `data-mode` used to mount the **chat widget**, which is how
+the install shown on the merchant dashboard shipped the old advisor while the
+voice one reached nobody. The default is now voice: the chat build is opt-in
+via `data-mode="chat"` (or `data-mode="iframe"`), so a snippet copied from an
+older page still installs the right product. `data-mode="voice"` is still worth
+writing — it says what you meant.
 
 ---
 
@@ -36,7 +39,7 @@ advisor. It is worth having — second.
 
 |  | Own page | Floating bubble |
 |---|---|---|
-| Microphone | First-party, just works | Needs `allow="microphone"` on the frame — silent failure without it |
+| Microphone and camera | First-party, just work | Need `allow="microphone; camera"` on the frame — silent failure without it |
 | Room for a 9-step routine | Yes | Cramped on a phone |
 | Linkable from nav / email / ads | Yes | No |
 | Catches a browsing shopper | No | Yes |
@@ -57,7 +60,7 @@ the editor to HTML (`<>`), and paste:
   <iframe
     src="https://idermaguru.com/advisor"
     title="Cicabelle skin advisor"
-    allow="microphone; autoplay"
+    allow="microphone; camera; autoplay"
     style="width:100%;height:min(900px,88vh);border:0;border-radius:20px;display:block"
     loading="lazy"
   ></iframe>
@@ -69,8 +72,13 @@ Then **Navigation → Main menu → Add menu item** pointing at
 
 Arabic: `https://idermaguru.com/advisor?lang=ar`.
 
-`allow="microphone; autoplay"` is not optional. Without it the advisor loads,
-looks correct, and cannot hear anybody — with no error message.
+`allow="microphone; camera; autoplay"` is not optional, and every entry in it
+earns its place. Without `microphone` the advisor loads, looks correct, and
+cannot hear anybody — with no error message. Without `camera` the "let the
+advisor look at your skin" button is still shown and still tappable, and does
+nothing when pressed. A cross-origin frame is granted neither by default, and
+in both cases the failure is silent on the merchant's page while working
+perfectly on ours — which is exactly how they get shipped.
 
 ### If you would rather it were not an iframe
 
@@ -91,23 +99,24 @@ version of the experience and it is a DNS change, not a code change.
   async
   src="https://idermaguru.com/dermaguru-widget.js"
   data-mode="voice"
-  data-tenant="cicabelle"
   data-position="bottom-right"
   data-primary="#8f1d2e"
   data-locale="en"
 ></script>
 ```
 
-`data-mode="voice"` is the important attribute — it is what selects the advisor
-you have been testing. Leave it off and you get the old chat widget.
+`data-mode="voice"` is worth writing even though it is now the default — it says
+which advisor you meant, and a snippet that says so cannot be changed under you.
+Leaving it off used to install the old chat widget; today it installs voice, and
+`data-mode="chat"` is how you ask for the older build on purpose.
 
 The advisor is only loaded when a shopper opens the bubble, so the storefront
 pays nothing on page views that ignore it.
 
 | Attribute | Meaning |
 |---|---|
-| `data-mode="voice"` | **Required.** Selects the voice advisor. |
-| `data-tenant` | Which catalogue to recommend from. |
+| `data-mode="voice"` | The default since the launcher was fixed. Write it anyway. |
+| `data-tenant` | **Chat build only** — the voice advisor ignores it, see below. |
 | `data-position` | `bottom-right` (default) or `bottom-left`. |
 | `data-primary` | Launcher colour. |
 | `data-locale` | `en` or `ar`. |
@@ -116,8 +125,14 @@ pays nothing on page views that ignore it.
 
 ## Before it goes on the storefront
 
-- **`data-tenant` must be the Cicabelle tenant slug.** Wrong slug, wrong
-  catalogue — the advisor will confidently recommend another store's products.
+- **The voice advisor does not read `data-tenant` yet, and this is a blocker.**
+  `mountVoice` never passes it on, `/advisor` takes no tenant, and `VoiceAgent`
+  posts no `tenantSlug` — so `/api/voice-agent` falls back to its default, the
+  seed tenant `ai-derma-guru`, for every consultation. Put the bubble on a
+  storefront today and it will confidently recommend the seed catalogue rather
+  than that merchant's. Setting `data-tenant` does not change this; it is read
+  only by the chat build. This has to be wired — by host or by an explicit
+  attribute — before the bubble goes on anyone's live theme.
 - **The catalogue must be synced and current.** The advisor checks each
   recommended product against the storefront before showing it, but that is a
   safety net, not a substitute for a sync.
@@ -155,7 +170,7 @@ Note the subdomain is used *inside* the frame in Option 1 — the shopper never
 sees it in the URL bar, but the microphone prompt says `advisor.cicabelle.com`
 rather than `idermaguru.com`, which is the whole point of pointing it. A
 subdomain is still a different origin from `cicabelle.com`, so
-`allow="microphone"` is still required.
+`allow="microphone; camera"` is still required.
 
 ### Clicking a product, and the cart
 

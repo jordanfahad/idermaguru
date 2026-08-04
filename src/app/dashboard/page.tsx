@@ -165,7 +165,7 @@ export default async function DashboardPage({
                   fontSize: ".74rem", lineHeight: 1.55, overflowX: "auto", whiteSpace: "pre",
                 }}
               >{`<script async src="https://idermaguru.com/dermaguru-widget.js"
-  data-tenant="your-store"
+  data-mode="voice"
   data-primary="#1F6F5C"
   data-locale="en"></script>`}</code>
               <p className="muted" style={{ fontSize: ".78rem", marginTop: 14, lineHeight: 1.5 }}>

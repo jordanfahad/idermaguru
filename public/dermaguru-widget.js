@@ -522,12 +522,29 @@
       if (open && !frame) {
         frame = el("iframe", { title: t(loc, "launch") });
         // Without this the advisor loads, looks right, and cannot hear anybody.
-        frame.setAttribute("allow", "microphone; autoplay; clipboard-write");
+        // "camera" belongs here for the same reason: the skin photo is offered
+        // by a visible button, and without the delegation pressing it fails
+        // silently on the merchant's page while working on ours.
+        frame.setAttribute("allow", "microphone; camera; autoplay; clipboard-write");
         frame.src = origin + "/advisor?lang=" + encodeURIComponent(loc);
         frame.style.cssText = "border:0;width:100%;height:100%;display:block";
         panel.appendChild(frame);
       }
       panel.style.display = open ? "block" : "none";
+      // Closing the launcher has to STOP the advisor, not just hide her.
+      // Hiding an iframe does not pause the document inside it — visibility
+      // follows the top-level page — so the old behaviour left a shopper who
+      // had tapped Close with an open microphone, an advisor still talking out
+      // of a panel they could no longer see, and the browser's recording
+      // indicator lit on someone else's storefront. The frame is kept (the
+      // conversation survives being reopened); only the call is hung up.
+      if (!open && frame && frame.contentWindow) {
+        try {
+          frame.contentWindow.postMessage({ type: "dg:stop" }, origin);
+        } catch (e) {
+          // A frame that has not finished loading has nothing to stop yet.
+        }
+      }
       button.textContent = open ? t(loc, "close") : t(loc, "launch");
       button.setAttribute("aria-label", open ? t(loc, "close") : t(loc, "launch"));
       button.setAttribute("aria-expanded", open ? "true" : "false");
@@ -565,7 +582,12 @@
     var position = script.getAttribute("data-position") || "bottom-right";
     var mode = script.getAttribute("data-mode");
 
-    if (mode === "voice") {
+    // Voice is what this product IS, so it is what a snippet gets unless it
+    // asks for the older text advisor by name. It used to be the other way
+    // round, and the snippet on the merchant dashboard carried no data-mode at
+    // all — so the one copy-paste a merchant is actually given installed the
+    // chat widget, and the voice advisor shipped to nobody.
+    if (mode !== "chat" && mode !== "iframe") {
       mountVoice(origin, {
         position: position,
         locale: script.getAttribute("data-locale") || "en",

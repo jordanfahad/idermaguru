@@ -246,7 +246,7 @@ All shopper-facing endpoints: anonymous, rate-limited, salted-hash IP, permissiv
 
 ```html
 <script async src="https://idermaguru.com/dermaguru-widget.js"
-  data-tenant="cicabelle" data-primary="#1F6F5C" data-locale="en" data-position="bottom-right"></script>
+  data-mode="voice" data-primary="#1F6F5C" data-locale="en" data-position="bottom-right"></script>
 ```
 
 ---
