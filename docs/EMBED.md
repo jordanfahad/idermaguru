@@ -151,30 +151,37 @@ hangs up the microphone, exactly as closing the floating launcher does.
 ### It follows the shopper down the page
 
 Read once on the way past, an inline bar is then gone. So once its place in the
-page leaves the top of the screen it pins itself to the bottom — and tucks away
-again while the shopper scrolls **down** through the description, sliding back
-the moment they scroll **up**.
+page leaves the top of the screen it pins itself to the bottom — says the whole
+sentence for five seconds — and then draws itself in to the left until only the
+spark is left:
 
 ```
-scrolling down            scrolling up
-╭───────────────────╮     ╭───────────────────╮
-│ product text      │     │ product text      │
-│ product text      │     │╭─────────────────╮│
-│ product text      │     ││ ✦ Need advice?  ││
-╰───────────────────╯     ╰╰─────────────────╯╯
-  nothing in the way        slides back in
+pins, 5 seconds              then draws in
+╭──────────────────────────╮  ╭──────────────────────────╮
+│                          │  │                          │
+│ ╭──────────────────────╮ │  │                          │
+│ │ ✦ Need advice?    ⌄  │ │  │ ╭───╮                    │
+│ ╰──────────────────────╯ │  │ │ ✦ │                    │
+╰──────────────────────────╯  ╰─╰───╯────────────────────╯
 ```
 
-Out of the way while they are reading, there the instant they look for it. It
-reserves its own space in the page, so pinning never makes the layout jump, and
-it un-pins when the shopper scrolls back to where it actually lives. Opening it
+Scrolling **down** draws it in at once — the shopper is reading, not looking for
+us. Scrolling **up** puts the sentence back for another five seconds, because
+coming back up a page is what looking for something looks like.
+
+It never hides completely. An offer the shopper cannot see is an offer they do
+not have, so the spark stays tappable at every point of the page.
+
+It reserves its own space, so pinning never makes the layout jump, and it
+un-pins when the shopper scrolls back to where it actually lives. Opening it
 un-pins it too — the advisor panel belongs with the bar.
 
-`data-offset-bottom` sets how high it pins, default `12px`. Raise it if your
-storefront already has something in that corner:
+`data-offset-bottom` sets how high it pins, default `12px`. **Raise it if your
+product page has a sticky add-to-cart**, or the pinned bar will land on top of
+it — the same trap the floating launcher hit on the cart page:
 
 ```html
-data-offset-bottom="88px"   <!-- clears a WhatsApp bubble -->
+data-offset-bottom="88px"   <!-- clears a sticky CTA or a WhatsApp bubble -->
 ```
 
 Nothing animates for a shopper whose system asks for reduced motion, the scroll

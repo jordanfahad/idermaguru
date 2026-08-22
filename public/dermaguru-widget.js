@@ -750,16 +750,20 @@
       "display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;cursor:pointer;" +
       "border:0;border-radius:14px;padding:13px 16px;text-align:" + (loc === "ar" ? "right" : "left") + ";" +
       "font:inherit;background:" + primary + ";color:" + onPrimary + ";" +
-      // Only the transform animates. Pinning changes position, and animating
-      // that would slide the bar across the page from wherever it used to be.
-      (REDUCED_MOTION ? "" : "transition:transform .22s ease;");
+      // Width, padding and radius — the three things that change as the bar
+      // draws itself in to an icon. Not position: pinning changes that, and
+      // animating it would slide the bar across the page from where it was.
+      (REDUCED_MOTION ? "" : "transition:width .26s ease,padding .26s ease,border-radius .26s ease;");
 
     var glyph = el("span", { html: ICON_SPARK });
     glyph.style.cssText = "flex:none;display:flex;align-items:center";
     bar.appendChild(glyph);
 
     var words = el("span", {});
-    words.style.cssText = "flex:1;min-width:0";
+    // nowrap so the sentence clips as the bar narrows rather than reflowing
+    // into a taller stack on its way down to an icon.
+    words.style.cssText =
+      "flex:1;min-width:0;white-space:nowrap;" + (REDUCED_MOTION ? "" : "transition:opacity .18s ease;");
     // The tagline leads here, not the name. On a product page the useful line
     // is the offer — "need advice on this?" — and the advisor's name is the
     // answer to it rather than the headline.
@@ -774,7 +778,9 @@
     bar.appendChild(words);
 
     var chevron = el("span", { html: ICON_CHEVRON });
-    chevron.style.cssText = "flex:none;display:flex;align-items:center;opacity:.9";
+    chevron.style.cssText =
+      "flex:none;display:flex;align-items:center;opacity:.9;" +
+      (REDUCED_MOTION ? "" : "transition:opacity .18s ease,transform .2s ease;");
     bar.appendChild(chevron);
 
     // Hidden until opened, and built on first open like the launcher's — the
@@ -857,11 +863,72 @@
     // corner is taken — Cicabelle has a WhatsApp bubble down there — raises it
     // with the attribute it has for the floating launcher rather than a second
     // one invented for this mode.
+    /*
+     * Pinned, the bar has two shapes.
+     *
+     * Expanded it is the full sentence. It says that once — for five seconds —
+     * and then draws itself in to the left until only the spark is left: a
+     * button the width of its own icon, out of everyone's way.
+     *
+     * Hiding it outright was the first attempt and it was wrong. An offer the
+     * shopper cannot see is an offer they do not have. Drawing in keeps it
+     * reachable at every point of the page while giving the page back.
+     *
+     * Scrolling down draws it in at once — they are reading, not looking for
+     * us. Scrolling up puts the sentence back for another five seconds,
+     * because coming back up a page is what looking for something looks like.
+     */
+    var PEEK_MS = 5000;
+    var PUCK = 56;
+
     var pinBottom = cssLength(cfg.offsetY, "12px");
     var pinned = false;
-    var hidden = false;
+    var drawnIn = false;
     var lastY = 0;
     var ticking = false;
+    var peekTimer = null;
+
+    function stopPeekTimer() {
+      if (peekTimer) {
+        clearTimeout(peekTimer);
+        peekTimer = null;
+      }
+    }
+
+    function shape() {
+      if (!pinned) return;
+      if (drawnIn) {
+        bar.style.width = PUCK + "px";
+        bar.style.padding = "0";
+        bar.style.borderRadius = "999px";
+        bar.style.justifyContent = "center";
+        words.style.opacity = "0";
+        chevron.style.opacity = "0";
+      } else {
+        bar.style.width = "calc(100vw - 24px)";
+        bar.style.padding = "13px 16px";
+        bar.style.borderRadius = "14px";
+        bar.style.justifyContent = "";
+        words.style.opacity = "1";
+        chevron.style.opacity = ".9";
+      }
+    }
+
+    function drawIn(next) {
+      if (next === drawnIn) return;
+      drawnIn = next;
+      shape();
+    }
+
+    /** Show the whole sentence, then draw back in on its own. */
+    function peek() {
+      drawIn(false);
+      stopPeekTimer();
+      peekTimer = setTimeout(function () {
+        peekTimer = null;
+        drawIn(true);
+      }, PEEK_MS);
+    }
 
     function setPinned(next) {
       if (next === pinned) return;
@@ -871,35 +938,42 @@
         // measure.
         slot.style.height = (bar.offsetHeight || 0) + "px";
         bar.style.position = "fixed";
+        // Anchored on the left edge only. With both edges pinned the width
+        // could not be animated at all, and drawing in to the left is the
+        // entire gesture.
         bar.style.left = "12px";
-        bar.style.right = "12px";
+        bar.style.right = "auto";
         bar.style.bottom = pinBottom;
-        bar.style.width = "auto";
+        bar.style.height = PUCK + "px";
+        // So the sentence clips as the bar narrows instead of reflowing into
+        // a taller and taller stack on its way down to an icon.
+        bar.style.overflow = "hidden";
         // Under the advisor's own launcher z-index, above a storefront's
         // ordinary furniture.
         bar.style.zIndex = "2147482000";
         bar.style.boxShadow = "0 10px 30px rgba(20,17,15,.24)";
-        bar.style.transform = "translateY(0)";
-        hidden = false;
+        drawnIn = false;
+        shape();
+        peek();
       } else {
+        stopPeekTimer();
+        drawnIn = false;
         slot.style.height = "";
         bar.style.position = "";
         bar.style.left = "";
         bar.style.right = "";
         bar.style.bottom = "";
+        bar.style.height = "";
+        bar.style.overflow = "";
         bar.style.width = "100%";
+        bar.style.padding = "13px 16px";
+        bar.style.borderRadius = "14px";
+        bar.style.justifyContent = "";
         bar.style.zIndex = "";
         bar.style.boxShadow = "";
-        bar.style.transform = "";
-        hidden = false;
+        words.style.opacity = "1";
+        chevron.style.opacity = ".9";
       }
-    }
-
-    function setHidden(next) {
-      if (next === hidden) return;
-      hidden = next;
-      // Past its own height plus the gap, so no corner of it is left showing.
-      bar.style.transform = hidden ? "translateY(calc(100% + " + pinBottom + "))" : "translateY(0)";
     }
 
     function onScroll() {
@@ -922,12 +996,23 @@
           return;
         }
 
+        var wasPinned = pinned;
         setPinned(slot.getBoundingClientRect().bottom < 0);
         if (!pinned) return;
+        // Pinning happens on the way DOWN the page, so without this the very
+        // frame that summons the bar also draws it in and the sentence is
+        // never read. The first five seconds belong to the peek; the scroll
+        // direction only starts deciding on the frame after.
+        if (!wasPinned) return;
         // A threshold rather than a sign test: a pixel of rubber-banding at
         // the end of a scroll would otherwise flicker it in and out.
-        if (dy > 6) setHidden(true);
-        else if (dy < -6) setHidden(false);
+        if (dy > 6) {
+          // Reading, not looking for us — and no timer left to wait on.
+          stopPeekTimer();
+          drawIn(true);
+        } else if (dy < -6) {
+          peek();
+        }
       });
     }
 
