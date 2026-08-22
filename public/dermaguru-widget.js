@@ -17,11 +17,19 @@
  *   data-position="bottom-right" data-offset-bottom="45vh"   mid-right
  *   data-position="bottom-right" data-offset-bottom="96px"   above a bubble
  *
- * Wording: data-label renames the launcher and data-tagline adds a second,
- * smaller line under it. Both live in one button, so it stays a single tap
- * target. Omit data-tagline and the launcher is exactly what it was.
+ * Wording: data-label renames the launcher; data-tagline puts a sentence in a
+ * card BESIDE it. The launcher carries its own name and stays the one line it
+ * has always been — a tagline stacked inside it turns the button into a block
+ * of brand colour that reads as an advert. Omit data-tagline and there is no
+ * card and no row: the launcher is mounted bare, exactly as it was.
  *
  *   data-label="Skincare advisor" data-tagline="Talk to our advisor"
+ *
+ * Shape: data-launcher="icon" swaps the coloured pill for a round button with
+ * those words in a light bubble beside it — the shape most storefront chat
+ * widgets use, and the one to pick when the page already has a WhatsApp bubble
+ * (two coloured pills compete; a bubble and a circle read as a pair). Voice
+ * mode only; the chat mode's launcher comes from a stylesheet and ignores it.
  *
  * Isolation: the UI mounts inside a Shadow DOM custom element, so the host
  * store's CSS cannot bleed in and the widget's CSS cannot leak out. For hostile
@@ -152,6 +160,28 @@
     return v ? v.slice(0, LABEL_MAX) : fallback;
   }
 
+  /*
+   * The glyphs for the circular launcher.
+   *
+   * Inline rather than an <img>: an external asset is a second request the
+   * storefront pays for, and a request that can fail — leaving a coloured
+   * circle with nothing in it and no way to tell what it does. currentColor
+   * means both follow data-on-primary without a second attribute.
+   *
+   * A speech bubble rather than a microphone. The advisor does listen, but a
+   * microphone on a storefront reads as "this is recording you" — the wrong
+   * first impression for a button nobody has pressed yet.
+   */
+  var ICON_CHAT =
+    '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">' +
+    '<path d="M12 3.2c-4.86 0-8.8 3.3-8.8 7.36 0 2.26 1.22 4.28 3.13 5.62-.14 1.16-.6 2.2-1.35 3.06a.6.6 0 0 0 .6.98c1.9-.44 3.34-1.28 4.25-1.94.7.15 1.43.23 2.17.23 4.86 0 8.8-3.3 8.8-7.95S16.86 3.2 12 3.2Z" fill="currentColor"/>' +
+    "</svg>";
+
+  var ICON_CLOSE =
+    '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">' +
+    '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>' +
+    "</svg>";
+
   function styles() {
     return [
       ":host{all:initial}",
@@ -165,17 +195,20 @@
       ".launch:hover{transform:translateY(-1px);box-shadow:0 16px 38px rgba(20,17,15,.28)}",
       ".launch:focus-visible{outline:3px solid var(--dg-primary,#1f6f5c);outline-offset:3px}",
       ".dot{width:9px;height:9px;border-radius:50%;background:var(--dg-on-primary,#fff);opacity:.9;flex:none}",
-      // The launcher is a flex row of [dot][lines]; without a column here a
-      // tagline would sit beside the label instead of under it.
-      ".lines{display:flex;flex-direction:column;align-items:flex-start;line-height:1.25}",
-      ".dg[dir=rtl] .lines{align-items:flex-end}",
-      ".tagline{font-weight:500;font-size:12px;opacity:.82;margin-top:2px}",
+      // The tagline sits BESIDE the launcher, so the pill stays one line. The
+      // row is only created when there is a tagline; without one the launcher
+      // is the container's direct child exactly as it always was.
+      ".row{display:flex;align-items:center;gap:10px;justify-content:flex-end}",
+      ".dg.pos-bl .row,.dg[dir=rtl].pos-br .row{flex-direction:row-reverse;justify-content:flex-start}",
+      // A card, not bare text: this floats over whatever the shopper has
+      // scrolled to, and unbacked words over a product photo are unreadable.
+      ".tagline{background:#fff;color:var(--dg-ink,#1c1a19);border-radius:14px;padding:9px 13px;font-weight:500;font-size:12.5px;line-height:1.3;box-shadow:0 8px 24px rgba(20,17,15,.16);border:1px solid rgba(20,17,15,.06);max-width:min(240px,58vw)}",
       // The panel opens upward from the launcher, so its ceiling has to follow
       // the launcher up. Left at a flat 100vh-110px, an offset that lifts the
       // launcher to mid-screen pushes the panel's header — and its close
       // button — off the top of the viewport, with no way to scroll to it.
       // At the default 20px offset this is still exactly 100vh - 110px.
-      ".panel{display:flex;flex-direction:column;width:min(384px,calc(100vw - 32px));height:min(624px,calc(100vh - var(--dg-offset-y,20px) - var(--dg-chrome,90px)));background:var(--dg-bg,#fff);border:1px solid rgba(20,17,15,.08);border-radius:var(--dg-radius,18px);box-shadow:0 30px 80px rgba(20,17,15,.24);overflow:hidden;margin-bottom:14px;opacity:0;transform:translateY(8px) scale(.98);transition:opacity .2s ease, transform .2s ease}",
+      ".panel{display:flex;flex-direction:column;width:min(384px,calc(100vw - 32px));height:min(624px,calc(100vh - var(--dg-offset-y,20px) - 90px));background:var(--dg-bg,#fff);border:1px solid rgba(20,17,15,.08);border-radius:var(--dg-radius,18px);box-shadow:0 30px 80px rgba(20,17,15,.24);overflow:hidden;margin-bottom:14px;opacity:0;transform:translateY(8px) scale(.98);transition:opacity .2s ease, transform .2s ease}",
       ".panel.open{opacity:1;transform:none}",
       ".hd{display:flex;align-items:flex-start;gap:10px;padding:16px 16px 12px;border-bottom:1px solid rgba(20,17,15,.07)}",
       ".hd .mark{width:34px;height:34px;border-radius:10px;background:var(--dg-primary,#1f6f5c);color:var(--dg-on-primary,#fff);display:flex;align-items:center;justify-content:center;font-weight:750;flex:none}",
@@ -262,9 +295,6 @@
       var container = el("div", { class: "dg pos-" + this.cfg.position, dir: this.cfg.rtl ? "rtl" : "ltr" });
       container.style.setProperty("--dg-offset-y", this.cfg.offsetY);
       container.style.setProperty("--dg-offset-x", this.cfg.offsetX);
-      // A tagline is a second line on the launcher, and the panel sits above
-      // the launcher — so the extra line comes out of the panel's budget.
-      if (this.cfg.tagline) container.style.setProperty("--dg-chrome", "110px");
       container.style.setProperty("--dg-primary", this.cfg.primary);
       container.style.setProperty("--dg-on-primary", this.cfg.onPrimary);
       container.style.setProperty("--dg-radius", this.cfg.radius);
@@ -272,21 +302,25 @@
       this.container = container;
 
       this.launchLabel = el("span", { text: this.cfg.label });
-      // The label and its tagline stack; the dot stays vertically centred
-      // beside the pair rather than against the first line.
-      var lines = el("span", { class: "lines" }, [this.launchLabel]);
-      if (this.cfg.tagline) {
-        this.launchTagline = el("span", { class: "tagline", text: this.cfg.tagline });
-        lines.appendChild(this.launchTagline);
-      }
       this.launch = el(
         "button",
         { class: "launch", type: "button", "aria-label": this.cfg.label, "aria-expanded": "false" },
-        [el("span", { class: "dot" }), lines],
+        [el("span", { class: "dot" }), this.launchLabel],
       );
       this.launch.addEventListener("click", this.toggle.bind(this));
 
-      container.appendChild(this.launch);
+      // Same rule as the voice launcher: the button carries its own name and
+      // the tagline sits beside it, so the launcher stays the one-line pill it
+      // has always been. Without a tagline there is no row at all, which keeps
+      // the arrangement identical for everyone already installed.
+      if (this.cfg.tagline) {
+        this.launchTagline = el("span", { class: "tagline", text: this.cfg.tagline });
+        this.row = el("div", { class: "row" }, [this.launchTagline, this.launch]);
+        container.appendChild(this.row);
+      } else {
+        this.row = this.launch;
+        container.appendChild(this.launch);
+      }
       root.appendChild(container);
 
       this._onKey = (e) => {
@@ -321,7 +355,9 @@
       this.launch.setAttribute("aria-expanded", "false");
       this.launchLabel.textContent = this.cfg.label;
       this.launch.setAttribute("aria-label", this.cfg.label);
-      if (this.launchTagline) this.launchTagline.style.display = "block";
+      // "" rather than a value: hands the card back to the stylesheet instead
+      // of pinning it to whatever display happened to be right today.
+      if (this.launchTagline) this.launchTagline.style.display = "";
       if (this.panel) {
         this.panel.classList.remove("open");
         var p = this.panel;
@@ -362,7 +398,10 @@
         this.foot,
       ]);
       this.panel.style.display = "none";
-      this.container.insertBefore(this.panel, this.launch);
+      // Before the ROW, not the button: with a tagline the button is nested
+      // inside the row, so inserting against it would put the panel in the
+      // row and lay it out beside the launcher instead of above it.
+      this.container.insertBefore(this.panel, this.row);
     }
 
     addMsg(role, text) {
@@ -603,6 +642,7 @@
     var closeText = t(loc, "close");
     var labelOpen = labelText(cfg.label, openText);
     var tagline = labelText(cfg.tagline, "");
+    var iconMode = cfg.launcher === "icon";
 
     var root = el("div", {});
     root.style.cssText = "position:fixed;z-index:2147483647;bottom:" + offsetY + ";" + side;
@@ -613,10 +653,11 @@
     // same distance off the panel or its top runs past the viewport. At the
     // default 20px and no tagline this is the original 100vh - 120px.
     //
-    // A tagline makes the button a line taller, and that line comes out of the
-    // same budget — otherwise adding one pushes the panel's header off the top
-    // by exactly the height of the text that was added.
-    var chrome = tagline ? "120px" : "100px";
+    // The tagline used to stack inside the pill and cost a line of height, so
+    // this allowance grew to compensate. Now it sits BESIDE the launcher, so
+    // it costs no height in either shape and the allowance is a constant
+    // again — the same 100px, and the same panel, as before any of this.
+    var chrome = "100px";
     panel.style.cssText =
       "display:none;overflow:hidden;margin-bottom:12px;border-radius:20px;" +
       "width:min(420px,calc(100vw - 32px));height:min(680px,calc(100vh - " +
@@ -626,30 +667,125 @@
       "));" +
       "box-shadow:0 30px 80px rgba(20,17,15,.28);background:#fff";
 
-    var button = el("button", { type: "button" });
-    button.setAttribute("aria-label", labelOpen);
+    var primary = cfg.primary || "#1f6f5c";
+    var onPrimary = cfg.onPrimary || "#fff";
+    var atLeft = cfg.position === "bottom-left";
+
+    /*
+     * One rule for both shapes: the LAUNCHER carries only its own name, and
+     * the tagline lives outside it, in a card beside it.
+     *
+     * The first attempt stacked the tagline inside the pill, which turned the
+     * launcher into a two-line block of brand colour — next to a storefront's
+     * existing chat widget it read as an advert rather than as an invitation.
+     * Every widget that does this well (WhatsApp's among them) keeps the
+     * button a button and puts the sentence beside it.
+     *
+     * `button` is what gets the click; `applyState` is how the mount redraws
+     * itself for open/closed. Everything past this point talks to those two
+     * and never to the shape, so the toggle logic is written once.
+     */
+    var button;
+    var setLauncherText;
+
+    if (iconMode) {
+      var circle = el("button", { type: "button", html: ICON_CHAT });
+      circle.style.cssText =
+        "flex:none;width:60px;height:60px;border-radius:50%;border:0;cursor:pointer;" +
+        "display:flex;align-items:center;justify-content:center;" +
+        "background:" + primary + ";color:" + onPrimary + ";" +
+        "box-shadow:0 12px 30px rgba(20,17,15,.22)";
+      button = circle;
+      setLauncherText = function (isOpen) {
+        circle.innerHTML = isOpen ? ICON_CLOSE : ICON_CHAT;
+      };
+    } else {
+      var pill = el("button", { type: "button" });
+      pill.style.cssText =
+        "cursor:pointer;border:0;border-radius:999px;padding:14px 20px;" +
+        "font:600 15px/1 system-ui,sans-serif;white-space:nowrap;" +
+        "background:" + primary + ";color:" + onPrimary + ";" +
+        "box-shadow:0 12px 30px rgba(20,17,15,.22)";
+      // A single span, so the pill is the one line it always was.
+      var line = el("span", { text: labelOpen });
+      pill.appendChild(line);
+      button = pill;
+      setLauncherText = function (isOpen) {
+        // Assigning to pill.textContent would delete the span and leave a bare
+        // string, which is fine until something else needs to live in there.
+        line.textContent = isOpen ? closeText : labelOpen;
+      };
+    }
+
+    /*
+     * The card beside the launcher.
+     *
+     * It carries the tagline. It also carries the label when the launcher
+     * itself shows no text — a circle with a glyph says nothing about what it
+     * is, so the words have to be somewhere.
+     *
+     * A card rather than bare text: this floats over whatever the storefront
+     * has scrolled to, and unbacked text over a product photo is unreadable.
+     */
+    var bubble = null;
+    var bubbleLines = [];
+    if (iconMode && labelOpen) bubbleLines.push([labelOpen, true]);
+    if (tagline) bubbleLines.push([tagline, !iconMode]);
+
+    if (bubbleLines.length) {
+      bubble = el("div", {});
+      bubble.style.cssText =
+        "background:#fff;color:#1c1a19;border-radius:14px;padding:9px 13px;" +
+        "box-shadow:0 8px 24px rgba(20,17,15,.16);border:1px solid rgba(20,17,15,.06);" +
+        "max-width:min(240px,58vw);text-align:" + (atLeft ? "left" : "right");
+      bubbleLines.forEach(function (entry, i) {
+        var span = el("span", { text: entry[0] });
+        span.style.cssText =
+          "display:block;font:" + (entry[1] ? "600 13.5px" : "500 12.5px") + "/1.3 system-ui,sans-serif;" +
+          (entry[1] ? "" : "opacity:.66;") +
+          (i ? "margin-top:1px;" : "");
+        bubble.appendChild(span);
+      });
+    }
+
+    /*
+     * What actually sits in the corner.
+     *
+     * With no card there is nothing to lay out, so the launcher is mounted
+     * bare — byte for byte the arrangement every existing install already has.
+     * With a card it becomes a row, and the card goes on the INWARD side so
+     * the launcher stays hard against the edge it is pinned to and the card
+     * never points off-screen.
+     */
+    var mount = button;
+    if (bubble) {
+      mount = el("div", {});
+      mount.style.cssText =
+        "display:flex;align-items:center;gap:10px;justify-content:" + (atLeft ? "flex-start" : "flex-end");
+      if (!atLeft) mount.appendChild(bubble);
+      mount.appendChild(button);
+      if (atLeft) mount.appendChild(bubble);
+    } else if (!iconMode) {
+      // Preserved from before the row existed: a lone pill pushes itself to
+      // the pinned edge rather than sitting flush left inside a wider box.
+      button.style.cssText += ";display:block;margin-" + (atLeft ? "right" : "left") + ":auto";
+    }
+
+    var applyState = function (isOpen) {
+      setLauncherText(isOpen);
+      // An icon launcher has no visible text at all, so its accessible name is
+      // the only name it has. Both shapes track the swap for the same reason:
+      // a control announced as "Skincare advisor" that closes the advisor is
+      // wrong to everyone not looking at it.
+      button.setAttribute("aria-label", isOpen ? closeText : labelOpen);
+      // The card is an invitation to open the advisor. Once it is open the
+      // invitation has been accepted, and leaving it there covers the panel.
+      if (bubble) bubble.style.display = isOpen ? "none" : "";
+    };
+
     button.setAttribute("aria-expanded", "false");
     if (loc === "ar") button.setAttribute("dir", "rtl");
-    button.style.cssText =
-      "display:block;margin-" + (cfg.position === "bottom-left" ? "right" : "left") + ":auto;cursor:pointer;" +
-      "border:0;border-radius:999px;padding:14px 20px;text-align:center;font:600 15px/1 system-ui,sans-serif;" +
-      "background:" + (cfg.primary || "#1f6f5c") + ";color:" + (cfg.onPrimary || "#fff") + ";" +
-      "box-shadow:0 12px 30px rgba(20,17,15,.22)";
-
-    // Two spans rather than one string with a <br>: the second line is hidden
-    // outright once the advisor is open, where "Talk to our advisor" is an
-    // instruction the shopper has already followed.
-    var line1 = el("span", { text: labelOpen });
-    line1.style.cssText = "display:block;font:600 15px/1.25 system-ui,sans-serif";
-    button.appendChild(line1);
-
-    var line2 = null;
-    if (tagline) {
-      line2 = el("span", { text: tagline });
-      line2.style.cssText =
-        "display:block;margin-top:2px;font:500 12px/1.25 system-ui,sans-serif;opacity:.82";
-      button.appendChild(line2);
-    }
+    applyState(false);
 
     button.addEventListener("click", function () {
       open = !open;
@@ -688,16 +824,12 @@
           // A frame that has not finished loading has nothing to stop yet.
         }
       }
-      // Setting textContent here would delete both spans and leave a bare
-      // string behind, so the tagline never came back after the first close.
-      line1.textContent = open ? closeText : labelOpen;
-      if (line2) line2.style.display = open ? "none" : "block";
-      button.setAttribute("aria-label", open ? closeText : labelOpen);
+      applyState(open);
       button.setAttribute("aria-expanded", open ? "true" : "false");
     });
 
     root.appendChild(panel);
-    root.appendChild(button);
+    root.appendChild(mount);
     document.body.appendChild(root);
   }
 
@@ -742,6 +874,7 @@
         offsetX: offsetX,
         label: script.getAttribute("data-label"),
         tagline: script.getAttribute("data-tagline"),
+        launcher: script.getAttribute("data-launcher"),
         tenant: tenant,
         locale: script.getAttribute("data-locale") || "en",
         primary: script.getAttribute("data-primary"),

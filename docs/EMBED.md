@@ -138,6 +138,7 @@ pays nothing on page views that ignore it.
 | `data-offset-side` | How far in from the left/right edge. Default `20px`. |
 | `data-label` | What the launcher is called. Defaults to the translated "Skincare advisor". |
 | `data-tagline` | A second, smaller line under the label. Empty by default — no second line. |
+| `data-launcher` | `pill` (default) or `icon` — a round button with the words in a bubble beside it. Voice mode only. |
 | `data-primary` | Launcher colour. |
 | `data-locale` | `en` or `ar`. |
 
@@ -150,11 +151,28 @@ adds a call-to-action under the name:
 data-label="Skincare advisor" data-tagline="Talk to our advisor"
 ```
 
-Both lines sit inside the one button, so it stays a single tap target and the
-pill is only as wide as its longer line. The tagline is hidden while the
-advisor is open — by then the shopper has already done what it asked — and the
-label swaps to "Close advisor", with the accessible name following the visible
-one. Leave `data-tagline` off and the launcher is exactly what it was.
+The launcher keeps its own name and stays the one-line pill it has always been.
+The tagline sits **beside** it, in a light card:
+
+```
+╭──────────────────────╮  ╭────────────────────╮
+│ Talk to our advisor  │  │  Skincare advisor  │
+╰──────────────────────╯  ╰────────────────────╯
+   white card                #8f1d2e pill
+```
+
+Stacking it inside the pill was the first attempt and it was wrong: it turns
+the launcher into a two-line block of brand colour, which next to a
+storefront's existing chat widget reads as an advert rather than an invitation.
+
+The card is hidden while the advisor is open — by then the shopper has already
+done what it asked — and the label swaps to "Close advisor", with the
+accessible name following the visible one. It sits on the inward side (left of
+the launcher at `bottom-right`, right of it at `bottom-left`) and is capped at
+`min(240px, 58vw)` so it cannot span a phone.
+
+Leave `data-tagline` off and there is no card and no row — the launcher is
+mounted bare, exactly as it was.
 
 Text is capped at 60 characters and whitespace is collapsed. The launcher is
 fixed-position and cannot be scrolled away from, so a paragraph pasted in here
@@ -163,6 +181,32 @@ would cover the storefront on a phone.
 Arabic is handled: with `data-locale="ar"` the button is marked RTL and the two
 lines align to the right edge. Leaving `data-label` off falls back to the
 translated default rather than English.
+
+### Two shapes: `pill` and `icon`
+
+```
+pill (default)                          icon
+╭─────────────────────╮ ╭───────────╮   ╭─────────────────────╮ ╭─────╮
+│ Talk to our advisor │ │ Skincare  │   │ Skincare advisor    │ │  ◍  │
+╰─────────────────────╯ │ advisor   │   │ Talk to our advisor │ ╰─────╯
+                        ╰───────────╯   ╰─────────────────────╯
+card + named pill                       card + round brand button
+```
+
+The rule is the same in both: the launcher carries its own name, the card
+carries the words beside it. The only difference is whether the launcher is a
+named pill or a glyph. With `icon` the button has no text of its own, so the
+label moves into the card — otherwise it would be an unlabelled circle.
+
+The circle takes `data-primary` and its glyph takes `data-on-primary`. The
+glyph is inline SVG, not a fetched asset: an external image is a request the
+storefront pays for and one that can fail, leaving a coloured circle with
+nothing in it. It swaps to a × while the advisor is open.
+
+**Voice mode only.** `data-mode="chat"` draws its launcher from a stylesheet and
+has no icon rendering, so it ignores `data-launcher` rather than half-applying
+it. Since voice is the default mode, this only matters if you asked for chat by
+name.
 
 ### When the corner is already taken
 
