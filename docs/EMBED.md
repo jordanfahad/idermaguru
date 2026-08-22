@@ -165,10 +165,15 @@ Stacking it inside the pill was the first attempt and it was wrong: it turns
 the launcher into a two-line block of brand colour, which next to a
 storefront's existing chat widget reads as an advert rather than an invitation.
 
-The card is hidden while the advisor is open — by then the shopper has already
-done what it asked — and the label swaps to "Close advisor", with the
-accessible name following the visible one. It sits on the inward side (left of
-the launcher at `bottom-right`, right of it at `bottom-left`) and is capped at
+The card is deliberately quieter than the launcher: translucent white with a
+blur behind it, 13px at regular weight, muted grey text. It is an aside next to
+a brand-coloured button — matched to the launcher's weight it reads as a second
+button rather than as an invitation. The tagline is never bold.
+
+It is hidden while the advisor is open — by then the shopper has already done
+what it asked — and the label swaps to "Close advisor", with the accessible
+name following the visible one. It sits on the inward side (left of the
+launcher at `bottom-right`, right of it at `bottom-left`) and is capped at
 `min(240px, 58vw)` so it cannot span a phone.
 
 Leave `data-tagline` off and there is no card and no row — the launcher is

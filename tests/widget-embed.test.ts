@@ -407,7 +407,27 @@ describe("the icon launcher", () => {
     // tagline. A circle has no text at all — if the label were not moved into
     // the card, icon mode would be an unlabelled button on a storefront.
     expect(voice).toContain("if (iconMode && labelOpen) bubbleLines.push([labelOpen, true]);");
-    expect(voice).toContain("if (tagline) bubbleLines.push([tagline, !iconMode]);");
+    expect(voice).toContain("if (tagline) bubbleLines.push([tagline, false]);");
+  });
+
+  it("never sets the tagline bold", () => {
+    // Only the label is emphasised, and only where the button has no text of
+    // its own. At the launcher's own weight the tagline stops reading as a
+    // quiet invitation and competes with it for the same attention.
+    expect(voice, "the tagline is pushed with strong=false, unconditionally").not.toMatch(
+      /bubbleLines\.push\(\[tagline, (true|!?iconMode)\]\)/,
+    );
+  });
+
+  it("sets the card apart from the launcher rather than matching it", () => {
+    // It is an aside beside a brand-coloured button: translucent, muted, and
+    // lighter than the thing it sits next to, or it reads as a second button.
+    expect(voice).toMatch(/background:rgba\(255,255,255,\.\d+\)/);
+    expect(voice, "translucency needs the blur or it just looks washed out").toContain("backdrop-filter:blur");
+    expect(widget, "chat mode matches").toMatch(/\.tagline\{background:rgba\(255,255,255,\.\d+\)/);
+    // Both renderings agree on the type size, so the two modes do not drift.
+    expect(voice).toContain('"600 13px" : "500 13px"');
+    expect(widget).toMatch(/\.tagline\{[^}]*font-size:13px/);
   });
 
   it("keeps the bubble narrow enough for a phone", () => {
