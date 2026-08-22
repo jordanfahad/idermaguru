@@ -787,6 +787,17 @@ export function extractAllergies(input: string): string[] | undefined {
 const COPY = {
   en: {
     greeting: "Hi — I'm your skin advisor. Tell me what's bothering your skin or hair.",
+    // Opened from a product page, where the shopper is already looking at one
+    // thing. Naming it is the whole point of the entry point: an advisor that
+    // opened with the generic greeting there would be admitting it had not
+    // been told, on the one page where it was.
+    //
+    // It still ends by asking about their skin rather than about the product.
+    // "Is this right for me" is not answerable from the label — it needs the
+    // same concern and safety questions as any other route through — and the
+    // dialogue below is what makes sure those get asked.
+    greetingAboutProduct: (product: string) =>
+      `Hi — I see you're looking at ${product}. I can tell you whether it suits your skin. What's your skin like, or what's bothering it?`,
     askConcern: "Tell me your main skin or hair concern.",
     askSkinType: "How would you describe your skin — oily, dry, combination, or sensitive?",
     // Phrased as a rule about ingredients rather than a question about the
@@ -928,6 +939,8 @@ const COPY = {
   },
   ar: {
     greeting: "مرحباً — أنا مستشار البشرة. أخبرني ما الذي يزعج بشرتك أو شعرك.",
+    greetingAboutProduct: (product: string) =>
+      `مرحباً — أرى أنك تطّلع على ${product}. يمكنني أن أخبرك إن كان مناسباً لبشرتك. كيف هي بشرتك، أو ما الذي يزعجك فيها؟`,
     askConcern: "أخبرني بمشكلتك الأساسية في البشرة أو الشعر.",
     askSkinType: "كيف تصف بشرتك — دهنية أم جافة أم مختلطة أم حساسة؟",
     askPregnancy: "شكراً. قبل أن أقترح أي شيء: هل أنتِ حامل أو مرضعة؟",

@@ -78,6 +78,49 @@ export async function getProductByIdForTenant(productId: string, tenantSlug = se
   return products.find((product) => product.id === productId || product.sku === productId) ?? null;
 }
 
+/**
+ * The last meaningful segment of a product URL — Shopify's handle.
+ *
+ * "https://cicabelle.com/products/snail-92-cream?variant=42#reviews" is the
+ * same product as "snail-92-cream", and a storefront may hand us either. The
+ * query string in particular is not optional to strip: a variant picker puts
+ * one on every link, so matching the raw string would fail on exactly the
+ * pages a shopper reaches by choosing a size.
+ */
+function handleOf(value: string): string {
+  const withoutFragment = value.split("#")[0].split("?")[0];
+  const segments = withoutFragment.split("/").filter(Boolean);
+  return (segments[segments.length - 1] ?? "").toLowerCase();
+}
+
+/**
+ * The product a storefront says the shopper is looking at.
+ *
+ * Deliberately forgiving about what it is given. This value is written into a
+ * theme by hand — `{{ product.handle }}` is the obvious thing to reach for,
+ * but so is `{{ product.url }}`, and someone syncing from our own dashboard
+ * would reasonably pass an id or an SKU. All four resolve, because the failure
+ * is silent in the worst way: the advisor opens without knowing the product
+ * and simply behaves as though it were never told, on a page whose whole point
+ * was that it knows.
+ *
+ * Returns null rather than guessing. An advisor that opens saying "you're
+ * looking at X" when the shopper is looking at Y is worse than one that opens
+ * with its ordinary greeting.
+ */
+export async function productForReference(reference: string, tenantSlug = seedTenant.slug) {
+  const ref = reference.trim();
+  if (!ref) return null;
+
+  const products = await listTenantProducts(tenantSlug);
+  const exact = products.find((product) => product.id === ref || product.sku === ref);
+  if (exact) return exact;
+
+  const handle = handleOf(ref);
+  if (!handle) return null;
+  return products.find((product) => product.url && handleOf(product.url) === handle) ?? null;
+}
+
 export async function createProductForTenant(tenantSlug: string, input: Omit<ProductCatalogItem, "id" | "tenantId">) {
   const tenant = await getTenantBySlug(tenantSlug);
   if (!tenant) throw new Error("Tenant not found.");

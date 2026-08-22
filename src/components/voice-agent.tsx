@@ -300,6 +300,7 @@ export function VoiceAgent({
   initialLang = "en",
   variant = "full",
   tenantSlug,
+  focusProduct,
 }: {
   initialLang?: Lang;
   /** "full" is the shopper product; "compact" is the homepage demo. */
@@ -311,6 +312,14 @@ export function VoiceAgent({
    * arrives on a host that already names a merchant — see /api/voice-agent.
    */
   tenantSlug?: string;
+  /**
+   * What the shopper is looking at, when the advisor was opened from a product
+   * page — a handle, URL, id or SKU. Sent as given; the server resolves it
+   * against the tenant's catalogue and ignores anything that matches nothing,
+   * so an advisor opened from a page we do not stock behaves exactly as one
+   * opened from the floating launcher.
+   */
+  focusProduct?: string;
 }) {
   const [lang, setLang] = useState<Lang>(initialLang);
   const [mode, setMode] = useState<Mode>("voice");
@@ -904,13 +913,18 @@ export function VoiceAgent({
           // Omitted rather than sent empty: the route defaults the field, and a
           // blank string would be a slug that matches no merchant.
           ...(tenantSlug ? { tenantSlug } : {}),
+          // Sent on every turn, not just the opening one. It is what the
+          // shopper is looking at for the whole visit, and a later question —
+          // "is this one okay with retinol?" — means the product just as much
+          // as the first one did.
+          ...(focusProduct ? { product: focusProduct } : {}),
         }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error ?? "agent error");
       return payload;
     },
-    [tenantSlug],
+    [tenantSlug, focusProduct],
   );
 
   /** Applies a turn's payload: state, transcript, and the spoken reply. */

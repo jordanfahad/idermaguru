@@ -31,6 +31,16 @@
  * (two coloured pills compete; a bubble and a circle read as a pair). Voice
  * mode only; the chat mode's launcher comes from a stylesheet and ignores it.
  *
+ * Product pages: data-mode="inline" renders a bar WHERE THE TAG SITS rather
+ * than a launcher over the page, so it goes in a product template and lands in
+ * the layout. data-product tells the advisor what the shopper is looking at —
+ * a handle, a URL, an id or an SKU — and it opens already knowing:
+ *
+ *   <script async src="…/dermaguru-widget.js"
+ *           data-mode="inline"
+ *           data-product="{{ product.handle }}"
+ *           data-tagline="Need advice on this product?"></script>
+ *
  * Pages: data-hide-on takes a comma-separated list of paths the widget must
  * not appear on, matched by whole path segment. Set it for the cart at least —
  * a fixed launcher lands on top of a cart page's sticky checkout button, and
@@ -217,6 +227,20 @@
   var ICON_CLOSE =
     '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">' +
     '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>' +
+    "</svg>";
+
+  // The inline bar's marks. A spark rather than the speech bubble: in the flow
+  // of a product page this is an offer of advice, not a chat window, and every
+  // storefront that does this well marks it the same way.
+  var ICON_SPARK =
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">' +
+    '<path d="M12 2.6l1.9 5.4 5.5 2-5.5 2-1.9 5.4-1.9-5.4-5.5-2 5.5-2L12 2.6Z" fill="currentColor"/>' +
+    '<path d="M18.6 15.2l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z" fill="currentColor" opacity=".7"/>' +
+    "</svg>";
+
+  var ICON_CHEVRON =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">' +
+    '<path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>' +
     "</svg>";
 
   function styles() {
@@ -669,6 +693,130 @@
    *  - A real launcher button. The plain iframe mode pins an open panel to the
    *    corner of every page, which is a lot of storefront to give up.
    */
+  /*
+   * The advisor as a bar inside the page, rather than floating over it.
+   *
+   * data-mode="inline" renders where the script tag sits, so a merchant puts
+   * it in their product template and it lands in the layout — above the
+   * add-to-cart, under the price, wherever they choose. Three things follow
+   * from being in the flow instead of fixed to the viewport:
+   *
+   *  - It cannot cover anything. The floating launcher landed on cart pages'
+   *    sticky checkout button; a bar in the document moves the page down
+   *    instead, which is what data-hide-on had to work around.
+   *  - It can be about the product. A launcher that appears on every page can
+   *    only offer a general invitation; a bar placed in a product template
+   *    knows which product it is under, and data-product carries that through
+   *    so the advisor opens already knowing.
+   *  - It is visible without being pressed. A shopper reads the page; the
+   *    invitation is in what they are already reading rather than in a corner
+   *    they have learned to ignore.
+   *
+   * The panel it opens is the same advisor in the same frame as the launcher —
+   * only the thing that opens it differs.
+   */
+  function mountInline(origin, cfg) {
+    var loc = cfg.locale === "ar" ? "ar" : "en";
+    var open = false;
+    var frame = null;
+
+    var label = labelText(cfg.label, t(loc, "launch"));
+    var tagline = labelText(cfg.tagline, "");
+    var primary = cfg.primary || "#1f6f5c";
+    var onPrimary = cfg.onPrimary || "#fff";
+
+    var root = el("div", {});
+    root.style.cssText = "margin:14px 0;font:500 14px/1.4 system-ui,sans-serif";
+    if (loc === "ar") root.setAttribute("dir", "rtl");
+
+    var bar = el("button", { type: "button" });
+    bar.style.cssText =
+      "display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;cursor:pointer;" +
+      "border:0;border-radius:14px;padding:13px 16px;text-align:" + (loc === "ar" ? "right" : "left") + ";" +
+      "font:inherit;background:" + primary + ";color:" + onPrimary + ";";
+
+    var glyph = el("span", { html: ICON_SPARK });
+    glyph.style.cssText = "flex:none;display:flex;align-items:center";
+    bar.appendChild(glyph);
+
+    var words = el("span", {});
+    words.style.cssText = "flex:1;min-width:0";
+    // The tagline leads here, not the name. On a product page the useful line
+    // is the offer — "need advice on this?" — and the advisor's name is the
+    // answer to it rather than the headline.
+    var lead = el("span", { text: tagline || label });
+    lead.style.cssText = "display:block;font-weight:600";
+    words.appendChild(lead);
+    if (tagline) {
+      var sub = el("span", { text: label });
+      sub.style.cssText = "display:block;font-weight:500;font-size:12.5px;opacity:.82;margin-top:1px";
+      words.appendChild(sub);
+    }
+    bar.appendChild(words);
+
+    var chevron = el("span", { html: ICON_CHEVRON });
+    chevron.style.cssText = "flex:none;display:flex;align-items:center;opacity:.9";
+    bar.appendChild(chevron);
+
+    // Hidden until opened, and built on first open like the launcher's — the
+    // advisor is a React application and a product page should not pay for it
+    // on every view.
+    var panel = el("div", {});
+    panel.style.cssText =
+      "display:none;overflow:hidden;margin-top:10px;border-radius:16px;" +
+      "height:min(620px,80vh);border:1px solid rgba(20,17,15,.10);background:#fff";
+
+    bar.setAttribute("aria-expanded", "false");
+    bar.addEventListener("click", function () {
+      open = !open;
+      if (open && !frame) {
+        frame = el("iframe", { title: label });
+        frame.setAttribute("allow", "microphone; camera; autoplay; clipboard-write");
+        frame.src =
+          origin +
+          "/advisor?lang=" +
+          encodeURIComponent(loc) +
+          (cfg.tenant ? "&tenant=" + encodeURIComponent(cfg.tenant) : "") +
+          // What the shopper is looking at. Encoded because a merchant may
+          // pass a full URL rather than a handle.
+          (cfg.product ? "&product=" + encodeURIComponent(cfg.product) : "");
+        frame.style.cssText = "border:0;width:100%;height:100%;display:block";
+        panel.appendChild(frame);
+      }
+      panel.style.display = open ? "block" : "none";
+      // Same hang-up as the launcher: hiding a frame does not stop the
+      // document inside it, and a shopper who has collapsed the bar must not
+      // be left with a live microphone on a product page.
+      if (!open && frame && frame.contentWindow) {
+        try {
+          frame.contentWindow.postMessage({ type: "dg:stop" }, origin);
+        } catch (e) {
+          // Not loaded yet — nothing to stop.
+        }
+      }
+      bar.setAttribute("aria-expanded", open ? "true" : "false");
+      chevron.style.transform = open ? "rotate(180deg)" : "";
+      // Scrolls the advisor into view rather than opening it below the fold,
+      // which on a phone is indistinguishable from the button doing nothing.
+      if (open && panel.scrollIntoView) {
+        try {
+          panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } catch (e) {
+          panel.scrollIntoView();
+        }
+      }
+    });
+
+    root.appendChild(bar);
+    root.appendChild(panel);
+
+    // Where the script tag sits, so the merchant chooses the position by
+    // choosing where to paste. insertBefore rather than appendChild to body:
+    // the point of this mode is that it lands in the layout.
+    if (cfg.script && cfg.script.parentNode) cfg.script.parentNode.insertBefore(root, cfg.script);
+    else document.body.appendChild(root);
+  }
+
   function mountVoice(origin, cfg) {
     var offsetY = cfg.offsetY || "20px";
     var offsetX = cfg.offsetX || "20px";
@@ -853,7 +1001,12 @@
           origin +
           "/advisor?lang=" +
           encodeURIComponent(loc) +
-          (cfg.tenant ? "&tenant=" + encodeURIComponent(cfg.tenant) : "");
+          (cfg.tenant ? "&tenant=" + encodeURIComponent(cfg.tenant) : "") +
+          // Set when the floating launcher is on a product page too: a
+          // merchant who puts data-product on the theme-wide snippet with a
+          // Liquid expression gets a launcher that knows the product it is
+          // sitting on, and an empty one everywhere else.
+          (cfg.product ? "&product=" + encodeURIComponent(cfg.product) : "");
         frame.style.cssText = "border:0;width:100%;height:100%;display:block";
         panel.appendChild(frame);
       }
@@ -914,6 +1067,24 @@
     var offsetY = cssLength(script.getAttribute("data-offset-bottom"), "20px");
     var offsetX = cssLength(script.getAttribute("data-offset-side"), "20px");
     var mode = script.getAttribute("data-mode");
+    var product = script.getAttribute("data-product");
+
+    // A bar in the page rather than a launcher over it. Checked before the
+    // others because it is the only mode whose position is decided by where
+    // the tag was pasted, so it needs the tag itself.
+    if (mode === "inline") {
+      mountInline(origin, {
+        script: script,
+        tenant: tenant,
+        product: product,
+        label: script.getAttribute("data-label"),
+        tagline: script.getAttribute("data-tagline"),
+        locale: script.getAttribute("data-locale") || "en",
+        primary: script.getAttribute("data-primary"),
+        onPrimary: script.getAttribute("data-on-primary"),
+      });
+      return;
+    }
 
     // Voice is what this product IS, so it is what a snippet gets unless it
     // asks for the older text advisor by name. It used to be the other way
@@ -928,6 +1099,7 @@
         label: script.getAttribute("data-label"),
         tagline: script.getAttribute("data-tagline"),
         launcher: script.getAttribute("data-launcher"),
+        product: product,
         tenant: tenant,
         locale: script.getAttribute("data-locale") || "en",
         primary: script.getAttribute("data-primary"),

@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 type AdvisorPageProps = {
-  searchParams: Promise<{ lang?: string; tenant?: string }>;
+  searchParams: Promise<{ lang?: string; tenant?: string; product?: string }>;
 };
 
 /**
@@ -55,9 +55,17 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
   // takes the decision away from the storefront's HTML.
   const tenantSlug = (await tenantSlugForRequestHost((await headers()).get("host"))) ?? asSlug(params.tenant);
 
+  // What the shopper is looking at, when the advisor was opened from a product
+  // page. Carried through untouched rather than resolved here: the turn route
+  // looks it up against the tenant's catalogue, and doing it in one place
+  // means the page cannot disagree with the conversation about which product
+  // is being discussed. Trimmed and capped only so a runaway value cannot ride
+  // along in every request of the session.
+  const focusProduct = params.product?.trim().slice(0, 200) || undefined;
+
   return (
     <main className="advisor-embed" dir={initialLang === "ar" ? "rtl" : "ltr"}>
-      <VoiceAgent initialLang={initialLang} variant="full" tenantSlug={tenantSlug} />
+      <VoiceAgent initialLang={initialLang} variant="full" tenantSlug={tenantSlug} focusProduct={focusProduct} />
     </main>
   );
 }
