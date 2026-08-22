@@ -631,74 +631,83 @@ describe("the inline product bar", () => {
 });
 
 /**
- * The inline bar following the shopper down the page.
+ * The inline bar changing shape where it stands.
  *
- * Read once on the way past, an inline bar is then gone. So once its place in
- * the document leaves the top of the viewport it pins to the bottom of the
- * screen, tucks away while the shopper scrolls DOWN through the description,
- * and returns the moment they scroll up.
+ * Expanded it is the whole sentence; five seconds after the shopper reaches it
+ * it draws in to the left until only the spark is left — still there, still
+ * tappable, no longer a paragraph of brand colour in the middle of a product
+ * page.
  *
- * All of this is geometry and timing, and all of it runs on a merchant's
- * scroll events, so the failure modes are a lurching page and a janky store
- * rather than a wrong pixel.
+ * It does NOT pin itself to the bottom of the screen. That was tried and it
+ * was wrong twice over: it landed on the storefront's own sticky add-to-cart,
+ * and it took the offer away from the button it exists to sit beside. These
+ * assertions exist mostly to stop it coming back.
  */
-describe("the inline bar on scroll", () => {
+describe("the inline bar changing shape", () => {
   const inline = block(widget, "function mountInline", "function mountVoice");
 
-  it("reserves the space it leaves behind", () => {
-    // A pinned bar is position:fixed and out of the flow, so without this the
-    // page below it jumps upward by its height, mid-scroll, on a phone.
-    expect(inline).toContain("var slot = el(");
-    expect(inline).toContain('slot.style.height = (bar.offsetHeight || 0) + "px"');
-    expect(inline).toContain('slot.style.height = ""');
+  it("never leaves the page flow", () => {
+    // The whole correction. A fixed bar overlaps whatever the storefront has
+    // pinned down there, and no offset value makes that reliable across
+    // themes.
+    expect(inline).not.toContain('bar.style.position = "fixed"');
+    expect(inline).not.toContain("getBoundingClientRect");
+    expect(inline).not.toMatch(/root\.style\.position\s*=/);
   });
 
-  it("measures the bar before taking it out of the flow", () => {
-    // offsetHeight of a position:fixed element that has already been moved is
-    // not the height it had in the page.
-    const setPinned = block(inline, "function setPinned", "function onScroll");
-    expect(setPinned.indexOf("slot.style.height")).toBeLessThan(setPinned.indexOf('bar.style.position = "fixed"'));
+  it("registers no scroll listener at all", () => {
+    // An observer fires when the bar arrives and does nothing the rest of the
+    // time; a scroll listener runs on every scroll event of somebody else's
+    // shop for the sake of two moments.
+    expect(inline).not.toContain('addEventListener("scroll"');
+    expect(inline).not.toContain('addEventListener("resize"');
+    expect(inline).not.toContain("requestAnimationFrame");
   });
 
-  it("pins from the slot's position, not from a scroll threshold", () => {
-    // A fixed "pin after 800px" would be wrong on every page whose layout is
-    // not the one it was tuned against.
-    expect(inline).toContain("setPinned(slot.getBoundingClientRect().bottom < 0)");
+  it("peeks when the bar arrives on screen and draws in when it leaves", () => {
+    expect(inline).toContain("window.IntersectionObserver");
+    expect(inline).toMatch(/if \(entries\[i\]\.isIntersecting\) peek\(\);/);
+    expect(inline).toMatch(/else \{\s*stopPeekTimer\(\);\s*drawIn\(true\);/);
+    expect(inline).toContain("seeing.observe(bar)");
   });
 
-  it("draws in on the way down and shows the sentence again on the way up", () => {
-    expect(inline).toMatch(/if \(dy > 6\) \{[\s\S]*?drawIn\(true\);/);
-    expect(inline).toMatch(/else if \(dy < -6\) \{\s*peek\(\);/);
+  it("does not wait for the whole bar to be visible", () => {
+    // On a short screen a threshold of 1 would never fire at all.
+    expect(inline).toMatch(/threshold: 0\.\d+/);
   });
 
-  it("uses a threshold rather than the sign of the delta", () => {
-    // Rubber-banding at the end of a scroll moves by a pixel or two in both
-    // directions; a sign test flickers the bar in and out.
-    expect(inline).not.toMatch(/if \(dy > 0\)/);
+  it("still says its piece where there is no observer", () => {
+    // Without the ability to tell when anyone is looking, saying it once and
+    // drawing in beats saying nothing.
+    expect(inline).toMatch(/\} else \{[\s\S]*?peek\(\);[\s\S]*?\}/);
   });
 
-  it("gives the sentence its five seconds before drawing in", () => {
-    // Pinning happens on the way DOWN the page, so without the wasPinned
-    // guard the very frame that summons the bar also collapses it, and the
-    // sentence is never read by anybody.
+  it("gives the sentence five seconds", () => {
     expect(inline).toContain("var PEEK_MS = 5000;");
-    expect(inline).toContain("if (!wasPinned) return;");
     expect(inline).toMatch(/peekTimer = setTimeout\(function \(\) \{[\s\S]*?drawIn\(true\);[\s\S]*?\}, PEEK_MS\);/);
   });
 
-  it("draws in to an icon rather than hiding outright", () => {
-    // An offer the shopper cannot see is an offer they do not have. Drawing in
-    // keeps the spark reachable at every point of the page.
+  it("draws in to an icon rather than disappearing", () => {
+    // An offer the shopper cannot see is an offer they do not have.
     expect(inline).toContain('bar.style.width = PUCK + "px"');
     expect(inline).toContain('bar.style.borderRadius = "999px"');
     expect(inline).toContain('words.style.opacity = "0"');
-    expect(inline, "hiding it entirely was the wrong answer").not.toMatch(/translateY\(calc/);
+    expect(inline).not.toMatch(/display\s*=\s*"none"[\s\S]{0,40}bar/);
   });
 
-  it("anchors on one edge, or the width cannot animate at all", () => {
-    // With left AND right pinned the element has no width of its own to
-    // transition, and drawing in to the left is the entire gesture.
-    expect(inline).toContain('bar.style.right = "auto"');
+  it("holds its height across both shapes, so the page never reflows", () => {
+    // Only the width changes. A product page that twitches every time the
+    // shopper scrolls back to it would be worse than no animation at all.
+    expect(inline).toContain('bar.style.height = PUCK + "px";');
+    const shapeFn = block(inline, "function shape()", "function drawIn");
+    expect(shapeFn, "shape() must not touch height").not.toContain("height");
+  });
+
+  it("states the expanded shape rather than inheriting it", () => {
+    // drawIn() only acts on a change, so without an explicit first call the
+    // bar's initial shape is whatever the base CSS left behind and the two
+    // drift apart on any edit.
+    expect(inline).toMatch(/shape\(\);\s*\n\s*\/\*/);
   });
 
   it("clips the sentence rather than reflowing it while narrowing", () => {
@@ -706,56 +715,25 @@ describe("the inline bar on scroll", () => {
     expect(inline).toContain("white-space:nowrap");
   });
 
-  it("cancels the pending peek when the shopper decides for it", () => {
-    // A timer firing after a deliberate scroll-down would pop the sentence
-    // back open over the page they had just chosen to read.
-    expect(inline).toMatch(/if \(dy > 6\) \{[\s\S]*?stopPeekTimer\(\);/);
-    expect(inline).toContain("function stopPeekTimer()");
-  });
-
-  it("never pins while the advisor is open", () => {
-    // The panel hangs off the bar in the document. A bar pinned to the bottom
-    // of the screen without it strands the conversation up the page.
-    expect(inline).toMatch(/if \(open\) \{\s*setPinned\(false\);\s*return;\s*\}/);
-  });
-
-  it("releases the pin on the tap itself, not on the next scroll", () => {
-    // Opening from a pinned bar without this leaves the panel offscreen until
-    // the shopper happens to scroll, which reads as the tap having done
-    // nothing.
-    expect(inline).toContain("if (open) setPinned(false);");
-  });
-
-  it("does no layout work in the scroll event itself", () => {
-    // This runs on every scroll event of somebody else's storefront.
-    expect(inline).toContain("requestAnimationFrame(function () {");
-    expect(inline).toMatch(/if \(ticking\) return;\s*ticking = true;/);
-  });
-
-  it("listens passively, so scrolling is never blocked on us", () => {
-    expect(inline).toContain('window.addEventListener("scroll", onScroll, { passive: true })');
-    expect(inline).toContain('window.addEventListener("resize", onScroll, { passive: true })');
-  });
-
-  it("honours a shopper who has asked for less motion", () => {
-    // The stylesheet modes get this from a media query; these styles are
-    // inline, so the bar has to ask.
-    expect(widget).toContain('window.matchMedia("(prefers-reduced-motion: reduce)")');
-    expect(inline).toContain("REDUCED_MOTION ?");
+  it("holds the bar open while the advisor is, and cancels the timer", () => {
+    // The bar is the header of the panel below it. A timer drawing it down to
+    // a spark mid-conversation would leave the panel hanging off an icon.
+    expect(inline).toMatch(/if \(open\) \{\s*stopPeekTimer\(\);\s*drawIn\(false\);\s*\} else \{\s*peek\(\);/);
   });
 
   it("animates the shape, never the position", () => {
-    // Transitioning position or bottom would slide the bar across the page
-    // from wherever it used to be.
     expect(inline).toContain("transition:width .26s ease,padding .26s ease,border-radius .26s ease");
     expect(inline).not.toMatch(/transition:[^"]*\b(all|position|bottom)\b/);
   });
 
-  it("reuses data-offset-bottom for how high it pins", () => {
-    // Already exists, already validated, already means this. A storefront with
-    // a WhatsApp bubble in the corner raises it with the attribute it has.
-    expect(inline).toContain('var pinBottom = cssLength(cfg.offsetY, "12px")');
-    const auto = block(widget, "function autoMount", "if (document.readyState");
-    expect(auto).toContain('offsetY: script.getAttribute("data-offset-bottom")');
+  it("takes no offset attribute it cannot honour", () => {
+    // It sits where it was pasted and never leaves the flow, so there is no
+    // distance from an edge for data-offset-bottom to mean. Accepting an
+    // attribute in order to ignore it is worse than not accepting it.
+    const auto = block(widget, 'if (mode === "inline")', "// Voice is what this product IS");
+    // The attribute must not be READ here — the comment explaining why is
+    // allowed to name it.
+    expect(auto).not.toMatch(/getAttribute\("data-offset-bottom"\)/);
+    expect(auto).not.toMatch(/offsetY\s*:/);
   });
 });

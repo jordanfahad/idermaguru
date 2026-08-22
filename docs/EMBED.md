@@ -150,39 +150,36 @@ hangs up the microphone, exactly as closing the floating launcher does.
 
 ### It follows the shopper down the page
 
-Read once on the way past, an inline bar is then gone. So once its place in the
-page leaves the top of the screen it pins itself to the bottom — says the whole
-sentence for five seconds — and then draws itself in to the left until only the
-spark is left:
+The bar has two shapes and changes them **where it stands**. When the shopper
+reaches it, it says the whole sentence for five seconds, then draws itself in to
+the left until only the spark is left:
 
 ```
-pins, 5 seconds              then draws in
-╭──────────────────────────╮  ╭──────────────────────────╮
-│                          │  │                          │
-│ ╭──────────────────────╮ │  │                          │
-│ │ ✦ Need advice?    ⌄  │ │  │ ╭───╮                    │
-│ ╰──────────────────────╯ │  │ │ ✦ │                    │
-╰──────────────────────────╯  ╰─╰───╯────────────────────╯
+when they reach it            five seconds later
+╭─────────────────────────╮   ╭─────────────────────────╮
+│ ╭─────────────────────╮ │   │ ╭───╮                   │
+│ │ ✦ Need advice?   ⌄  │ │   │ │ ✦ │                   │
+│ ╰─────────────────────╯ │   │ ╰───╯                   │
+│    ADD TO CART          │   │    ADD TO CART          │
+╰─────────────────────────╯   ╰─────────────────────────╯
 ```
 
-Scrolling **down** draws it in at once — the shopper is reading, not looking for
-us. Scrolling **up** puts the sentence back for another five seconds, because
-coming back up a page is what looking for something looks like.
+Scroll away and come back and it says its piece again — scrolling back to the
+add-to-cart is what deciding looks like, and the offer should be legible at that
+moment rather than a spark you have to recognise.
 
-It never hides completely. An offer the shopper cannot see is an offer they do
-not have, so the spark stays tappable at every point of the page.
+**It never pins itself to the bottom of the screen.** That was tried and it was
+wrong twice over: it landed on top of storefronts' own sticky add-to-cart bars,
+and it took the offer away from the button it exists to sit beside. In the page,
+it is visible exactly when the add-to-cart is visible.
 
-It reserves its own space, so pinning never makes the layout jump, and it
-un-pins when the shopper scrolls back to where it actually lives. Opening it
-un-pins it too — the advisor panel belongs with the bar.
+It never disappears either — an offer the shopper cannot see is an offer they do
+not have, so the spark stays tappable. Only the width changes, so nothing around
+it ever reflows, and there is no scroll listener at all: an observer fires when
+the bar arrives and does nothing the rest of the time.
 
-`data-offset-bottom` sets how high it pins, default `12px`. **Raise it if your
-product page has a sticky add-to-cart**, or the pinned bar will land on top of
-it — the same trap the floating launcher hit on the cart page:
-
-```html
-data-offset-bottom="88px"   <!-- clears a sticky CTA or a WhatsApp bubble -->
-```
+`data-offset-bottom` does **not** apply here. The bar sits where you pasted it
+and never leaves the flow, so there is no distance from an edge for it to mean.
 
 Nothing animates for a shopper whose system asks for reduced motion, the scroll
 listener is passive, and all of its measuring happens in one animation frame —
