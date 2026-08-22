@@ -202,7 +202,9 @@
       ".dg.pos-bl .row,.dg[dir=rtl].pos-br .row{flex-direction:row-reverse;justify-content:flex-start}",
       // A card, not bare text: this floats over whatever the shopper has
       // scrolled to, and unbacked words over a product photo are unreadable.
-      ".tagline{background:#fff;color:var(--dg-ink,#1c1a19);border-radius:14px;padding:9px 13px;font-weight:500;font-size:12.5px;line-height:1.3;box-shadow:0 8px 24px rgba(20,17,15,.16);border:1px solid rgba(20,17,15,.06);max-width:min(240px,58vw)}",
+      // Translucent and muted so it reads as an aside rather than competing
+      // with the launcher it sits next to.
+      ".tagline{background:rgba(255,255,255,.82);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);color:#57514b;border-radius:13px;padding:8px 12px;font-weight:500;font-size:13px;line-height:1.35;box-shadow:0 4px 14px rgba(20,17,15,.10);border:1px solid rgba(20,17,15,.05);max-width:min(240px,58vw)}",
       // The panel opens upward from the launcher, so its ceiling has to follow
       // the launcher up. Left at a flat 100vh-110px, an offset that lifts the
       // launcher to mid-screen pushes the panel's header — and its close
@@ -729,20 +731,29 @@
      */
     var bubble = null;
     var bubbleLines = [];
+    // Only the label is ever bold, and only in icon mode where the button has
+    // no text of its own. The tagline is an aside — set at the weight of the
+    // pill it sits next to, it stops reading as a quiet invitation and starts
+    // competing with the launcher for the same attention.
     if (iconMode && labelOpen) bubbleLines.push([labelOpen, true]);
-    if (tagline) bubbleLines.push([tagline, !iconMode]);
+    if (tagline) bubbleLines.push([tagline, false]);
 
     if (bubbleLines.length) {
       bubble = el("div", {});
+      // Translucent rather than solid white, with the blur that makes the
+      // translucency look deliberate instead of washed out. The alpha is kept
+      // high because this floats over product photography, where a genuinely
+      // transparent card would leave the words unreadable.
       bubble.style.cssText =
-        "background:#fff;color:#1c1a19;border-radius:14px;padding:9px 13px;" +
-        "box-shadow:0 8px 24px rgba(20,17,15,.16);border:1px solid rgba(20,17,15,.06);" +
+        "background:rgba(255,255,255,.82);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);" +
+        "color:#57514b;border-radius:13px;padding:8px 12px;" +
+        "box-shadow:0 4px 14px rgba(20,17,15,.10);border:1px solid rgba(20,17,15,.05);" +
         "max-width:min(240px,58vw);text-align:" + (atLeft ? "left" : "right");
       bubbleLines.forEach(function (entry, i) {
         var span = el("span", { text: entry[0] });
         span.style.cssText =
-          "display:block;font:" + (entry[1] ? "600 13.5px" : "500 12.5px") + "/1.3 system-ui,sans-serif;" +
-          (entry[1] ? "" : "opacity:.66;") +
+          "display:block;font:" + (entry[1] ? "600 13px" : "500 13px") + "/1.35 system-ui,sans-serif;" +
+          (entry[1] ? "color:#3d3833;" : "") +
           (i ? "margin-top:1px;" : "");
         bubble.appendChild(span);
       });
