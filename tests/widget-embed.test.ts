@@ -222,7 +222,7 @@ describe("where the launcher sits", () => {
     const iframe = block(widget, "function mountIframe", "// ---- voice advisor");
     expect(iframe).toContain(" - 90px));");
 
-    expect(widget).toContain("height:min(624px,calc(100vh - var(--dg-offset-y,20px) - var(--dg-chrome,90px)))");
+    expect(widget).toContain("height:min(624px,calc(100vh - var(--dg-offset-y,20px) - 90px))");
   });
 
   it("leaves an unoffset launcher exactly where it was", () => {
@@ -291,51 +291,66 @@ describe("what the launcher says", () => {
     expect(widget).toMatch(/labelText\(this\.getAttribute\("data-tagline"\), ""\)/);
   });
 
-  it("swaps the label for the close text without destroying the tagline", () => {
-    // Assigning to the button's own textContent would delete both spans and
-    // leave a bare string, so the tagline never returned after the first close.
+  it("keeps the launcher itself to one line", () => {
+    // The tagline stacked inside the pill once, turning the launcher into a
+    // two-line block of brand colour. It reads as an advert next to a
+    // storefront's own chat widget. The button carries its name and nothing
+    // else; the tagline lives in the card beside it.
     const voice = block(widget, "function mountVoice", "var supportsCE");
-    expect(voice).toMatch(/line1\.textContent = isOpen \? closeText : labelOpen/);
+    expect(voice).toMatch(/line\.textContent = isOpen \? closeText : labelOpen/);
+    expect(voice, "no second line may be appended to the launcher").not.toMatch(/pill\.appendChild\(line2\)/);
     expect(voice, "the button's textContent must never be assigned wholesale").not.toMatch(
-      /\b(button|pill)\.textContent\s*=/,
+      /\b(button|pill|circle)\.textContent\s*=/,
     );
   });
 
-  it("hides the tagline while the advisor is open, in every rendering", () => {
-    // "Talk to our advisor" is an instruction the shopper has already followed.
+  it("hides the card while the advisor is open, in every rendering", () => {
+    // The card invites the shopper to open the advisor. Once it is open the
+    // invitation has been accepted, and leaving it up covers the panel.
     const voice = block(widget, "function mountVoice", "var supportsCE");
-    expect(voice, "pill mode").toMatch(/line2\.style\.display = isOpen \? "none" : "block"/);
-    expect(voice, "icon mode").toMatch(/bubble\.style\.display = isOpen \? "none" : "block"/);
+    expect(voice).toMatch(/bubble\.style\.display = isOpen \? "none" : ""/);
     expect(widget, "chat mode").toContain('this.launchTagline.style.display = "none"');
-    expect(widget, "chat mode").toContain('this.launchTagline.style.display = "block"');
+    expect(widget, "chat mode").toContain('this.launchTagline.style.display = ""');
   });
 
   it("keeps the accessible name in step with the visible one", () => {
-    // A button whose aria-label still says "Skincare advisor" while it closes
-    // the advisor is announced wrongly to anyone not looking at it. In icon
-    // mode there is no visible text at all, so this is the only name it has.
+    // A control announced as "Skincare advisor" while it closes the advisor is
+    // wrong to everyone not looking at it. With data-launcher="icon" there is
+    // no visible text at all, so this is the only name the button has — which
+    // is why it is set once, for both shapes, rather than per branch.
     const voice = block(widget, "function mountVoice", "var supportsCE");
-    expect(voice, "pill mode").toMatch(/pill\.setAttribute\("aria-label", isOpen \? closeText : labelOpen\)/);
-    expect(voice, "icon mode").toMatch(/circle\.setAttribute\("aria-label", isOpen \? closeText : labelOpen\)/);
+    expect(voice).toMatch(/button\.setAttribute\("aria-label", isOpen \? closeText : labelOpen\)/);
     expect(widget).toContain('this.launch.setAttribute("aria-label", t(this.cfg.locale, "close"))');
     expect(widget).toContain('this.launch.setAttribute("aria-label", this.cfg.label)');
   });
 
-  it("takes the extra line out of the panel's height budget, but only when it costs height", () => {
-    // Same trap as the offset: the panel sits above the launcher, so a taller
-    // launcher pushes the panel's header off the top unless the budget follows.
-    // In icon mode the words sit BESIDE the circle, so they cost nothing and
-    // charging for them would shrink the panel for no reason.
+  it("charges the panel nothing for a tagline, because it no longer costs height", () => {
+    // While the tagline stacked inside the pill it cost a line and the panel
+    // budget grew to compensate. Beside the launcher it costs nothing, so the
+    // allowance is a constant again — and a leftover 120px would shrink every
+    // tagline user's panel for a line that is not there.
     const voice = block(widget, "function mountVoice", "var supportsCE");
-    expect(voice).toContain('var chrome = !iconMode && tagline ? "120px" : "100px"');
-    expect(widget).toContain('container.style.setProperty("--dg-chrome", "110px")');
+    expect(voice).toContain('var chrome = "100px"');
+    expect(widget, "the chat mode's compensating variable must be gone too").not.toContain("--dg-chrome");
   });
 
-  it("stacks the two lines instead of putting them side by side", () => {
-    expect(widget).toMatch(/\.lines\{display:flex;flex-direction:column/);
-    // and mirrors for Arabic rather than left-aligning under an RTL label
-    expect(widget).toContain(".dg[dir=rtl] .lines{align-items:flex-end}");
-    expect(block(widget, "function mountVoice", "var supportsCE")).toContain('button.setAttribute("dir", "rtl")');
+  it("puts the card beside the launcher, not under it", () => {
+    const voice = block(widget, "function mountVoice", "var supportsCE");
+    expect(voice).toMatch(/display:flex;align-items:center;gap:10px/);
+    // chat mode does the same through its stylesheet, and mirrors the row for
+    // bottom-left and for Arabic rather than pushing the card off-screen
+    expect(widget).toMatch(/\.row\{display:flex;align-items:center/);
+    expect(widget).toContain(".dg.pos-bl .row,.dg[dir=rtl].pos-br .row{flex-direction:row-reverse");
+    expect(voice).toContain('button.setAttribute("dir", "rtl")');
+  });
+
+  it("mounts the launcher bare when there is no card", () => {
+    // Every install that has not set a tagline must get the exact arrangement
+    // it has today — a lone button, no wrapper row introduced around it.
+    const voice = block(widget, "function mountVoice", "var supportsCE");
+    expect(voice).toContain("var mount = button;");
+    expect(voice).toMatch(/if \(bubble\) \{\s*mount = el\("div", \{\}\);/);
+    expect(widget, "chat mode too").toContain("this.row = this.launch;");
   });
 
   it("forwards both to the custom element", () => {
@@ -380,11 +395,19 @@ describe("the icon launcher", () => {
     expect(voice).toMatch(/circle\.innerHTML = isOpen \? ICON_CLOSE : ICON_CHAT/);
   });
 
-  it("puts the bubble on the inward side of the circle", () => {
-    // The circle is what is pinned to the corner; the bubble points inward. If
-    // the order did not flip, bottom-left would push the bubble off-screen.
-    expect(voice).toContain("if (bubble && !atLeft) mount.appendChild(bubble);");
-    expect(voice).toContain("if (bubble && atLeft) mount.appendChild(bubble);");
+  it("puts the card on the inward side of the launcher", () => {
+    // The launcher is what is pinned to the corner; the card points inward. If
+    // the order did not flip, bottom-left would push the card off-screen.
+    expect(voice).toContain("if (!atLeft) mount.appendChild(bubble);");
+    expect(voice).toContain("if (atLeft) mount.appendChild(bubble);");
+  });
+
+  it("carries the label in the card, since a glyph says nothing about what it is", () => {
+    // In pill mode the launcher shows its own name, so the card holds only the
+    // tagline. A circle has no text at all — if the label were not moved into
+    // the card, icon mode would be an unlabelled button on a storefront.
+    expect(voice).toContain("if (iconMode && labelOpen) bubbleLines.push([labelOpen, true]);");
+    expect(voice).toContain("if (tagline) bubbleLines.push([tagline, !iconMode]);");
   });
 
   it("keeps the bubble narrow enough for a phone", () => {
