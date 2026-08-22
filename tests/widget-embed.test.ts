@@ -215,12 +215,14 @@ describe("where the launcher sits", () => {
   it("takes the offset off the panel height, so a raised launcher cannot push it off-screen", () => {
     const voice = block(widget, "function mountVoice", "var supportsCE");
     expect(voice).toMatch(/height:min\(680px,calc\(100vh - /);
-    expect(voice).toContain(" - 100px));");
+    // The subtracted amount is offsetY plus a chrome allowance that grows when
+    // a tagline adds a second line to the launcher.
+    expect(voice).toMatch(/offsetY \+\s*" - " \+\s*chrome/);
 
     const iframe = block(widget, "function mountIframe", "// ---- voice advisor");
     expect(iframe).toContain(" - 90px));");
 
-    expect(widget).toContain("height:min(624px,calc(100vh - var(--dg-offset-y,20px) - 90px))");
+    expect(widget).toContain("height:min(624px,calc(100vh - var(--dg-offset-y,20px) - var(--dg-chrome,90px)))");
   });
 
   it("leaves an unoffset launcher exactly where it was", () => {
@@ -242,5 +244,96 @@ describe("where the launcher sits", () => {
     const forwarded = block(widget, '"tenant",', "].forEach");
     expect(forwarded).toContain('"offset-bottom"');
     expect(forwarded).toContain('"offset-side"');
+  });
+});
+
+/**
+ * What the launcher says.
+ *
+ * It read "Skincare advisor" and nothing else — the name of the thing, with no
+ * hint that it talks back. `data-label` renames it and `data-tagline` adds a
+ * second line under it.
+ *
+ * The failure modes here are all state, not rendering: the tagline is an
+ * instruction to open the advisor, so it has to disappear once the advisor is
+ * open and come back when it closes, and the assistive-technology label has to
+ * track the same swap rather than announcing "Skincare advisor" for a button
+ * that now closes.
+ */
+describe("what the launcher says", () => {
+  const declared = widget.match(/var LABEL_MAX = (\d+);/);
+  const cap = Number(declared![1]);
+
+  it("caps the text rather than trusting it", () => {
+    // The launcher is fixed-position and cannot be scrolled away from, so a
+    // merchant pasting a paragraph would cover the storefront on a phone.
+    expect(declared, "no LABEL_MAX found — has it been renamed?").not.toBeNull();
+    expect(cap).toBeGreaterThan(20);
+    expect(cap).toBeLessThanOrEqual(80);
+    expect(widget).toContain("slice(0, LABEL_MAX)");
+  });
+
+  it("collapses whitespace, so a newline cannot become a third line", () => {
+    expect(widget).toMatch(/replace\(\/\\s\+\/g, " "\)/);
+  });
+
+  it("falls back to the translated default when no label is given", () => {
+    // Empty must mean "the old text", not "an empty pill" — an unset attribute
+    // is the state every already-installed merchant is in.
+    expect(widget).toMatch(/labelText\(cfg\.label, openText\)/);
+    expect(widget).toMatch(/labelText\(this\.getAttribute\("data-label"\), t\(locale, "launch"\)\)/);
+  });
+
+  it("treats an absent tagline as no second line at all", () => {
+    // Falling back to a default string here would put text on every existing
+    // merchant's launcher that none of them asked for.
+    expect(widget).toMatch(/labelText\(cfg\.tagline, ""\)/);
+    expect(widget).toMatch(/labelText\(this\.getAttribute\("data-tagline"\), ""\)/);
+  });
+
+  it("swaps the label for the close text without destroying the tagline", () => {
+    // Assigning to button.textContent would delete both spans and leave a bare
+    // string, so the tagline never returned after the first close.
+    const voice = block(widget, "function mountVoice", "var supportsCE");
+    expect(voice).toContain("line1.textContent = open ? closeText : labelOpen;");
+    expect(voice).not.toMatch(/button\.textContent\s*=/);
+  });
+
+  it("hides the tagline while the advisor is open, in both modes", () => {
+    // "Talk to our advisor" is an instruction the shopper has already followed.
+    const voice = block(widget, "function mountVoice", "var supportsCE");
+    expect(voice).toContain('line2.style.display = open ? "none" : "block"');
+    expect(widget).toContain('this.launchTagline.style.display = "none"');
+    expect(widget).toContain('this.launchTagline.style.display = "block"');
+  });
+
+  it("keeps the accessible name in step with the visible one", () => {
+    // A button whose aria-label still says "Skincare advisor" while it closes
+    // the advisor is announced wrongly to anyone not looking at it.
+    const voice = block(widget, "function mountVoice", "var supportsCE");
+    expect(voice).toContain('button.setAttribute("aria-label", open ? closeText : labelOpen)');
+    expect(widget).toContain('this.launch.setAttribute("aria-label", t(this.cfg.locale, "close"))');
+    expect(widget).toContain('this.launch.setAttribute("aria-label", this.cfg.label)');
+  });
+
+  it("takes the extra line out of the panel's height budget", () => {
+    // Same trap as the offset: the panel sits above the launcher, so a taller
+    // launcher pushes the panel's header off the top unless the budget follows.
+    const voice = block(widget, "function mountVoice", "var supportsCE");
+    expect(voice).toContain('var chrome = tagline ? "120px" : "100px"');
+    expect(widget).toContain('container.style.setProperty("--dg-chrome", "110px")');
+  });
+
+  it("stacks the two lines instead of putting them side by side", () => {
+    expect(widget).toMatch(/\.lines\{display:flex;flex-direction:column/);
+    // and mirrors for Arabic rather than left-aligning under an RTL label
+    expect(widget).toContain(".dg[dir=rtl] .lines{align-items:flex-end}");
+    expect(block(widget, "function mountVoice", "var supportsCE")).toContain('button.setAttribute("dir", "rtl")');
+  });
+
+  it("forwards both to the custom element", () => {
+    const forwarded = block(widget, '"tenant",', "].forEach");
+    expect(forwarded).toContain('"label"');
+    expect(forwarded).toContain('"tagline"');
   });
 });

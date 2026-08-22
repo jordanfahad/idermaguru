@@ -136,8 +136,33 @@ pays nothing on page views that ignore it.
 | `data-position` | `bottom-right` (default) or `bottom-left`. |
 | `data-offset-bottom` | How far up from the bottom edge. Default `20px`. |
 | `data-offset-side` | How far in from the left/right edge. Default `20px`. |
+| `data-label` | What the launcher is called. Defaults to the translated "Skincare advisor". |
+| `data-tagline` | A second, smaller line under the label. Empty by default — no second line. |
 | `data-primary` | Launcher colour. |
 | `data-locale` | `en` or `ar`. |
+
+### Saying what the advisor is for
+
+The pill named the thing without saying it would talk back. `data-tagline`
+adds a call-to-action under the name:
+
+```html
+data-label="Skincare advisor" data-tagline="Talk to our advisor"
+```
+
+Both lines sit inside the one button, so it stays a single tap target and the
+pill is only as wide as its longer line. The tagline is hidden while the
+advisor is open — by then the shopper has already done what it asked — and the
+label swaps to "Close advisor", with the accessible name following the visible
+one. Leave `data-tagline` off and the launcher is exactly what it was.
+
+Text is capped at 60 characters and whitespace is collapsed. The launcher is
+fixed-position and cannot be scrolled away from, so a paragraph pasted in here
+would cover the storefront on a phone.
+
+Arabic is handled: with `data-locale="ar"` the button is marked RTL and the two
+lines align to the right edge. Leaving `data-label` off falls back to the
+translated default rather than English.
 
 ### When the corner is already taken
 
