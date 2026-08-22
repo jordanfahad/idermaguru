@@ -821,11 +821,15 @@
       }
       bar.setAttribute("aria-expanded", open ? "true" : "false");
       chevron.style.transform = open ? "rotate(180deg)" : "";
-      // Released here rather than waiting for the next scroll: the panel hangs
-      // off the bar in the document, so a bar still pinned to the bottom of
-      // the screen would leave the conversation it just opened stranded up the
-      // page with nothing pointing at it.
-      if (open) setPinned(false);
+      // Held open while the advisor is: the bar is the header of the thing
+      // below it, and a pending timer drawing it down to a spark mid-sentence
+      // would leave the panel hanging off an icon.
+      if (open) {
+        stopPeekTimer();
+        drawIn(false);
+      } else {
+        peek();
+      }
       // Scrolls the advisor into view rather than opening it below the fold,
       // which on a phone is indistinguishable from the button doing nothing.
       if (open && panel.scrollIntoView) {
@@ -837,56 +841,42 @@
       }
     });
 
-    /*
-     * Pinning, and why the bar sits inside a slot.
-     *
-     * Read once on the way down the page, an inline bar is then gone. So once
-     * its place in the document passes the top of the viewport it pins to the
-     * bottom of the screen — and tucks away again while the shopper is
-     * scrolling DOWN through the description, returning the moment they scroll
-     * up. Out of the way while they are reading; there the instant they look
-     * for it.
-     *
-     * `slot` is what makes that possible without the page lurching. A pinned
-     * bar is position:fixed and therefore out of the flow, so the space it
-     * occupied would collapse and every pixel below it would jump upward — on
-     * a phone, mid-scroll, that reads as the page glitching. The slot keeps
-     * the height while the bar is away.
-     */
-    var slot = el("div", {});
-    slot.appendChild(bar);
-    root.appendChild(slot);
+    root.appendChild(bar);
     root.appendChild(panel);
 
-    // How high the pinned bar sits. data-offset-bottom already exists, is
-    // already validated and already means exactly this, so a storefront whose
-    // corner is taken — Cicabelle has a WhatsApp bubble down there — raises it
-    // with the attribute it has for the floating launcher rather than a second
-    // one invented for this mode.
     /*
-     * Pinned, the bar has two shapes.
+     * The bar has two shapes, and it changes them where it stands.
      *
-     * Expanded it is the full sentence. It says that once — for five seconds —
-     * and then draws itself in to the left until only the spark is left: a
-     * button the width of its own icon, out of everyone's way.
+     * Expanded it is the whole sentence. It says that for five seconds after
+     * the shopper reaches it, then draws itself in to the left until only the
+     * spark is left — still there, still tappable, no longer a paragraph of
+     * brand colour sitting in the middle of a product page.
      *
-     * Hiding it outright was the first attempt and it was wrong. An offer the
-     * shopper cannot see is an offer they do not have. Drawing in keeps it
-     * reachable at every point of the page while giving the page back.
+     * It does NOT pin itself to the bottom of the screen. That was the last
+     * attempt and it was wrong twice over: it landed on top of the storefront's
+     * own sticky add-to-cart, and it took the offer away from the button it is
+     * meant to sit beside. In the page, it is visible exactly when the
+     * add-to-cart is visible, which is when someone is deciding.
      *
-     * Scrolling down draws it in at once — they are reading, not looking for
-     * us. Scrolling up puts the sentence back for another five seconds,
-     * because coming back up a page is what looking for something looks like.
+     * Which also means there is no scroll handler here at all. An observer
+     * fires when the bar arrives on screen and does nothing the rest of the
+     * time, where a scroll listener would run on every scroll event of
+     * somebody else's shop for the sake of two moments.
      */
     var PEEK_MS = 5000;
     var PUCK = 56;
 
-    var pinBottom = cssLength(cfg.offsetY, "12px");
-    var pinned = false;
     var drawnIn = false;
-    var lastY = 0;
-    var ticking = false;
     var peekTimer = null;
+
+    // Held constant across both shapes. Only the WIDTH changes, so the page
+    // around the bar never reflows when it draws in — a product page that
+    // twitches every time the shopper scrolls back to it would be worse than
+    // no animation at all.
+    bar.style.height = PUCK + "px";
+    // So the sentence clips as the bar narrows instead of reflowing into a
+    // taller and taller stack on its way down to an icon.
+    bar.style.overflow = "hidden";
 
     function stopPeekTimer() {
       if (peekTimer) {
@@ -896,7 +886,6 @@
     }
 
     function shape() {
-      if (!pinned) return;
       if (drawnIn) {
         bar.style.width = PUCK + "px";
         bar.style.padding = "0";
@@ -905,7 +894,7 @@
         words.style.opacity = "0";
         chevron.style.opacity = "0";
       } else {
-        bar.style.width = "calc(100vw - 24px)";
+        bar.style.width = "100%";
         bar.style.padding = "13px 16px";
         bar.style.borderRadius = "14px";
         bar.style.justifyContent = "";
@@ -920,7 +909,13 @@
       shape();
     }
 
-    /** Show the whole sentence, then draw back in on its own. */
+    // Applied once up front so the expanded shape is stated rather than
+    // inherited from whatever the base styles happened to be. drawIn() only
+    // acts on a change, so without this the bar's first shape would be
+    // whatever CSS left behind and the two would drift apart on any edit.
+    shape();
+
+    /** Say the whole sentence, then draw back in on its own. */
     function peek() {
       drawIn(false);
       stopPeekTimer();
@@ -930,96 +925,37 @@
       }, PEEK_MS);
     }
 
-    function setPinned(next) {
-      if (next === pinned) return;
-      pinned = next;
-      if (pinned) {
-        // Measured before the bar leaves the flow, or there is nothing to
-        // measure.
-        slot.style.height = (bar.offsetHeight || 0) + "px";
-        bar.style.position = "fixed";
-        // Anchored on the left edge only. With both edges pinned the width
-        // could not be animated at all, and drawing in to the left is the
-        // entire gesture.
-        bar.style.left = "12px";
-        bar.style.right = "auto";
-        bar.style.bottom = pinBottom;
-        bar.style.height = PUCK + "px";
-        // So the sentence clips as the bar narrows instead of reflowing into
-        // a taller and taller stack on its way down to an icon.
-        bar.style.overflow = "hidden";
-        // Under the advisor's own launcher z-index, above a storefront's
-        // ordinary furniture.
-        bar.style.zIndex = "2147482000";
-        bar.style.boxShadow = "0 10px 30px rgba(20,17,15,.24)";
-        drawnIn = false;
-        shape();
-        peek();
-      } else {
-        stopPeekTimer();
-        drawnIn = false;
-        slot.style.height = "";
-        bar.style.position = "";
-        bar.style.left = "";
-        bar.style.right = "";
-        bar.style.bottom = "";
-        bar.style.height = "";
-        bar.style.overflow = "";
-        bar.style.width = "100%";
-        bar.style.padding = "13px 16px";
-        bar.style.borderRadius = "14px";
-        bar.style.justifyContent = "";
-        bar.style.zIndex = "";
-        bar.style.boxShadow = "";
-        words.style.opacity = "1";
-        chevron.style.opacity = ".9";
-      }
+    /*
+     * Peek when the shopper arrives at it, and again every time they come
+     * back — scrolling up to the add-to-cart is what deciding looks like, and
+     * the offer should be legible at that moment rather than a spark they have
+     * to recognise.
+     *
+     * Collapsed again on the way out so the next arrival is a fresh sentence
+     * rather than whatever state it was left in.
+     */
+    if (window.IntersectionObserver) {
+      var seeing = new window.IntersectionObserver(
+        function (entries) {
+          for (var i = 0; i < entries.length; i++) {
+            if (entries[i].isIntersecting) peek();
+            else {
+              stopPeekTimer();
+              drawIn(true);
+            }
+          }
+        },
+        // A little of it is enough; waiting for the whole bar would miss it
+        // entirely on a short screen.
+        { threshold: 0.35 },
+      );
+      seeing.observe(bar);
+    } else {
+      // No observer: say it once and draw in, which is the behaviour without
+      // the ability to tell when anyone is looking.
+      peek();
     }
 
-    function onScroll() {
-      // Coalesced to one frame. This runs on every scroll event of a
-      // merchant's storefront, and reading layout in the event itself is how a
-      // widget makes somebody else's page feel broken.
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(function () {
-        ticking = false;
-        var y = window.pageYOffset || (document.documentElement && document.documentElement.scrollTop) || 0;
-        var dy = y - lastY;
-        lastY = y;
-
-        // Never pinned while the advisor is open: the panel hangs off the bar,
-        // and a bar that flies to the bottom of the screen without it would
-        // leave the conversation stranded up the page.
-        if (open) {
-          setPinned(false);
-          return;
-        }
-
-        var wasPinned = pinned;
-        setPinned(slot.getBoundingClientRect().bottom < 0);
-        if (!pinned) return;
-        // Pinning happens on the way DOWN the page, so without this the very
-        // frame that summons the bar also draws it in and the sentence is
-        // never read. The first five seconds belong to the peek; the scroll
-        // direction only starts deciding on the frame after.
-        if (!wasPinned) return;
-        // A threshold rather than a sign test: a pixel of rubber-banding at
-        // the end of a scroll would otherwise flicker it in and out.
-        if (dy > 6) {
-          // Reading, not looking for us — and no timer left to wait on.
-          stopPeekTimer();
-          drawIn(true);
-        } else if (dy < -6) {
-          peek();
-        }
-      });
-    }
-
-    if (window.addEventListener) {
-      window.addEventListener("scroll", onScroll, { passive: true });
-      window.addEventListener("resize", onScroll, { passive: true });
-    }
 
     // Where the script tag sits, so the merchant chooses the position by
     // choosing where to paste. insertBefore rather than appendChild to body:
@@ -1288,10 +1224,10 @@
         script: script,
         tenant: tenant,
         product: product,
-        // How high the bar sits once it pins itself to the bottom of the
-        // screen — the same attribute, and the same meaning, as it has for the
-        // floating launcher.
-        offsetY: script.getAttribute("data-offset-bottom"),
+        // No data-offset-bottom here on purpose. The bar sits where it was
+        // pasted and never leaves the flow, so there is no distance from an
+        // edge for it to mean — and accepting an attribute in order to ignore
+        // it is worse than not accepting it.
         label: script.getAttribute("data-label"),
         tagline: script.getAttribute("data-tagline"),
         locale: script.getAttribute("data-locale") || "en",
