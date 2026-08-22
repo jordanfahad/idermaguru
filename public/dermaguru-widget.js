@@ -31,6 +31,13 @@
  * (two coloured pills compete; a bubble and a circle read as a pair). Voice
  * mode only; the chat mode's launcher comes from a stylesheet and ignores it.
  *
+ * Pages: data-hide-on takes a comma-separated list of paths the widget must
+ * not appear on, matched by whole path segment. Set it for the cart at least —
+ * a fixed launcher lands on top of a cart page's sticky checkout button, and
+ * by then the shopper has decided anyway:
+ *
+ *   data-hide-on="/cart,/checkout"
+ *
  * Isolation: the UI mounts inside a Shadow DOM custom element, so the host
  * store's CSS cannot bleed in and the widget's CSS cannot leak out. For hostile
  * CSP / no-Shadow-DOM environments, set data-mode="iframe" (or it auto-falls back).
@@ -158,6 +165,36 @@
   function labelText(value, fallback) {
     var v = (value == null ? "" : String(value)).replace(/\s+/g, " ").trim();
     return v ? v.slice(0, LABEL_MAX) : fallback;
+  }
+
+  /*
+   * Pages the widget must stay off.
+   *
+   * A floating launcher is fixed to the viewport, so on any page with its own
+   * sticky footer it lands on top of it. On cicabelle.com/cart that footer is
+   * the subtotal and the checkout button — the advisor was covering the one
+   * control the page exists to offer. No shape of launcher fixes that; the
+   * answer is not to be there.
+   *
+   * Matched on whole path segments, not `startsWith`: "/cart" has to hide
+   * "/cart" and "/cart/anything" while leaving "/cartridges" alone, and a
+   * plain prefix test would take a product page down with it.
+   *
+   * Absent means hide nowhere, so an install that has not asked for this keeps
+   * showing the advisor everywhere exactly as it does today.
+   */
+  function hiddenHere(list, path) {
+    if (!list) return false;
+    var here = String(path || "/").toLowerCase();
+    return String(list)
+      .split(",")
+      .some(function (raw) {
+        var p = raw.trim().toLowerCase();
+        if (!p) return false;
+        if (p.charAt(0) !== "/") p = "/" + p;
+        if (p.length > 1 && p.charAt(p.length - 1) === "/") p = p.slice(0, -1);
+        return here === p || here === p + "/" || here.indexOf(p + "/") === 0;
+      });
   }
 
   /*
@@ -860,6 +897,11 @@
       })();
     if (!script || script.getAttribute("data-dg-mounted")) return;
     script.setAttribute("data-dg-mounted", "1");
+
+    // Checked before anything is built, and before the mode is even read: this
+    // has to hold for every rendering, and a launcher that mounts and then
+    // hides has still cost the shopper the work of loading it.
+    if (hiddenHere(script.getAttribute("data-hide-on"), location.pathname)) return;
 
     var origin;
     try {

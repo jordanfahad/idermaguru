@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -458,5 +459,84 @@ describe("the icon launcher", () => {
     // for chat, this assertion is the thing that should fail.
     const forwarded = block(widget, '"tenant",', "].forEach");
     expect(forwarded).not.toContain('"launcher"');
+  });
+});
+
+/**
+ * Pages the widget stays off.
+ *
+ * A floating launcher is fixed to the viewport, so on a page with its own
+ * sticky footer it lands on top of it. On cicabelle.com/cart that footer is
+ * the subtotal and the checkout button, and the advisor was sitting over the
+ * one control the page exists to offer.
+ *
+ * The matching is the whole feature, so it is executed here rather than
+ * asserted from the source: a rule that is slightly too greedy takes real
+ * pages off the storefront, and it does so silently — nobody reports a
+ * launcher that failed to appear.
+ */
+describe("pages the widget stays off", () => {
+  const source = widget.slice(widget.indexOf("function hiddenHere"), widget.indexOf("/*\n   * The glyphs"));
+  const sandbox: { hiddenHere?: (list: string | null | undefined, path: string) => boolean } = {};
+  vm.runInNewContext(source + "\nthis.hiddenHere = hiddenHere;", sandbox);
+  const hiddenHere = sandbox.hiddenHere!;
+
+  it("was found in the shipped file", () => {
+    expect(typeof hiddenHere, "hiddenHere not extracted — has it been renamed?").toBe("function");
+  });
+
+  it("hides the page named and everything under it", () => {
+    for (const path of ["/cart", "/cart/", "/cart/1234:1", "/CART"]) {
+      expect(hiddenHere("/cart,/checkout", path), `${path} should be hidden`).toBe(true);
+    }
+  });
+
+  it("does not hide a page that merely starts with the same letters", () => {
+    // The one that matters: a plain startsWith would take /cartridges — a real
+    // product path — off the storefront, and nobody reports a launcher that
+    // failed to appear.
+    for (const path of ["/cartridges", "/cartridges/refill-kit"]) {
+      expect(hiddenHere("/cart", path), `${path} must stay visible`).toBe(false);
+    }
+  });
+
+  it("leaves the rest of the storefront alone", () => {
+    for (const path of ["/", "/products/k18-hair-mask", "/collections/serums"]) {
+      expect(hiddenHere("/cart,/checkout", path), `${path} must stay visible`).toBe(false);
+    }
+  });
+
+  it('never lets "/" hide the whole store', () => {
+    // "/" is a plausible thing for a merchant to type, and under a prefix rule
+    // it matches every path there is.
+    expect(hiddenHere("/", "/products/x")).toBe(false);
+    expect(hiddenHere("/", "/")).toBe(true);
+  });
+
+  it("treats an absent or empty list as hiding nothing", () => {
+    // Every install that has not asked for this must keep showing the advisor
+    // everywhere, exactly as it does today.
+    expect(hiddenHere(null, "/cart")).toBe(false);
+    expect(hiddenHere(undefined, "/cart")).toBe(false);
+    expect(hiddenHere("", "/cart")).toBe(false);
+    expect(hiddenHere("/cart,,", "/products/x")).toBe(false);
+  });
+
+  it("forgives the ways a merchant might type a path", () => {
+    expect(hiddenHere("cart", "/cart"), "leading slash optional").toBe(true);
+    expect(hiddenHere("/cart/", "/cart"), "trailing slash tolerated").toBe(true);
+    expect(hiddenHere("  /cart , /checkout  ", "/cart"), "whitespace tolerated").toBe(true);
+  });
+
+  it("is checked before anything is built", () => {
+    // A launcher that mounts and then hides has still cost the shopper the
+    // work of loading it, and the check has to hold for every mount mode —
+    // so it sits above the branch that picks one.
+    const auto = block(widget, "function autoMount", "if (document.readyState");
+    expect(auto).toContain('if (hiddenHere(script.getAttribute("data-hide-on"), location.pathname)) return;');
+    expect(
+      auto.indexOf("hiddenHere") < auto.indexOf('var mode = script.getAttribute("data-mode")'),
+      "the check must come before the mode is even read",
+    ).toBe(true);
   });
 });
