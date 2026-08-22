@@ -134,8 +134,32 @@ pays nothing on page views that ignore it.
 | `data-mode="voice"` | The default since the launcher was fixed. Write it anyway. |
 | `data-tenant` | **Required.** Whose catalogue to recommend from. Overruled by `ADVISOR_HOSTS` when the advisor is served on a host that names a merchant. |
 | `data-position` | `bottom-right` (default) or `bottom-left`. |
+| `data-offset-bottom` | How far up from the bottom edge. Default `20px`. |
+| `data-offset-side` | How far in from the left/right edge. Default `20px`. |
 | `data-primary` | Launcher colour. |
 | `data-locale` | `en` or `ar`. |
+
+### When the corner is already taken
+
+Most storefronts already have something bottom-right — a WhatsApp bubble, a
+chat launcher, a sticky add-to-cart. `data-position` only offers the other
+corner, which is not always the answer, so the two offsets move the launcher
+along either axis while keeping the side you want:
+
+```html
+data-position="bottom-right" data-offset-bottom="96px"   <!-- above a bubble -->
+data-position="bottom-right" data-offset-bottom="45vh"   <!-- mid-right     -->
+```
+
+Both take a non-negative CSS length in `px`, `%`, `vh`, `vw`, `rem` or `em`.
+Anything else — a `calc()`, a negative, a value with a `;` in it — is ignored
+and the launcher falls back to the default corner rather than the value being
+pasted into a style attribute.
+
+Raising the launcher shortens the panel by the same amount, because the panel
+opens upward from the button. A large offset therefore buys position at the
+cost of panel height: at `45vh` the panel is roughly `55vh` tall. Check it on a
+short viewport — a landscape phone is the worst case — before shipping it.
 
 ---
 

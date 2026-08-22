@@ -8,6 +8,15 @@
  *           data-primary="#1f6f5c"
  *           data-locale="en"></script>
  *
+ * Placement: data-position picks the corner ("bottom-right" | "bottom-left").
+ * data-offset-bottom and data-offset-side move the launcher along each axis
+ * from that corner, taking any non-negative CSS length in px/%/vh/vw/rem/em
+ * (default 20px each). A storefront that already has a launcher in the corner
+ * can lift ours clear of it without giving up the side it wants:
+ *
+ *   data-position="bottom-right" data-offset-bottom="45vh"   mid-right
+ *   data-position="bottom-right" data-offset-bottom="96px"   above a bubble
+ *
  * Isolation: the UI mounts inside a Shadow DOM custom element, so the host
  * store's CSS cannot bleed in and the widget's CSS cannot leak out. For hostile
  * CSP / no-Shadow-DOM environments, set data-mode="iframe" (or it auto-falls back).
@@ -93,20 +102,48 @@
     }
   }
 
+  /*
+   * How far the launcher sits from the edges it is pinned to.
+   *
+   * The default 20px corner is wrong for a storefront that already has
+   * something in that corner — a WhatsApp bubble, a cookie bar, a sticky
+   * add-to-cart. Flipping to the opposite corner is not always the answer, so
+   * `data-offset-bottom` / `data-offset-side` let the launcher be nudged along
+   * either axis while staying on the side the merchant wants it on.
+   *
+   * Sanitised, not trusted: these values reach an inline `style` string, and
+   * `data-*` lives in the storefront's HTML where anyone with devtools can edit
+   * it. Only a bare non-negative number plus a known unit gets through;
+   * anything else falls back to the 20px default rather than being pasted into
+   * CSS. A shopper editing their own page can only alter their own view, but a
+   * value that silently breaks the layout would look like our bug.
+   */
+  var LENGTH = /^\d+(\.\d+)?(px|%|vh|vw|rem|em)$/;
+
+  function cssLength(value, fallback) {
+    var v = (value == null ? "" : String(value)).trim();
+    return LENGTH.test(v) ? v : fallback;
+  }
+
   function styles() {
     return [
       ":host{all:initial}",
       "*{box-sizing:border-box}",
       ".dg{position:fixed;z-index:2147483647;font-family:var(--dg-font, -apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif);color:var(--dg-ink,#1c1a19);line-height:1.45}",
-      ".dg.pos-br{inset:auto 20px 20px auto}",
-      ".dg.pos-bl{inset:auto auto 20px 20px}",
-      ".dg[dir=rtl].pos-br{inset:auto auto 20px 20px}",
-      ".dg[dir=rtl].pos-bl{inset:auto 20px 20px auto}",
+      ".dg.pos-br{inset:auto var(--dg-offset-x,20px) var(--dg-offset-y,20px) auto}",
+      ".dg.pos-bl{inset:auto auto var(--dg-offset-y,20px) var(--dg-offset-x,20px)}",
+      ".dg[dir=rtl].pos-br{inset:auto auto var(--dg-offset-y,20px) var(--dg-offset-x,20px)}",
+      ".dg[dir=rtl].pos-bl{inset:auto var(--dg-offset-x,20px) var(--dg-offset-y,20px) auto}",
       ".launch{display:inline-flex;align-items:center;gap:9px;border:0;cursor:pointer;background:var(--dg-primary,#1f6f5c);color:var(--dg-on-primary,#fff);font-weight:650;font-size:15px;min-height:52px;padding:0 20px;border-radius:999px;box-shadow:0 10px 30px rgba(20,17,15,.22);transition:transform .18s ease, box-shadow .18s ease}",
       ".launch:hover{transform:translateY(-1px);box-shadow:0 16px 38px rgba(20,17,15,.28)}",
       ".launch:focus-visible{outline:3px solid var(--dg-primary,#1f6f5c);outline-offset:3px}",
       ".dot{width:9px;height:9px;border-radius:50%;background:var(--dg-on-primary,#fff);opacity:.9}",
-      ".panel{display:flex;flex-direction:column;width:min(384px,calc(100vw - 32px));height:min(624px,calc(100vh - 110px));background:var(--dg-bg,#fff);border:1px solid rgba(20,17,15,.08);border-radius:var(--dg-radius,18px);box-shadow:0 30px 80px rgba(20,17,15,.24);overflow:hidden;margin-bottom:14px;opacity:0;transform:translateY(8px) scale(.98);transition:opacity .2s ease, transform .2s ease}",
+      // The panel opens upward from the launcher, so its ceiling has to follow
+      // the launcher up. Left at a flat 100vh-110px, an offset that lifts the
+      // launcher to mid-screen pushes the panel's header — and its close
+      // button — off the top of the viewport, with no way to scroll to it.
+      // At the default 20px offset this is still exactly 100vh - 110px.
+      ".panel{display:flex;flex-direction:column;width:min(384px,calc(100vw - 32px));height:min(624px,calc(100vh - var(--dg-offset-y,20px) - 90px));background:var(--dg-bg,#fff);border:1px solid rgba(20,17,15,.08);border-radius:var(--dg-radius,18px);box-shadow:0 30px 80px rgba(20,17,15,.24);overflow:hidden;margin-bottom:14px;opacity:0;transform:translateY(8px) scale(.98);transition:opacity .2s ease, transform .2s ease}",
       ".panel.open{opacity:1;transform:none}",
       ".hd{display:flex;align-items:flex-start;gap:10px;padding:16px 16px 12px;border-bottom:1px solid rgba(20,17,15,.07)}",
       ".hd .mark{width:34px;height:34px;border-radius:10px;background:var(--dg-primary,#1f6f5c);color:var(--dg-on-primary,#fff);display:flex;align-items:center;justify-content:center;font-weight:750;flex:none}",
@@ -165,6 +202,8 @@
         locale: locale,
         rtl: rtl,
         position: this.getAttribute("data-position") === "bottom-left" ? "bl" : "br",
+        offsetY: cssLength(this.getAttribute("data-offset-bottom"), "20px"),
+        offsetX: cssLength(this.getAttribute("data-offset-side"), "20px"),
         primary: this.getAttribute("data-primary") || "#1f6f5c",
         onPrimary: this.getAttribute("data-on-primary") || "#ffffff",
         radius: this.getAttribute("data-radius") || "18px",
@@ -187,6 +226,8 @@
       root.appendChild(el("style", { text: styles() }));
 
       var container = el("div", { class: "dg pos-" + this.cfg.position, dir: this.cfg.rtl ? "rtl" : "ltr" });
+      container.style.setProperty("--dg-offset-y", this.cfg.offsetY);
+      container.style.setProperty("--dg-offset-x", this.cfg.offsetX);
       container.style.setProperty("--dg-primary", this.cfg.primary);
       container.style.setProperty("--dg-on-primary", this.cfg.onPrimary);
       container.style.setProperty("--dg-radius", this.cfg.radius);
@@ -464,14 +505,24 @@
   }
 
   // ---- iframe fallback (hostile CSP / no Shadow DOM) -----------------------
-  function mountIframe(origin, tenant, position) {
+  function mountIframe(origin, tenant, position, offsets) {
+    var offsetY = (offsets && offsets.y) || "20px";
+    var offsetX = (offsets && offsets.x) || "20px";
     var root = el("div", {});
     root.style.cssText =
-      "position:fixed;z-index:2147483647;bottom:20px;" + (position === "bottom-left" ? "left:20px" : "right:20px");
+      "position:fixed;z-index:2147483647;bottom:" +
+      offsetY +
+      ";" +
+      (position === "bottom-left" ? "left:" : "right:") +
+      offsetX;
     var frame = el("iframe", { title: "DermaGuru skincare advisor" });
     frame.src = origin + "/embed?tenant=" + encodeURIComponent(tenant);
+    // This mode pins an open panel rather than a launcher, so the offset eats
+    // into its height directly — same reasoning as the shadow-DOM panel above.
     frame.style.cssText =
-      "border:0;width:min(384px,calc(100vw - 32px));height:min(624px,calc(100vh - 110px));border-radius:18px;box-shadow:0 30px 80px rgba(20,17,15,.24);background:#fff";
+      "border:0;width:min(384px,calc(100vw - 32px));height:min(624px,calc(100vh - " +
+      offsetY +
+      " - 90px));border-radius:18px;box-shadow:0 30px 80px rgba(20,17,15,.24);background:#fff";
     root.appendChild(frame);
     document.body.appendChild(root);
   }
@@ -493,18 +544,26 @@
    *    corner of every page, which is a lot of storefront to give up.
    */
   function mountVoice(origin, cfg) {
-    var side = cfg.position === "bottom-left" ? "left:20px" : "right:20px";
+    var offsetY = cfg.offsetY || "20px";
+    var offsetX = cfg.offsetX || "20px";
+    var side = (cfg.position === "bottom-left" ? "left:" : "right:") + offsetX;
     var loc = cfg.locale === "ar" ? "ar" : "en";
     var open = false;
     var frame = null;
 
     var root = el("div", {});
-    root.style.cssText = "position:fixed;z-index:2147483647;bottom:20px;" + side;
+    root.style.cssText = "position:fixed;z-index:2147483647;bottom:" + offsetY + ";" + side;
 
     var panel = el("div", {});
+    // Height is measured from the launcher, not the floor: the panel stacks
+    // above the button, so an offset that lifts the button has to take the
+    // same distance off the panel or its top runs past the viewport. At the
+    // default 20px this is the original 100vh - 120px.
     panel.style.cssText =
       "display:none;overflow:hidden;margin-bottom:12px;border-radius:20px;" +
-      "width:min(420px,calc(100vw - 32px));height:min(680px,calc(100vh - 120px));" +
+      "width:min(420px,calc(100vw - 32px));height:min(680px,calc(100vh - " +
+      offsetY +
+      " - 100px));" +
       "box-shadow:0 30px 80px rgba(20,17,15,.28);background:#fff";
 
     var button = el("button", { type: "button" });
@@ -589,6 +648,8 @@
     }
     var tenant = script.getAttribute("data-tenant") || "ai-derma-guru";
     var position = script.getAttribute("data-position") || "bottom-right";
+    var offsetY = cssLength(script.getAttribute("data-offset-bottom"), "20px");
+    var offsetX = cssLength(script.getAttribute("data-offset-side"), "20px");
     var mode = script.getAttribute("data-mode");
 
     // Voice is what this product IS, so it is what a snippet gets unless it
@@ -599,6 +660,8 @@
     if (mode !== "chat" && mode !== "iframe") {
       mountVoice(origin, {
         position: position,
+        offsetY: offsetY,
+        offsetX: offsetX,
         tenant: tenant,
         locale: script.getAttribute("data-locale") || "en",
         primary: script.getAttribute("data-primary"),
@@ -608,13 +671,25 @@
     }
 
     if (!supportsCE || mode === "iframe") {
-      mountIframe(origin, tenant, position);
+      mountIframe(origin, tenant, position, { y: offsetY, x: offsetX });
       return;
     }
 
     var node = document.createElement(TAG);
     node.setAttribute("data-origin", origin);
-    ["tenant", "position", "primary", "on-primary", "radius", "font", "locale", "rtl", "title"].forEach(function (a) {
+    [
+      "tenant",
+      "position",
+      "offset-bottom",
+      "offset-side",
+      "primary",
+      "on-primary",
+      "radius",
+      "font",
+      "locale",
+      "rtl",
+      "title",
+    ].forEach(function (a) {
       var v = script.getAttribute("data-" + a);
       if (v != null) node.setAttribute("data-" + a, v);
     });
