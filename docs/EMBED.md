@@ -139,6 +139,7 @@ pays nothing on page views that ignore it.
 | `data-label` | What the launcher is called. Defaults to the translated "Skincare advisor". |
 | `data-tagline` | A second, smaller line under the label. Empty by default — no second line. |
 | `data-launcher` | `pill` (default) or `icon` — a round button with the words in a bubble beside it. Voice mode only. |
+| `data-hide-on` | Comma-separated paths the widget must not appear on. Empty by default. |
 | `data-primary` | Launcher colour. |
 | `data-locale` | `en` or `ar`. |
 
@@ -212,6 +213,30 @@ nothing in it. It swaps to a × while the advisor is open.
 has no icon rendering, so it ignores `data-launcher` rather than half-applying
 it. Since voice is the default mode, this only matters if you asked for chat by
 name.
+
+### Keep it off the cart
+
+```html
+data-hide-on="/cart,/checkout"
+```
+
+**Set this.** A floating launcher is fixed to the viewport, so on any page with
+its own sticky footer it lands on top of it — and on a cart page that footer is
+the subtotal and the checkout button. The advisor was covering the one control
+the page exists to offer. No shape of launcher fixes that; the answer is not to
+be there.
+
+It is also the right call on its own terms. By the cart page the shopper has
+decided; a skincare advisor there competes with the button that earns you money
+rather than helping anyone choose.
+
+Matching is by whole path segment, so `/cart` hides `/cart` and `/cart/1234:1`
+but leaves `/cartridges` alone. Leading and trailing slashes and spaces are
+forgiven. The widget is not built at all on a hidden page, so it costs the
+shopper nothing there.
+
+If your store serves language-prefixed URLs (`/en/cart`), list those too — the
+match is on the literal path.
 
 ### When the corner is already taken
 
