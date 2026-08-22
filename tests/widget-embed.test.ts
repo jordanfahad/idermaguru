@@ -528,6 +528,15 @@ describe("pages the widget stays off", () => {
     expect(hiddenHere("  /cart , /checkout  ", "/cart"), "whitespace tolerated").toBe(true);
   });
 
+  it("is not the answer the inline bar needs", () => {
+    // data-hide-on exists because a FIXED launcher lands on a sticky footer.
+    // The inline bar is in the document flow and cannot overlap anything, so
+    // it should not be quietly acquiring page rules it does not need — if this
+    // ever fails, the collision was solved twice.
+    const inline = block(widget, "function mountInline", "function mountVoice");
+    expect(inline).not.toContain("hiddenHere");
+  });
+
   it("is checked before anything is built", () => {
     // A launcher that mounts and then hides has still cost the shopper the
     // work of loading it, and the check has to hold for every mount mode —
@@ -538,5 +547,82 @@ describe("pages the widget stays off", () => {
       auto.indexOf("hiddenHere") < auto.indexOf('var mode = script.getAttribute("data-mode")'),
       "the check must come before the mode is even read",
     ).toBe(true);
+  });
+});
+
+/**
+ * The advisor as a bar inside the page.
+ *
+ * `data-mode="inline"` renders where the script tag sits, so a merchant puts it
+ * in their product template and it lands in the layout. Two things follow that
+ * a floating launcher cannot do: it cannot cover the page's own controls,
+ * because it is in the flow rather than fixed over it; and it can be about the
+ * product, because a bar in a product template knows which product it is under.
+ */
+describe("the inline product bar", () => {
+  const inline = block(widget, "function mountInline", "function mountVoice");
+
+  it("renders where the tag was pasted, not in the corner", () => {
+    // The whole point of the mode. Appending to body would put it back in a
+    // corner and make the merchant's choice of position meaningless.
+    expect(inline).toContain("cfg.script.parentNode.insertBefore(root, cfg.script)");
+    expect(inline).not.toMatch(/position:fixed/);
+  });
+
+  it("carries the product through to the advisor", () => {
+    expect(inline).toContain('"&product=" + encodeURIComponent(cfg.product)');
+  });
+
+  it("encodes it, because a merchant may paste a whole URL", () => {
+    // {{ product.url }} is at least as likely to be reached for as
+    // {{ product.handle }}, and an unencoded URL would break the query string.
+    expect(inline).toMatch(/encodeURIComponent\(cfg\.product\)/);
+  });
+
+  it("hangs up the microphone when the bar is collapsed", () => {
+    // Same rule as the launcher, and the same bug if it is missed: hiding a
+    // frame does not stop the document inside it, so a shopper who collapsed
+    // the bar would be left recording on a product page.
+    expect(inline).toContain("dg:stop");
+    expect(inline).toMatch(/postMessage\(\{ type: "dg:stop" \}, origin\)/);
+  });
+
+  it("builds the advisor on first open, not on page load", () => {
+    // A product page should not pay for a React application on every view.
+    expect(inline).toContain("if (open && !frame)");
+  });
+
+  it("delegates the microphone and camera to the frame", () => {
+    expect(inline).toMatch(/setAttribute\("allow", "microphone; camera/);
+  });
+
+  it("scrolls the advisor into view when it opens", () => {
+    // Opening something below the fold is indistinguishable, on a phone, from
+    // the button having done nothing.
+    expect(inline).toContain("scrollIntoView");
+  });
+
+  it("leads with the invitation rather than the advisor's name", () => {
+    // On a product page the useful line is the offer — "need advice on this?" —
+    // and the name is the answer to it, not the headline.
+    expect(inline).toContain("var lead = el(\"span\", { text: tagline || label });");
+  });
+
+  it("is routed before the modes that mount into a corner", () => {
+    // It is the only mode whose position depends on where the tag was pasted,
+    // so it must claim the request before anything appends to body.
+    const auto = block(widget, "function autoMount", "if (document.readyState");
+    expect(auto.indexOf('mode === "inline"')).toBeGreaterThan(-1);
+    expect(
+      auto.indexOf('mode === "inline"') < auto.indexOf('mode !== "chat"'),
+      "inline must be checked before the voice fall-through",
+    ).toBe(true);
+  });
+
+  it("lets the floating launcher carry a product too", () => {
+    // A merchant who puts data-product on the theme-wide snippet with a Liquid
+    // expression gets a launcher that knows the product it is sitting on.
+    const voice = block(widget, "function mountVoice", "var supportsCE");
+    expect(voice).toContain('"&product=" + encodeURIComponent(cfg.product)');
   });
 });

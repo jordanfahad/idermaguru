@@ -104,6 +104,72 @@ version of the experience and it is a DNS change, not a code change.
 
 ---
 
+## Option 1b — A bar on the product page (the one that converts)
+
+The floating bubble can only make a general offer, because it appears on every
+page and knows nothing about any of them. A bar placed in your product template
+knows which product it is under — so the advisor opens already knowing, and can
+answer "is this right for my skin?" about the thing the shopper is looking at.
+
+**Online Store → Themes → Edit code → `sections/main-product.liquid`** (or
+whichever section renders your product page), just above the add-to-cart form:
+
+```liquid
+<script
+  async
+  src="https://idermaguru.com/dermaguru-widget.js"
+  data-mode="inline"
+  data-tenant="ai-derma-guru"
+  data-product="{{ product.handle }}"
+  data-label="Skincare advisor"
+  data-tagline="Need advice on this product?"
+  data-primary="#8f1d2e"
+  data-locale="en"
+></script>
+```
+
+It renders **where you paste it**, in the page flow. Move the snippet, move the
+bar. That is also why it cannot repeat the cart-page problem: an element in the
+document pushes the page down instead of floating over a sticky checkout bar.
+
+```
+   AED 213.00
+
+╭────────────────────────────────────╮
+│ ✦  Need advice on this product?  ⌄ │
+│    Skincare advisor                │
+╰────────────────────────────────────╯
+
+╭────────────────────────────────────╮
+│           ADD TO CART              │
+╰────────────────────────────────────╯
+```
+
+Tapping it expands the advisor underneath, scrolled into view. Collapsing it
+hangs up the microphone, exactly as closing the floating launcher does.
+
+### `data-product`
+
+`{{ product.handle }}` is the tidiest thing to pass, but the lookup is
+deliberately forgiving — a handle, a full URL (`{{ product.url }}`), our product
+id, or your SKU all resolve. Query strings and fragments are stripped, so a
+variant-picker URL still matches.
+
+It is **resolved against your catalogue, not trusted**. A reference we cannot
+find means the advisor opens with its ordinary greeting, and a value that is not
+a product of yours is never repeated back — otherwise any page could put words
+in the advisor's mouth. Opening with the wrong product name is worse than
+opening with none.
+
+The same attribute works on the floating snippet, if your theme lets you set it
+conditionally:
+
+```liquid
+{% if product %}data-product="{{ product.handle }}"{% endif %}
+```
+
+---
+
 ## Option 2 — Floating bubble on every page
 
 **Online Store → Themes → Edit code → `layout/theme.liquid`**, just before
@@ -140,6 +206,7 @@ pays nothing on page views that ignore it.
 | `data-tagline` | A second, smaller line under the label. Empty by default — no second line. |
 | `data-launcher` | `pill` (default) or `icon` — a round button with the words in a bubble beside it. Voice mode only. |
 | `data-hide-on` | Comma-separated paths the widget must not appear on. Empty by default. |
+| `data-product` | What the shopper is looking at — handle, URL, id or SKU. The advisor opens knowing it. |
 | `data-primary` | Launcher colour. |
 | `data-locale` | `en` or `ar`. |
 

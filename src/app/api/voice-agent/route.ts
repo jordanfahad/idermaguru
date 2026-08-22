@@ -3,7 +3,7 @@ import { z } from "zod";
 import { seedTenant } from "@/data/seed-catalog";
 import { tenantSlugForRequestHost } from "@/services/merchant-domains";
 import { ESCALATION_MESSAGE, escalationMessage, type IntakeProfileInput, type ProductCatalogItem, type SafetyTriage } from "@/domain/skincare";
-import { getTenantBySlug, listTenantProducts } from "@/services/catalog";
+import { getTenantBySlug, listTenantProducts, productForReference } from "@/services/catalog";
 import { getLLMProvider, UNREADABLE_ANSWER } from "@/services/llm/provider";
 import { buildRecommendations, passesHardFilters } from "@/services/recommendation-engine";
 import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safety-triage";
@@ -98,6 +98,11 @@ const AgentSchema = z.object({
   // Any BCP-47-ish code; the client echoes back whatever we last detected.
   language: z.string().max(12).optional(),
   slots: SlotsSchema.optional(),
+  // What the shopper is looking at, when the advisor was opened from a product
+  // page. A handle, a URL, an id or an SKU — resolved against this tenant's
+  // catalogue, so a value that matches nothing simply means no product rather
+  // than an error. Capped because it arrives from a storefront's HTML.
+  product: z.string().max(200).optional(),
 });
 
 /**
@@ -138,9 +143,19 @@ export async function POST(request: Request) {
 
     // Opening turn: greet and ask for the concern.
     if (!input.utterance.trim() && !input.slots?.mainConcern) {
+      // Opened from a product page, the advisor names what the shopper is
+      // looking at. Resolved against the tenant's own catalogue rather than
+      // trusted: the reference comes from a storefront's HTML, and repeating
+      // an unverified string back as though we knew the product would let any
+      // page put words in the advisor's mouth. Unresolved means the ordinary
+      // greeting — being told nothing and being told something we cannot find
+      // are the same thing to the shopper, and both are better than a wrong
+      // product name.
+      const focus = input.product ? await productForReference(input.product, input.tenantSlug) : null;
+      const opening = focus ? copy.greetingAboutProduct(focus.name) : copy.greeting;
       return NextResponse.json({
-        reply: await say(copy.greeting),
-        speech: speakable(spoken, "", copy.greeting),
+        reply: await say(opening),
+        speech: speakable(spoken, "", opening),
         phase: "asking",
         slots: {},
         products: [],
