@@ -656,7 +656,7 @@ describe("the inline bar on scroll", () => {
   it("measures the bar before taking it out of the flow", () => {
     // offsetHeight of a position:fixed element that has already been moved is
     // not the height it had in the page.
-    const setPinned = block(inline, "function setPinned", "function setHidden");
+    const setPinned = block(inline, "function setPinned", "function onScroll");
     expect(setPinned.indexOf("slot.style.height")).toBeLessThan(setPinned.indexOf('bar.style.position = "fixed"'));
   });
 
@@ -666,19 +666,51 @@ describe("the inline bar on scroll", () => {
     expect(inline).toContain("setPinned(slot.getBoundingClientRect().bottom < 0)");
   });
 
-  it("hides on the way down and returns on the way up", () => {
-    expect(inline).toMatch(/if \(dy > 6\) setHidden\(true\);/);
-    expect(inline).toMatch(/else if \(dy < -6\) setHidden\(false\);/);
+  it("draws in on the way down and shows the sentence again on the way up", () => {
+    expect(inline).toMatch(/if \(dy > 6\) \{[\s\S]*?drawIn\(true\);/);
+    expect(inline).toMatch(/else if \(dy < -6\) \{\s*peek\(\);/);
   });
 
   it("uses a threshold rather than the sign of the delta", () => {
     // Rubber-banding at the end of a scroll moves by a pixel or two in both
     // directions; a sign test flickers the bar in and out.
-    expect(inline).not.toMatch(/if \(dy > 0\) setHidden/);
+    expect(inline).not.toMatch(/if \(dy > 0\)/);
   });
 
-  it("slides fully out of sight rather than leaving a lip showing", () => {
-    expect(inline).toContain('"translateY(calc(100% + " + pinBottom + "))"');
+  it("gives the sentence its five seconds before drawing in", () => {
+    // Pinning happens on the way DOWN the page, so without the wasPinned
+    // guard the very frame that summons the bar also collapses it, and the
+    // sentence is never read by anybody.
+    expect(inline).toContain("var PEEK_MS = 5000;");
+    expect(inline).toContain("if (!wasPinned) return;");
+    expect(inline).toMatch(/peekTimer = setTimeout\(function \(\) \{[\s\S]*?drawIn\(true\);[\s\S]*?\}, PEEK_MS\);/);
+  });
+
+  it("draws in to an icon rather than hiding outright", () => {
+    // An offer the shopper cannot see is an offer they do not have. Drawing in
+    // keeps the spark reachable at every point of the page.
+    expect(inline).toContain('bar.style.width = PUCK + "px"');
+    expect(inline).toContain('bar.style.borderRadius = "999px"');
+    expect(inline).toContain('words.style.opacity = "0"');
+    expect(inline, "hiding it entirely was the wrong answer").not.toMatch(/translateY\(calc/);
+  });
+
+  it("anchors on one edge, or the width cannot animate at all", () => {
+    // With left AND right pinned the element has no width of its own to
+    // transition, and drawing in to the left is the entire gesture.
+    expect(inline).toContain('bar.style.right = "auto"');
+  });
+
+  it("clips the sentence rather than reflowing it while narrowing", () => {
+    expect(inline).toContain('bar.style.overflow = "hidden"');
+    expect(inline).toContain("white-space:nowrap");
+  });
+
+  it("cancels the pending peek when the shopper decides for it", () => {
+    // A timer firing after a deliberate scroll-down would pop the sentence
+    // back open over the page they had just chosen to read.
+    expect(inline).toMatch(/if \(dy > 6\) \{[\s\S]*?stopPeekTimer\(\);/);
+    expect(inline).toContain("function stopPeekTimer()");
   });
 
   it("never pins while the advisor is open", () => {
@@ -712,10 +744,10 @@ describe("the inline bar on scroll", () => {
     expect(inline).toContain("REDUCED_MOTION ?");
   });
 
-  it("animates only the transform", () => {
+  it("animates the shape, never the position", () => {
     // Transitioning position or bottom would slide the bar across the page
     // from wherever it used to be.
-    expect(inline).toContain("transition:transform");
+    expect(inline).toContain("transition:width .26s ease,padding .26s ease,border-radius .26s ease");
     expect(inline).not.toMatch(/transition:[^"]*\b(all|position|bottom)\b/);
   });
 
