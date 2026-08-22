@@ -23,6 +23,12 @@
  *
  *   data-label="Skincare advisor" data-tagline="Talk to our advisor"
  *
+ * Shape: data-launcher="icon" swaps the coloured pill for a round button with
+ * those words in a light bubble beside it — the shape most storefront chat
+ * widgets use, and the one to pick when the page already has a WhatsApp bubble
+ * (two coloured pills compete; a bubble and a circle read as a pair). Voice
+ * mode only; the chat mode's launcher comes from a stylesheet and ignores it.
+ *
  * Isolation: the UI mounts inside a Shadow DOM custom element, so the host
  * store's CSS cannot bleed in and the widget's CSS cannot leak out. For hostile
  * CSP / no-Shadow-DOM environments, set data-mode="iframe" (or it auto-falls back).
@@ -151,6 +157,28 @@
     var v = (value == null ? "" : String(value)).replace(/\s+/g, " ").trim();
     return v ? v.slice(0, LABEL_MAX) : fallback;
   }
+
+  /*
+   * The glyphs for the circular launcher.
+   *
+   * Inline rather than an <img>: an external asset is a second request the
+   * storefront pays for, and a request that can fail — leaving a coloured
+   * circle with nothing in it and no way to tell what it does. currentColor
+   * means both follow data-on-primary without a second attribute.
+   *
+   * A speech bubble rather than a microphone. The advisor does listen, but a
+   * microphone on a storefront reads as "this is recording you" — the wrong
+   * first impression for a button nobody has pressed yet.
+   */
+  var ICON_CHAT =
+    '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">' +
+    '<path d="M12 3.2c-4.86 0-8.8 3.3-8.8 7.36 0 2.26 1.22 4.28 3.13 5.62-.14 1.16-.6 2.2-1.35 3.06a.6.6 0 0 0 .6.98c1.9-.44 3.34-1.28 4.25-1.94.7.15 1.43.23 2.17.23 4.86 0 8.8-3.3 8.8-7.95S16.86 3.2 12 3.2Z" fill="currentColor"/>' +
+    "</svg>";
+
+  var ICON_CLOSE =
+    '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">' +
+    '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>' +
+    "</svg>";
 
   function styles() {
     return [
@@ -603,6 +631,7 @@
     var closeText = t(loc, "close");
     var labelOpen = labelText(cfg.label, openText);
     var tagline = labelText(cfg.tagline, "");
+    var iconMode = cfg.launcher === "icon";
 
     var root = el("div", {});
     root.style.cssText = "position:fixed;z-index:2147483647;bottom:" + offsetY + ";" + side;
@@ -613,10 +642,12 @@
     // same distance off the panel or its top runs past the viewport. At the
     // default 20px and no tagline this is the original 100vh - 120px.
     //
-    // A tagline makes the button a line taller, and that line comes out of the
+    // A tagline makes the PILL a line taller, and that line comes out of the
     // same budget — otherwise adding one pushes the panel's header off the top
-    // by exactly the height of the text that was added.
-    var chrome = tagline ? "120px" : "100px";
+    // by exactly the height of the text that was added. In icon mode the words
+    // sit beside the circle rather than under it, so they cost no height and
+    // the 60px circle fits the standing allowance.
+    var chrome = !iconMode && tagline ? "120px" : "100px";
     panel.style.cssText =
       "display:none;overflow:hidden;margin-bottom:12px;border-radius:20px;" +
       "width:min(420px,calc(100vw - 32px));height:min(680px,calc(100vh - " +
@@ -626,30 +657,102 @@
       "));" +
       "box-shadow:0 30px 80px rgba(20,17,15,.28);background:#fff";
 
-    var button = el("button", { type: "button" });
-    button.setAttribute("aria-label", labelOpen);
+    var primary = cfg.primary || "#1f6f5c";
+    var onPrimary = cfg.onPrimary || "#fff";
+    var atLeft = cfg.position === "bottom-left";
+
+    // `button` is what gets the click; `applyState` is how that mount redraws
+    // itself for open/closed. Everything below the branch talks to those two
+    // and never to the mode, so the toggle logic is written once.
+    var button;
+    var applyState;
+    var mount;
+
+    if (iconMode) {
+      /*
+       * The WhatsApp shape: the words live in a light bubble NEXT TO a round
+       * button, not inside a coloured pill. Reads as a message someone left
+       * rather than as an advert, which is the whole reason to prefer it.
+       */
+      var bubble = null;
+      if (labelOpen || tagline) {
+        bubble = el("div", {});
+        bubble.style.cssText =
+          "background:#fff;color:#1c1a19;border-radius:14px;padding:10px 14px;" +
+          "box-shadow:0 8px 24px rgba(20,17,15,.16);border:1px solid rgba(20,17,15,.06);" +
+          "max-width:min(240px,58vw);text-align:" + (atLeft ? "left" : "right") + ";";
+        var top = el("span", { text: labelOpen });
+        top.style.cssText = "display:block;font:600 13.5px/1.3 system-ui,sans-serif";
+        bubble.appendChild(top);
+        if (tagline) {
+          var sub = el("span", { text: tagline });
+          sub.style.cssText = "display:block;margin-top:1px;font:500 12.5px/1.3 system-ui,sans-serif;opacity:.66";
+          bubble.appendChild(sub);
+        }
+      }
+
+      var circle = el("button", { type: "button", html: ICON_CHAT });
+      circle.style.cssText =
+        "flex:none;width:60px;height:60px;border-radius:50%;border:0;cursor:pointer;" +
+        "display:flex;align-items:center;justify-content:center;" +
+        "background:" + primary + ";color:" + onPrimary + ";" +
+        "box-shadow:0 12px 30px rgba(20,17,15,.22)";
+
+      // The row is what sits in the corner. Bubble first on the right-hand
+      // side, circle first on the left, so the bubble always points inward
+      // and the circle stays hard against the edge it is pinned to.
+      mount = el("div", {});
+      mount.style.cssText =
+        "display:flex;align-items:center;gap:10px;justify-content:" + (atLeft ? "flex-start" : "flex-end");
+      if (bubble && !atLeft) mount.appendChild(bubble);
+      mount.appendChild(circle);
+      if (bubble && atLeft) mount.appendChild(bubble);
+
+      button = circle;
+      applyState = function (isOpen) {
+        // An icon-only button has no visible text, so the accessible name is
+        // the ONLY name it has. Getting this wrong is not cosmetic.
+        circle.innerHTML = isOpen ? ICON_CLOSE : ICON_CHAT;
+        circle.setAttribute("aria-label", isOpen ? closeText : labelOpen);
+        if (bubble) bubble.style.display = isOpen ? "none" : "block";
+      };
+    } else {
+      var pill = el("button", { type: "button" });
+      pill.style.cssText =
+        "display:block;margin-" + (atLeft ? "right" : "left") + ":auto;cursor:pointer;" +
+        "border:0;border-radius:999px;padding:14px 20px;text-align:center;font:600 15px/1 system-ui,sans-serif;" +
+        "background:" + primary + ";color:" + onPrimary + ";" +
+        "box-shadow:0 12px 30px rgba(20,17,15,.22)";
+
+      // Two spans rather than one string with a <br>: the second line is
+      // hidden outright once the advisor is open, where "Talk to our advisor"
+      // is an instruction the shopper has already followed.
+      var line1 = el("span", { text: labelOpen });
+      line1.style.cssText = "display:block;font:600 15px/1.25 system-ui,sans-serif";
+      pill.appendChild(line1);
+
+      var line2 = null;
+      if (tagline) {
+        line2 = el("span", { text: tagline });
+        line2.style.cssText =
+          "display:block;margin-top:2px;font:500 12px/1.25 system-ui,sans-serif;opacity:.82";
+        pill.appendChild(line2);
+      }
+
+      mount = pill;
+      button = pill;
+      applyState = function (isOpen) {
+        // Assigning to pill.textContent would delete both spans and leave a
+        // bare string behind, so the tagline never came back after a close.
+        line1.textContent = isOpen ? closeText : labelOpen;
+        if (line2) line2.style.display = isOpen ? "none" : "block";
+        pill.setAttribute("aria-label", isOpen ? closeText : labelOpen);
+      };
+    }
+
     button.setAttribute("aria-expanded", "false");
     if (loc === "ar") button.setAttribute("dir", "rtl");
-    button.style.cssText =
-      "display:block;margin-" + (cfg.position === "bottom-left" ? "right" : "left") + ":auto;cursor:pointer;" +
-      "border:0;border-radius:999px;padding:14px 20px;text-align:center;font:600 15px/1 system-ui,sans-serif;" +
-      "background:" + (cfg.primary || "#1f6f5c") + ";color:" + (cfg.onPrimary || "#fff") + ";" +
-      "box-shadow:0 12px 30px rgba(20,17,15,.22)";
-
-    // Two spans rather than one string with a <br>: the second line is hidden
-    // outright once the advisor is open, where "Talk to our advisor" is an
-    // instruction the shopper has already followed.
-    var line1 = el("span", { text: labelOpen });
-    line1.style.cssText = "display:block;font:600 15px/1.25 system-ui,sans-serif";
-    button.appendChild(line1);
-
-    var line2 = null;
-    if (tagline) {
-      line2 = el("span", { text: tagline });
-      line2.style.cssText =
-        "display:block;margin-top:2px;font:500 12px/1.25 system-ui,sans-serif;opacity:.82";
-      button.appendChild(line2);
-    }
+    applyState(false);
 
     button.addEventListener("click", function () {
       open = !open;
@@ -688,16 +791,12 @@
           // A frame that has not finished loading has nothing to stop yet.
         }
       }
-      // Setting textContent here would delete both spans and leave a bare
-      // string behind, so the tagline never came back after the first close.
-      line1.textContent = open ? closeText : labelOpen;
-      if (line2) line2.style.display = open ? "none" : "block";
-      button.setAttribute("aria-label", open ? closeText : labelOpen);
+      applyState(open);
       button.setAttribute("aria-expanded", open ? "true" : "false");
     });
 
     root.appendChild(panel);
-    root.appendChild(button);
+    root.appendChild(mount);
     document.body.appendChild(root);
   }
 
@@ -742,6 +841,7 @@
         offsetX: offsetX,
         label: script.getAttribute("data-label"),
         tagline: script.getAttribute("data-tagline"),
+        launcher: script.getAttribute("data-launcher"),
         tenant: tenant,
         locale: script.getAttribute("data-locale") || "en",
         primary: script.getAttribute("data-primary"),

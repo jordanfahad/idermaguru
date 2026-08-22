@@ -138,6 +138,7 @@ pays nothing on page views that ignore it.
 | `data-offset-side` | How far in from the left/right edge. Default `20px`. |
 | `data-label` | What the launcher is called. Defaults to the translated "Skincare advisor". |
 | `data-tagline` | A second, smaller line under the label. Empty by default — no second line. |
+| `data-launcher` | `pill` (default) or `icon` — a round button with the words in a bubble beside it. Voice mode only. |
 | `data-primary` | Launcher colour. |
 | `data-locale` | `en` or `ar`. |
 
@@ -163,6 +164,35 @@ would cover the storefront on a phone.
 Arabic is handled: with `data-locale="ar"` the button is marked RTL and the two
 lines align to the right edge. Leaving `data-label` off falls back to the
 translated default rather than English.
+
+### Two shapes: `pill` and `icon`
+
+```
+pill (default)                    icon
+╭──────────────────────╮          ╭──────────────────────╮  ╭─────╮
+│ Skincare advisor     │          │ Skincare advisor     │  │  ◍  │
+│ Talk to our advisor  │          │ Talk to our advisor  │  ╰─────╯
+╰──────────────────────╯          ╰──────────────────────╯
+one coloured button               light bubble + round brand button
+```
+
+`data-launcher="icon"` is the shape most storefront chat widgets use, and the
+one to pick if the page already has a WhatsApp bubble — two coloured pills side
+by side compete, a bubble and a circle read as a pair.
+
+The circle takes `data-primary` and its glyph takes `data-on-primary`. The
+glyph is inline SVG, not a fetched asset: an external image is a request the
+storefront pays for and one that can fail, leaving a coloured circle with
+nothing in it. It swaps to a × while the advisor is open, and the bubble hides.
+
+The bubble sits on the inward side — left of the circle at `bottom-right`,
+right of it at `bottom-left` — and is capped at `min(240px, 58vw)` so it cannot
+span a phone.
+
+**Voice mode only.** `data-mode="chat"` draws its launcher from a stylesheet and
+has no icon rendering, so it ignores `data-launcher` rather than half-applying
+it. Since voice is the default mode, this only matters if you asked for chat by
+name.
 
 ### When the corner is already taken
 
