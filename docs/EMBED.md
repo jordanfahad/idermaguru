@@ -148,6 +148,39 @@ document pushes the page down instead of floating over a sticky checkout bar.
 Tapping it expands the advisor underneath, scrolled into view. Collapsing it
 hangs up the microphone, exactly as closing the floating launcher does.
 
+### It follows the shopper down the page
+
+Read once on the way past, an inline bar is then gone. So once its place in the
+page leaves the top of the screen it pins itself to the bottom — and tucks away
+again while the shopper scrolls **down** through the description, sliding back
+the moment they scroll **up**.
+
+```
+scrolling down            scrolling up
+╭───────────────────╮     ╭───────────────────╮
+│ product text      │     │ product text      │
+│ product text      │     │╭─────────────────╮│
+│ product text      │     ││ ✦ Need advice?  ││
+╰───────────────────╯     ╰╰─────────────────╯╯
+  nothing in the way        slides back in
+```
+
+Out of the way while they are reading, there the instant they look for it. It
+reserves its own space in the page, so pinning never makes the layout jump, and
+it un-pins when the shopper scrolls back to where it actually lives. Opening it
+un-pins it too — the advisor panel belongs with the bar.
+
+`data-offset-bottom` sets how high it pins, default `12px`. Raise it if your
+storefront already has something in that corner:
+
+```html
+data-offset-bottom="88px"   <!-- clears a WhatsApp bubble -->
+```
+
+Nothing animates for a shopper whose system asks for reduced motion, the scroll
+listener is passive, and all of its measuring happens in one animation frame —
+a widget has no business making somebody else's storefront feel heavy.
+
 ### `data-product`
 
 `{{ product.handle }}` is the tidiest thing to pass, but the lookup is

@@ -238,6 +238,22 @@
     '<path d="M18.6 15.2l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z" fill="currentColor" opacity=".7"/>' +
     "</svg>";
 
+  /*
+   * Whether this shopper has asked their system not to animate things.
+   *
+   * Read once: the query is cheap but this is consulted while building, and
+   * the setting does not change mid-page-view in any way worth chasing. The
+   * stylesheet-driven modes honour the same preference through a media query;
+   * the inline bar's styles are inline, so it has to ask.
+   */
+  var REDUCED_MOTION = (function () {
+    try {
+      return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    } catch (e) {
+      return false;
+    }
+  })();
+
   var ICON_CHEVRON =
     '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">' +
     '<path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>' +
@@ -733,7 +749,10 @@
     bar.style.cssText =
       "display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;cursor:pointer;" +
       "border:0;border-radius:14px;padding:13px 16px;text-align:" + (loc === "ar" ? "right" : "left") + ";" +
-      "font:inherit;background:" + primary + ";color:" + onPrimary + ";";
+      "font:inherit;background:" + primary + ";color:" + onPrimary + ";" +
+      // Only the transform animates. Pinning changes position, and animating
+      // that would slide the bar across the page from wherever it used to be.
+      (REDUCED_MOTION ? "" : "transition:transform .22s ease;");
 
     var glyph = el("span", { html: ICON_SPARK });
     glyph.style.cssText = "flex:none;display:flex;align-items:center";
@@ -796,6 +815,11 @@
       }
       bar.setAttribute("aria-expanded", open ? "true" : "false");
       chevron.style.transform = open ? "rotate(180deg)" : "";
+      // Released here rather than waiting for the next scroll: the panel hangs
+      // off the bar in the document, so a bar still pinned to the bottom of
+      // the screen would leave the conversation it just opened stranded up the
+      // page with nothing pointing at it.
+      if (open) setPinned(false);
       // Scrolls the advisor into view rather than opening it below the fold,
       // which on a phone is indistinguishable from the button doing nothing.
       if (open && panel.scrollIntoView) {
@@ -807,8 +831,110 @@
       }
     });
 
-    root.appendChild(bar);
+    /*
+     * Pinning, and why the bar sits inside a slot.
+     *
+     * Read once on the way down the page, an inline bar is then gone. So once
+     * its place in the document passes the top of the viewport it pins to the
+     * bottom of the screen — and tucks away again while the shopper is
+     * scrolling DOWN through the description, returning the moment they scroll
+     * up. Out of the way while they are reading; there the instant they look
+     * for it.
+     *
+     * `slot` is what makes that possible without the page lurching. A pinned
+     * bar is position:fixed and therefore out of the flow, so the space it
+     * occupied would collapse and every pixel below it would jump upward — on
+     * a phone, mid-scroll, that reads as the page glitching. The slot keeps
+     * the height while the bar is away.
+     */
+    var slot = el("div", {});
+    slot.appendChild(bar);
+    root.appendChild(slot);
     root.appendChild(panel);
+
+    // How high the pinned bar sits. data-offset-bottom already exists, is
+    // already validated and already means exactly this, so a storefront whose
+    // corner is taken — Cicabelle has a WhatsApp bubble down there — raises it
+    // with the attribute it has for the floating launcher rather than a second
+    // one invented for this mode.
+    var pinBottom = cssLength(cfg.offsetY, "12px");
+    var pinned = false;
+    var hidden = false;
+    var lastY = 0;
+    var ticking = false;
+
+    function setPinned(next) {
+      if (next === pinned) return;
+      pinned = next;
+      if (pinned) {
+        // Measured before the bar leaves the flow, or there is nothing to
+        // measure.
+        slot.style.height = (bar.offsetHeight || 0) + "px";
+        bar.style.position = "fixed";
+        bar.style.left = "12px";
+        bar.style.right = "12px";
+        bar.style.bottom = pinBottom;
+        bar.style.width = "auto";
+        // Under the advisor's own launcher z-index, above a storefront's
+        // ordinary furniture.
+        bar.style.zIndex = "2147482000";
+        bar.style.boxShadow = "0 10px 30px rgba(20,17,15,.24)";
+        bar.style.transform = "translateY(0)";
+        hidden = false;
+      } else {
+        slot.style.height = "";
+        bar.style.position = "";
+        bar.style.left = "";
+        bar.style.right = "";
+        bar.style.bottom = "";
+        bar.style.width = "100%";
+        bar.style.zIndex = "";
+        bar.style.boxShadow = "";
+        bar.style.transform = "";
+        hidden = false;
+      }
+    }
+
+    function setHidden(next) {
+      if (next === hidden) return;
+      hidden = next;
+      // Past its own height plus the gap, so no corner of it is left showing.
+      bar.style.transform = hidden ? "translateY(calc(100% + " + pinBottom + "))" : "translateY(0)";
+    }
+
+    function onScroll() {
+      // Coalesced to one frame. This runs on every scroll event of a
+      // merchant's storefront, and reading layout in the event itself is how a
+      // widget makes somebody else's page feel broken.
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(function () {
+        ticking = false;
+        var y = window.pageYOffset || (document.documentElement && document.documentElement.scrollTop) || 0;
+        var dy = y - lastY;
+        lastY = y;
+
+        // Never pinned while the advisor is open: the panel hangs off the bar,
+        // and a bar that flies to the bottom of the screen without it would
+        // leave the conversation stranded up the page.
+        if (open) {
+          setPinned(false);
+          return;
+        }
+
+        setPinned(slot.getBoundingClientRect().bottom < 0);
+        if (!pinned) return;
+        // A threshold rather than a sign test: a pixel of rubber-banding at
+        // the end of a scroll would otherwise flicker it in and out.
+        if (dy > 6) setHidden(true);
+        else if (dy < -6) setHidden(false);
+      });
+    }
+
+    if (window.addEventListener) {
+      window.addEventListener("scroll", onScroll, { passive: true });
+      window.addEventListener("resize", onScroll, { passive: true });
+    }
 
     // Where the script tag sits, so the merchant chooses the position by
     // choosing where to paste. insertBefore rather than appendChild to body:
@@ -1077,6 +1203,10 @@
         script: script,
         tenant: tenant,
         product: product,
+        // How high the bar sits once it pins itself to the bottom of the
+        // screen — the same attribute, and the same meaning, as it has for the
+        // floating launcher.
+        offsetY: script.getAttribute("data-offset-bottom"),
         label: script.getAttribute("data-label"),
         tagline: script.getAttribute("data-tagline"),
         locale: script.getAttribute("data-locale") || "en",
