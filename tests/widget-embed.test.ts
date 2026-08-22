@@ -566,7 +566,10 @@ describe("the inline product bar", () => {
     // The whole point of the mode. Appending to body would put it back in a
     // corner and make the merchant's choice of position meaningless.
     expect(inline).toContain("cfg.script.parentNode.insertBefore(root, cfg.script)");
-    expect(inline).not.toMatch(/position:fixed/);
+    // The container is never fixed. The BAR is, once pinned, but the thing
+    // that lands in the merchant's layout stays in the flow.
+    expect(inline).toMatch(/root\.style\.cssText =\s*"margin:/);
+    expect(inline).not.toMatch(/root\.style\.position\s*=/);
   });
 
   it("carries the product through to the advisor", () => {
@@ -624,5 +627,103 @@ describe("the inline product bar", () => {
     // expression gets a launcher that knows the product it is sitting on.
     const voice = block(widget, "function mountVoice", "var supportsCE");
     expect(voice).toContain('"&product=" + encodeURIComponent(cfg.product)');
+  });
+});
+
+/**
+ * The inline bar following the shopper down the page.
+ *
+ * Read once on the way past, an inline bar is then gone. So once its place in
+ * the document leaves the top of the viewport it pins to the bottom of the
+ * screen, tucks away while the shopper scrolls DOWN through the description,
+ * and returns the moment they scroll up.
+ *
+ * All of this is geometry and timing, and all of it runs on a merchant's
+ * scroll events, so the failure modes are a lurching page and a janky store
+ * rather than a wrong pixel.
+ */
+describe("the inline bar on scroll", () => {
+  const inline = block(widget, "function mountInline", "function mountVoice");
+
+  it("reserves the space it leaves behind", () => {
+    // A pinned bar is position:fixed and out of the flow, so without this the
+    // page below it jumps upward by its height, mid-scroll, on a phone.
+    expect(inline).toContain("var slot = el(");
+    expect(inline).toContain('slot.style.height = (bar.offsetHeight || 0) + "px"');
+    expect(inline).toContain('slot.style.height = ""');
+  });
+
+  it("measures the bar before taking it out of the flow", () => {
+    // offsetHeight of a position:fixed element that has already been moved is
+    // not the height it had in the page.
+    const setPinned = block(inline, "function setPinned", "function setHidden");
+    expect(setPinned.indexOf("slot.style.height")).toBeLessThan(setPinned.indexOf('bar.style.position = "fixed"'));
+  });
+
+  it("pins from the slot's position, not from a scroll threshold", () => {
+    // A fixed "pin after 800px" would be wrong on every page whose layout is
+    // not the one it was tuned against.
+    expect(inline).toContain("setPinned(slot.getBoundingClientRect().bottom < 0)");
+  });
+
+  it("hides on the way down and returns on the way up", () => {
+    expect(inline).toMatch(/if \(dy > 6\) setHidden\(true\);/);
+    expect(inline).toMatch(/else if \(dy < -6\) setHidden\(false\);/);
+  });
+
+  it("uses a threshold rather than the sign of the delta", () => {
+    // Rubber-banding at the end of a scroll moves by a pixel or two in both
+    // directions; a sign test flickers the bar in and out.
+    expect(inline).not.toMatch(/if \(dy > 0\) setHidden/);
+  });
+
+  it("slides fully out of sight rather than leaving a lip showing", () => {
+    expect(inline).toContain('"translateY(calc(100% + " + pinBottom + "))"');
+  });
+
+  it("never pins while the advisor is open", () => {
+    // The panel hangs off the bar in the document. A bar pinned to the bottom
+    // of the screen without it strands the conversation up the page.
+    expect(inline).toMatch(/if \(open\) \{\s*setPinned\(false\);\s*return;\s*\}/);
+  });
+
+  it("releases the pin on the tap itself, not on the next scroll", () => {
+    // Opening from a pinned bar without this leaves the panel offscreen until
+    // the shopper happens to scroll, which reads as the tap having done
+    // nothing.
+    expect(inline).toContain("if (open) setPinned(false);");
+  });
+
+  it("does no layout work in the scroll event itself", () => {
+    // This runs on every scroll event of somebody else's storefront.
+    expect(inline).toContain("requestAnimationFrame(function () {");
+    expect(inline).toMatch(/if \(ticking\) return;\s*ticking = true;/);
+  });
+
+  it("listens passively, so scrolling is never blocked on us", () => {
+    expect(inline).toContain('window.addEventListener("scroll", onScroll, { passive: true })');
+    expect(inline).toContain('window.addEventListener("resize", onScroll, { passive: true })');
+  });
+
+  it("honours a shopper who has asked for less motion", () => {
+    // The stylesheet modes get this from a media query; these styles are
+    // inline, so the bar has to ask.
+    expect(widget).toContain('window.matchMedia("(prefers-reduced-motion: reduce)")');
+    expect(inline).toContain("REDUCED_MOTION ?");
+  });
+
+  it("animates only the transform", () => {
+    // Transitioning position or bottom would slide the bar across the page
+    // from wherever it used to be.
+    expect(inline).toContain("transition:transform");
+    expect(inline).not.toMatch(/transition:[^"]*\b(all|position|bottom)\b/);
+  });
+
+  it("reuses data-offset-bottom for how high it pins", () => {
+    // Already exists, already validated, already means this. A storefront with
+    // a WhatsApp bubble in the corner raises it with the attribute it has.
+    expect(inline).toContain('var pinBottom = cssLength(cfg.offsetY, "12px")');
+    const auto = block(widget, "function autoMount", "if (document.readyState");
+    expect(auto).toContain('offsetY: script.getAttribute("data-offset-bottom")');
   });
 });
