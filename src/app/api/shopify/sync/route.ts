@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getAdminSessionCookieName, verifyAdminSession } from "@/lib/admin-auth";
-import { fetchShopCurrency, fetchShopifyProducts, normaliseShopDomain } from "@/lib/shopify";
+import { fetchIngredientLists, fetchShopCurrency, fetchShopifyProducts, normaliseShopDomain } from "@/lib/shopify";
 import { invalidateCatalogue } from "@/services/catalog";
 import { mapShopifyProduct, writeCatalogue } from "@/services/shopify-sync";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -65,8 +65,19 @@ async function sync(request: Request) {
     fetchShopifyProducts(shop, connection.access_token, limit),
     fetchShopCurrency(shop, connection.access_token),
   ]);
+  // Fetched after the products, because it is keyed by their ids. A shop with
+  // no custom.ingredients definition gets an empty map back and a catalogue
+  // identical to the one it has today — see fetchIngredientLists.
+  const ingredients = await fetchIngredientLists(
+    shop,
+    connection.access_token,
+    products.map((product) => product.id),
+  );
+
   const mapped = products
-    .map((product) => mapShopifyProduct(product, connection.tenant_id, shop, currency ?? undefined))
+    .map((product) =>
+      mapShopifyProduct(product, connection.tenant_id, shop, currency ?? undefined, ingredients.get(product.id)),
+    )
     .filter((product): product is NonNullable<typeof product> => product !== null);
 
   const written = await writeCatalogue(prisma, mapped);

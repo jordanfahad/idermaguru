@@ -65,6 +65,47 @@ const PREGNANCY_CAUTION = /salicylic|glycolic|benzoyl|mandelic|lactic acid|azela
 const GENTLE = /gentle|sensitive|soothing|calming|centella|\bcica\b|panthenol|ceramide|barrier|fragrance[- ]?free/i;
 const STRONG = /retinol|retinal|retinoid|tretinoin|adapalene|benzoyl|glycolic|salicylic/i;
 
+/**
+ * An INCI list as typed into a Shopify metafield, as an array.
+ *
+ * Commas are the separator on every carton in the world, and semicolons and
+ * newlines are what a spreadsheet paste produces, so all three split. HTML is
+ * stripped because a merchant pasting from a rich-text field brings tags with
+ * them.
+ *
+ * Bounded on both axes. This value is typed by hand into 444 rows and then
+ * read back on every catalogue load: one pathological cell should not be able
+ * to bloat the cache or the payload.
+ */
+const MAX_INGREDIENTS = 80;
+const MAX_INGREDIENT_LENGTH = 80;
+
+export function parseIngredients(value: string | null | undefined): string[] {
+  if (!value) return [];
+  /*
+   * Line breaks become commas BEFORE the HTML is stripped, and the order is
+   * not incidental: stripHtml flattens every run of whitespace to a single
+   * space, so a newline that survived until then would stop being a boundary
+   * and two ingredients would be glued into one.
+   *
+   * Three forms of the same thing: a real newline from a spreadsheet paste,
+   * and <br> or a closed block from a rich-text field.
+   */
+  const separated = String(value)
+    .replace(/<br\s*\/?>|<\/p>|<\/li>|<\/div>/gi, ",")
+    .replace(/[\n\r]+/g, ",");
+  return Array.from(
+    new Set(
+      stripHtml(separated)
+        .split(/[,;]+/)
+        .map((part) => part.replace(/\s+/g, " ").trim())
+        // Drop the punctuation-only fragments a trailing "." or "()" leaves
+        // behind, and anything too long to be an ingredient name.
+        .filter((part) => part.length > 1 && part.length <= MAX_INGREDIENT_LENGTH && /[a-z]/i.test(part)),
+    ),
+  ).slice(0, MAX_INGREDIENTS);
+}
+
 function stripHtml(value: string | null | undefined): string {
   return (value ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -78,13 +119,34 @@ export function mapShopifyProduct(
   // and wrong for every other store this is sold to — their prices would have
   // been relabelled into a currency they do not trade in.
   currency = "AED",
+  // The custom.ingredients metafield, when the merchant keeps one. Passed in
+  // rather than fetched here because it arrives from a separate GraphQL call —
+  // REST's products.json carries no metafields, which is why this field was
+  // empty for as long as it has existed.
+  ingredients?: string | null,
 ): ProductCatalogItem | null {
   const variant = product.variants?.[0];
   const price = Number.parseFloat(variant?.price ?? "");
   if (!product.title || !Number.isFinite(price)) return null;
 
   const description = stripHtml(product.body_html).slice(0, 900);
-  const text = `${product.title} ${description} ${product.product_type ?? ""} ${product.tags ?? ""}`;
+  const ingredientsJson = parseIngredients(ingredients);
+  /*
+   * Everything below is derived from this string, and the ingredient list is
+   * now part of it.
+   *
+   * That is the real value of the metafield, and it is not the chip. Actives
+   * were being matched against a marketing title and a description — so a
+   * retinol cream sold as "Overnight Renewal Treatment" had no actives, an
+   * UNKNOWN pregnancy status, and sailed past the pregnancy gate. An INCI list
+   * names what is actually in the bottle.
+   *
+   * Capped: an ingredient list can run to hundreds of terms, and the
+   * description is already capped for the same reason.
+   */
+  const text = `${product.title} ${description} ${product.product_type ?? ""} ${product.tags ?? ""} ${ingredientsJson
+    .join(" ")
+    .slice(0, 1200)}`;
 
   const inventory = variant?.inventory_quantity;
   return {
@@ -101,7 +163,7 @@ export function mapShopifyProduct(
     currency,
     // Draft/archived products are never sellable; treat unknown inventory as available.
     inStock: product.status === "active" && (inventory === undefined || inventory === null || inventory > 0),
-    ingredientsJson: [],
+    ingredientsJson,
     activeIngredientsJson: ACTIVES.filter((a) => a.match.test(text)).map((a) => a.term),
     skinTypesJson: SKIN_TYPES.filter((s) => s.match.test(text)).map((s) => s.term),
     concernsJson: CONCERNS.filter((c) => c.match.test(text)).map((c) => c.term),
