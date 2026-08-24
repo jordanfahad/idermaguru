@@ -796,8 +796,23 @@ const COPY = {
     // "Is this right for me" is not answerable from the label — it needs the
     // same concern and safety questions as any other route through — and the
     // dialogue below is what makes sure those get asked.
-    greetingAboutProduct: (product: string) =>
-      `Hi — I see you're looking at ${product}. I can tell you whether it suits your skin. What's your skin like, or what's bothering it?`,
+    // Opened from a product page, where the shopper is already looking at one
+    // thing. It offers rather than asks: "how is it used" and "what is it for"
+    // need to know nothing about anybody, and making every shopper answer skin
+    // questions before they can have a fact is a toll on the ones who only
+    // wanted the fact. The chip that needs the questions says so, and asking
+    // it is what starts them.
+    greetingAboutProduct: (product: string) => `Hi — you're looking at ${product}. What would you like to know?`,
+    /** Built from our own concern tags, never from the merchant's marketing copy. */
+    productAbout: (product: string, concerns: string) =>
+      `${product} is meant for ${concerns}. If you tell me about your skin I can say whether it's a good match for you.`,
+    productActives: (product: string, actives: string) =>
+      `The active ingredients in ${product} are ${actives}. Whether they suit you depends on your skin and a couple of safety questions — say the word and I'll ask them.`,
+    chip: {
+      about: "What's it good for?",
+      actives: "What's in it?",
+      suits: "Is it right for my skin?",
+    },
     askConcern: "Tell me your main skin or hair concern.",
     askSkinType: "How would you describe your skin — oily, dry, combination, or sensitive?",
     // Phrased as a rule about ingredients rather than a question about the
@@ -939,8 +954,16 @@ const COPY = {
   },
   ar: {
     greeting: "مرحباً — أنا مستشار البشرة. أخبرني ما الذي يزعج بشرتك أو شعرك.",
-    greetingAboutProduct: (product: string) =>
-      `مرحباً — أرى أنك تطّلع على ${product}. يمكنني أن أخبرك إن كان مناسباً لبشرتك. كيف هي بشرتك، أو ما الذي يزعجك فيها؟`,
+    greetingAboutProduct: (product: string) => `مرحباً — أنت تطّلع على ${product}. ما الذي تودّ معرفته؟`,
+    productAbout: (product: string, concerns: string) =>
+      `${product} مخصّص لـ ${concerns}. أخبرني عن بشرتك وسأقول لك إن كان مناسباً لك.`,
+    productActives: (product: string, actives: string) =>
+      `المكوّنات الفعّالة في ${product} هي ${actives}. ملاءمتها لك تعتمد على بشرتك وعلى سؤالين للسلامة — قل لي وسأطرحهما.`,
+    chip: {
+      about: "لماذا يُستخدم؟",
+      actives: "ما مكوّناته؟",
+      suits: "هل يناسب بشرتي؟",
+    },
     askConcern: "أخبرني بمشكلتك الأساسية في البشرة أو الشعر.",
     askSkinType: "كيف تصف بشرتك — دهنية أم جافة أم مختلطة أم حساسة؟",
     askPregnancy: "شكراً. قبل أن أقترح أي شيء: هل أنتِ حامل أو مرضعة؟",

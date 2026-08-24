@@ -103,6 +103,13 @@ const AgentSchema = z.object({
   // catalogue, so a value that matches nothing simply means no product rather
   // than an error. Capped because it arrives from a storefront's HTML.
   product: z.string().max(200).optional(),
+  // Which of the offered follow-ups was tapped.
+  //
+  // An explicit intent rather than the chip's own words as free text: "What's
+  // it good for?" run through the opening classifier reads as a tangent, and
+  // the shopper would be told skin and hair are all we cover. A button we drew
+  // ourselves should not have to be understood.
+  ask: z.enum(["about", "actives", "suits"]).optional(),
 });
 
 /**
@@ -141,6 +148,60 @@ export async function POST(request: Request) {
     const referralLine = (message?: string) => (message === ESCALATION_MESSAGE ? escalationMessage(lang) : message);
     const say = (text: string) => localise(text, spoken, getLLMProvider());
 
+    /*
+     * A tapped follow-up.
+     *
+     * Answered here, above every classifier, because these are buttons this
+     * service drew: running "What's it good for?" through the tangent
+     * classifier gets the shopper told that skin and hair are all we cover.
+     *
+     * "about" and "actives" are answered from our own structured fields and
+     * need to know nothing about the shopper. "suits" is the one that does, so
+     * it falls through to the ordinary concern question and the whole safety
+     * dialogue follows from there exactly as it always has.
+     */
+    if (input.ask && input.ask !== "suits") {
+      const focus = input.product ? await productForReference(input.product, input.tenantSlug) : null;
+      if (focus) {
+        const line =
+          input.ask === "about"
+            ? copy.productAbout(focus.name, readableList(focus.concernsJson, lang))
+            : copy.productActives(focus.name, readableList(focus.activeIngredientsJson, lang));
+        return NextResponse.json({
+          reply: await say(line),
+          speech: speakable(spoken, "", line),
+          phase: "asking",
+          slots: input.slots ?? {},
+          products: [focusCard(focus)],
+          // The tapped chip is gone; what is left is what is still worth
+          // offering, so the panel does not invite the same tap twice.
+          suggestions: suggestionsFor(focus, copy).filter((chip) => chip.ask !== input.ask),
+          language: spoken,
+          rtl: isRtl(spoken),
+        });
+      }
+    }
+
+    // Tapped "Is it right for my skin?" — start the questions that answer it.
+    //
+    // Not conditional on the utterance being empty. The panel sends the chip's
+    // own words along as what the shopper "said", so they appear in the
+    // transcript — which means the utterance is NEVER empty here, and gating on
+    // that sent every tap of this chip into the tangent classifier to be told
+    // that skin and hair are all we cover. The intent is what decides.
+    if (input.ask === "suits") {
+      return NextResponse.json({
+        reply: await say(copy.askConcern),
+        speech: speakable(spoken, "", copy.askConcern),
+        phase: "asking",
+        slots: input.slots ?? {},
+        products: [],
+        suggestions: [],
+        language: spoken,
+        rtl: isRtl(spoken),
+      });
+    }
+
     // Opening turn: greet and ask for the concern.
     if (!input.utterance.trim() && !input.slots?.mainConcern) {
       // Opened from a product page, the advisor names what the shopper is
@@ -158,7 +219,10 @@ export async function POST(request: Request) {
         speech: speakable(spoken, "", opening),
         phase: "asking",
         slots: {},
-        products: [],
+        // The card is the product the shopper is standing in front of, not a
+        // recommendation — see focusCard.
+        products: focus ? [focusCard(focus)] : [],
+        suggestions: focus ? suggestionsFor(focus, copy) : [],
         language: spoken,
         rtl: isRtl(spoken),
       });
@@ -1544,6 +1608,64 @@ function matchRoutineItem<T extends { step: string; slot: string; name: string }
     }
   }
   return bestScore > 0 ? best : null;
+}
+
+/**
+ * The product the shopper is standing in front of, as a card.
+ *
+ * Same shape the routine builder emits, so the panel renders it with the
+ * markup it already has. The routine fields are empty on purpose: this product
+ * was not chosen for anybody, it is simply the page they are on, and a
+ * "step" or a "reason" would be claiming a recommendation nobody has earned
+ * yet — before a single safety question has been asked.
+ */
+function focusCard(product: ProductCatalogItem) {
+  return {
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    category: product.category,
+    price: product.price,
+    currency: product.currency,
+    imageUrl: product.imageUrl ?? null,
+    url: product.url,
+    step: "",
+    slot: "",
+    reason: "",
+    expectedResults: "",
+    cautions: [] as string[],
+    sponsored: false,
+  };
+}
+
+/**
+ * What we can honestly offer to say about this product.
+ *
+ * Derived per product from the data actually held for it, not a fixed menu.
+ * Cicabelle's catalogue has concern tags on 352 of 444 in-stock products and
+ * actives on 161 — a chip offered on all of them would come up empty most of
+ * the time, which is worse than not offering it, because the shopper has
+ * already spent the tap.
+ *
+ * "Is it right for my skin" is always there and is the one that starts the
+ * safety questions. Everything else is answerable without knowing anything
+ * about anybody, which is the point: the shopper who wanted a fact gets the
+ * fact.
+ */
+function suggestionsFor(product: ProductCatalogItem, copy: ReturnType<typeof agentCopy>) {
+  const chips: { ask: "about" | "actives" | "suits"; label: string }[] = [];
+  if (product.concernsJson.length) chips.push({ ask: "about", label: copy.chip.about });
+  if (product.activeIngredientsJson.length) chips.push({ ask: "actives", label: copy.chip.actives });
+  chips.push({ ask: "suits", label: copy.chip.suits });
+  return chips;
+}
+
+/** Our own tags, read out as a phrase. Never the merchant's marketing copy. */
+function readableList(values: string[], lang: AgentLang) {
+  const cleaned = values.map((value) => value.trim().toLowerCase()).filter(Boolean).slice(0, 4);
+  if (cleaned.length <= 1) return cleaned[0] ?? "";
+  const joiner = lang === "ar" ? " و" : " and ";
+  return cleaned.slice(0, -1).join(lang === "ar" ? "، " : ", ") + joiner + cleaned[cleaned.length - 1];
 }
 
 function routineItemToProduct(item: {
