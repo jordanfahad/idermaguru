@@ -144,6 +144,81 @@ export async function fetchShopCurrency(shop: string, accessToken: string): Prom
   }
 }
 
+/**
+ * The ingredient list a merchant keeps against each product.
+ *
+ * REST's products.json returns no metafields at all, which is why the catalogue
+ * has carried an empty ingredients array since the sync was written. Asking per
+ * product would be one call each — 444 of them for Cicabelle, against a REST
+ * limit of two a second — so this goes through GraphQL, where `nodes` answers
+ * for 250 products at once and asks for exactly the one field we want.
+ *
+ * `custom.ingredients` is the definition merchants are told to create in
+ * docs/SHOPIFY-INGREDIENTS.md. A shop that has not made one gets nulls back and
+ * a catalogue that behaves exactly as it does today.
+ *
+ * Never throws. A sync that dropped its whole catalogue because a metafield
+ * query failed would trade a missing nice-to-have for a broken advisor.
+ */
+export const INGREDIENTS_METAFIELD = { namespace: "custom", key: "ingredients" } as const;
+
+export async function fetchIngredientLists(
+  shop: string,
+  accessToken: string,
+  productIds: number[],
+): Promise<Map<number, string>> {
+  const found = new Map<number, string>();
+  if (!productIds.length) return found;
+
+  const query = `query Ingredients($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on Product {
+        id
+        metafield(namespace: "${INGREDIENTS_METAFIELD.namespace}", key: "${INGREDIENTS_METAFIELD.key}") {
+          value
+        }
+      }
+    }
+  }`;
+
+  // `nodes` takes at most 250 ids per call, which is also the REST page size —
+  // so this is one metafield request per page of products, not per product.
+  for (let from = 0; from < productIds.length; from += 250) {
+    const batch = productIds.slice(from, from + 250);
+    try {
+      const response = await fetch(`https://${shop}/admin/api/2024-10/graphql.json`, {
+        method: "POST",
+        headers: {
+          "X-Shopify-Access-Token": accessToken,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify({
+          query,
+          variables: { ids: batch.map((id) => `gid://shopify/Product/${id}`) },
+        }),
+      });
+      if (!response.ok) continue;
+
+      const payload = (await response.json()) as {
+        data?: { nodes?: ({ id?: string; metafield?: { value?: string | null } | null } | null)[] };
+      };
+      for (const node of payload.data?.nodes ?? []) {
+        const value = node?.metafield?.value?.trim();
+        if (!node?.id || !value) continue;
+        // "gid://shopify/Product/123" — the numeric id is what REST gave us.
+        const numeric = Number(node.id.split("/").pop());
+        if (Number.isFinite(numeric)) found.set(numeric, value);
+      }
+    } catch {
+      // Leave this batch out. Products without an entry keep whatever the
+      // catalogue already held for them.
+    }
+  }
+
+  return found;
+}
+
 /** Pages through the Admin REST catalogue. Capped so one sync cannot run away. */
 export async function fetchShopifyProducts(
   shop: string,
