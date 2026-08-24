@@ -78,6 +78,15 @@ type Lang = "en" | "ar";
 type Mode = "voice" | "chat";
 type Phase = "idle" | "listening" | "thinking" | "speaking";
 
+/**
+ * A follow-up the server offered for this turn.
+ *
+ * `ask` travels back as an intent rather than the label as free text: a button
+ * we drew ourselves should not have to survive the tangent classifier on its
+ * way home.
+ */
+type Suggestion = { ask: "about" | "actives" | "suits"; label: string };
+
 type AgentProduct = {
   id: string;
   name: string;
@@ -221,6 +230,7 @@ const UI = {
     cameraError: "The photo review didn't work. You can describe your skin instead.",
     liveTranscript: "Live transcript",
     quickPicks: "Common concerns",
+    aboutThis: "About this product",
     yourRoutine: "Your routine",
     steps: (n: number) => (n === 1 ? "1 step" : `${n} steps`),
     routine: { am: "Morning", daily: "Daily", pm: "Evening", optional: "As needed" },
@@ -275,6 +285,7 @@ const UI = {
     cameraError: "لم تنجح مراجعة الصورة. يمكنك وصف بشرتك بدلاً من ذلك.",
     liveTranscript: "النص المباشر",
     quickPicks: "مشاكل شائعة",
+    aboutThis: "عن هذا المنتج",
     yourRoutine: "روتينك",
     steps: (n: number) => (n === 1 ? "خطوة واحدة" : `${n} خطوات`),
     routine: { am: "صباحاً", daily: "يومياً", pm: "مساءً", optional: "عند الحاجة" },
@@ -334,6 +345,8 @@ export function VoiceAgent({
   const replayRef = useRef<string[]>([]);
   const [draft, setDraft] = useState("");
   const [products, setProducts] = useState<AgentProduct[]>([]);
+  /** The follow-ups this turn offered, if any — see suggestionsFor on the server. */
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [disclosure, setDisclosure] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -902,7 +915,7 @@ export function VoiceAgent({
 
   /** One turn's round trip, with no side effects — so callers can overlap it. */
   const requestTurn = useCallback(
-    async (utterance: string) => {
+    async (utterance: string, ask?: Suggestion["ask"]) => {
       const response = await fetch("/api/voice-agent", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -918,6 +931,9 @@ export function VoiceAgent({
           // "is this one okay with retinol?" — means the product just as much
           // as the first one did.
           ...(focusProduct ? { product: focusProduct } : {}),
+          // Which chip was tapped, when one was. Absent for anything typed or
+          // spoken, which goes through the ordinary dialogue as it always has.
+          ...(ask ? { ask } : {}),
         }),
       });
       const payload = await response.json();
@@ -933,6 +949,7 @@ export function VoiceAgent({
       slots?: Record<string, unknown>;
       language?: string;
       products?: AgentProduct[];
+      suggestions?: Suggestion[];
       disclosure?: string;
       reply?: string;
       phase?: string;
@@ -948,6 +965,11 @@ export function VoiceAgent({
         setProducts(payload.products);
         setDisclosure(typeof payload.disclosure === "string" ? payload.disclosure : null);
       }
+      // Assigned on every turn, not only when non-empty: an answered chip has
+      // to disappear, and a turn that offers nothing has to clear what the
+      // last one offered. The products above are deliberately not like this —
+      // a routine stays on screen while the conversation carries on around it.
+      if (Array.isArray(payload.suggestions)) setSuggestions(payload.suggestions);
 
       const reply: string = payload.reply ?? "";
       setTurns((current) => [...current, { role: "agent", text: reply }]);
@@ -979,13 +1001,13 @@ export function VoiceAgent({
   );
 
   const send = useCallback(
-    async (utterance: string) => {
+    async (utterance: string, ask?: Suggestion["ask"]) => {
       setPhase("thinking");
       setInterim("");
       if (utterance) setTurns((current) => [...current, { role: "user", text: utterance }]);
 
       try {
-        handleTurn(await requestTurn(utterance));
+        handleTurn(await requestTurn(utterance, ask));
       } catch {
         setNotice(t.error);
         setPhase("idle");
@@ -1930,13 +1952,39 @@ export function VoiceAgent({
           </div>
         ) : (
           <div className="va-panel" key="picks">
-            <p className="va-side-title">{t.quickPicks}</p>
+            {/*
+              What the server offered for this product, when it offered
+              anything. Those chips are computed from the fields we actually
+              hold for it, so they are worth tapping; the generic prompts are
+              the fallback for a conversation that is not about one product.
+            */}
+            <p className="va-side-title">{suggestions.length ? t.aboutThis : t.quickPicks}</p>
             <div className="va-picks">
-              {PROMPTS[lang].slice(0, 4).map((prompt) => (
-                <button key={prompt} type="button" className="va-pick" onClick={() => submitText(prompt)}>
-                  {prompt}
-                </button>
-              ))}
+              {suggestions.length
+                ? suggestions.map((chip) => (
+                    <button
+                      key={chip.ask}
+                      type="button"
+                      className="va-pick"
+                      onClick={() => {
+                        // The label is what the shopper said; the intent is
+                        // what the server acts on. Sending only the words
+                        // would put a button we drew through the classifier.
+                        modeRef.current = "chat";
+                        setMode("chat");
+                        setStarted(true);
+                        setNotice(null);
+                        void send(chip.label, chip.ask);
+                      }}
+                    >
+                      {chip.label}
+                    </button>
+                  ))
+                : PROMPTS[lang].slice(0, 4).map((prompt) => (
+                    <button key={prompt} type="button" className="va-pick" onClick={() => submitText(prompt)}>
+                      {prompt}
+                    </button>
+                  ))}
             </div>
           </div>
         )}

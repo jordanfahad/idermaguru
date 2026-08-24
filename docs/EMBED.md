@@ -198,6 +198,41 @@ a product of yours is never repeated back — otherwise any page could put words
 in the advisor's mouth. Opening with the wrong product name is worse than
 opening with none.
 
+### What she opens with
+
+Named a product, she shows its card — image, price, a link to buy — and offers
+follow-ups instead of asking a question:
+
+```
+Hi — you're looking at THE ORDINARY Niacinamide 10% + Zinc 1%.
+What would you like to know?
+
+  [img]  THE ORDINARY Niacinamide 10% + Zinc 1%
+         AED 45     ╰ View product ╯
+
+  ╰ What's it good for?      ╯
+  ╰ What's in it?            ╯
+  ╰ Is it right for my skin? ╯
+```
+
+**The chips are computed per product from the fields we hold for it**, not a
+fixed menu. Cicabelle's catalogue has concern tags on 352 of 444 in-stock
+products and actives on 161, so a menu that promised the same four things every
+time would come up empty more often than not — after the shopper had already
+spent the tap.
+
+- *What's it good for?* — appears only with concern tags. Answered from those
+  tags, never by repeating your marketing copy, which the output gate exists to
+  keep out of her mouth.
+- *What's in it?* — appears only where we hold active ingredients.
+- *Is it right for my skin?* — always there, and the only one that claims
+  anything about suitability. Tapping it starts the safety questions.
+
+That split is the point: "what is it for" needs to know nothing about anybody,
+so the shopper who only wanted a fact is not made to answer skin questions to
+get one. Nothing here bypasses the triage — the answer that needs it asks for
+it.
+
 The same attribute works on the floating snippet, if your theme lets you set it
 conditionally:
 

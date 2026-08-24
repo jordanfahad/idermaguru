@@ -137,14 +137,14 @@ describe("what the advisor says when it opens", () => {
     expect(payload.phase).toBe("asking");
   });
 
-  it("still asks about the shopper's skin rather than about the product", async () => {
-    // "Is this right for me" is not answerable from the label. The product
-    // gives the advisor a subject; the safety and concern questions are what
-    // make the answer worth anything, and they must still be the next thing
-    // out of its mouth.
+  it("offers rather than interrogating", async () => {
+    // It used to open by asking about the shopper's skin. That is a toll on
+    // everyone who only wanted a fact — "what is it for" needs to know nothing
+    // about anybody — so the opening offers, and the option that needs the
+    // questions is the one that asks them.
     const payload = await openAdvisor("niacinamide-serum");
-    expect(payload.reply.toLowerCase()).toMatch(/skin/);
     expect(payload.slots).toEqual({});
+    expect(payload.suggestions.length).toBeGreaterThan(0);
   });
 
   it("gives the ordinary greeting when no product was named", async () => {
@@ -179,5 +179,137 @@ describe("what the advisor says when it opens", () => {
     const payload = await openAdvisor("niacinamide-serum");
     // speakable() returns the line split into segments for the voice.
     expect((payload.speech ?? []).join(" ")).toContain(target.name);
+  });
+});
+
+/**
+ * What the panel offers, and why it is not a fixed menu.
+ *
+ * Cicabelle's catalogue has concern tags on 352 of 444 in-stock products and
+ * actives on 161. A menu that offered the same four things on every product
+ * would come up empty most of the time — after the shopper had already spent
+ * the tap, which is worse than never offering it.
+ *
+ * So the chips are computed per product from the fields actually held for it,
+ * and the one that needs to know about the shopper says so.
+ */
+describe("what the panel offers about a product", () => {
+  it("shows the product as a card, not as a recommendation", async () => {
+    // step/slot/reason are empty on purpose: this product was not chosen for
+    // anybody. Claiming a reason before a single safety question has been
+    // asked would be a recommendation nobody earned.
+    const payload = await openAdvisor("niacinamide-serum");
+    expect(payload.products).toHaveLength(1);
+    const card = payload.products[0];
+    expect(card.name).toBeTruthy();
+    expect(card.url).toBeTruthy();
+    expect(card.step).toBe("");
+    expect(card.reason).toBe("");
+    expect(card.sponsored).toBe(false);
+  });
+
+  it("offers only what it can answer for that product", async () => {
+    const payload = await openAdvisor("niacinamide-serum");
+    const asks = payload.suggestions.map((chip: { ask: string }) => chip.ask);
+    // "suits" is unconditional — it is the one that starts the questions.
+    expect(asks).toContain("suits");
+    // Every other chip must be backed by a field on this product.
+    const products = await listTenantProducts(slug);
+    const target = products.find((product) => product.url?.includes("niacinamide-serum"))!;
+    if (!target.concernsJson.length) expect(asks).not.toContain("about");
+    if (!target.activeIngredientsJson.length) expect(asks).not.toContain("actives");
+  });
+
+  it("offers nothing when it was not opened from a product", async () => {
+    const payload = await openAdvisor();
+    expect(payload.suggestions).toEqual([]);
+    expect(payload.products).toEqual([]);
+  });
+});
+
+/**
+ * The safety dialogue is not bypassed by any of this.
+ *
+ * The opening used to ask about the shopper's skin, and moving to a menu could
+ * quietly have become a way to get a suitability answer without the questions.
+ * It is not: the chips that answer without them do not claim suitability, and
+ * the chip that claims it is the one that starts them.
+ */
+/**
+ * Taps a chip the way the panel does — with the chip's own words carried
+ * along as the utterance, so they show up in the transcript as what the
+ * shopper said.
+ *
+ * That detail is not cosmetic. Gating any of this on an empty utterance sends
+ * every tap into the tangent classifier, and an earlier version of "Is it
+ * right for my skin?" was answered with "that one's outside my world". A test
+ * that sent an empty string could not see it.
+ */
+function tapChip(ask: "about" | "actives" | "suits", product: string, label = "Is it right for my skin?") {
+  return POST(
+    new Request("http://localhost/api/voice-agent", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ utterance: label, slots: {}, product, ask }),
+    }),
+  ).then((response) => response.json());
+}
+
+describe("tapping a follow-up", () => {
+  it("starts the safety questions when the shopper asks if it suits them", async () => {
+    const payload = await tapChip("suits", "niacinamide-serum");
+    expect(payload.reply).toBeTruthy();
+    expect(payload.phase).toBe("asking");
+    // No routine, and nothing claimed — just the first question.
+    expect(payload.products).toEqual([]);
+  });
+
+  it("answers what a product is for without claiming it suits anybody", async () => {
+    const products = await listTenantProducts(slug);
+    const target = products.find((p) => p.url?.includes("niacinamide-serum"))!;
+    if (!target.concernsJson.length) return; // chip would not be offered
+
+    const payload = await tapChip("about", "niacinamide-serum");
+    expect(payload.reply).toContain(target.name);
+    // It says the questions are still needed rather than pronouncing on fit.
+    expect(payload.reply.toLowerCase()).toMatch(/your skin|match|tell me/);
+  });
+
+  it("keeps the card up and stops offering the chip already tapped", async () => {
+    const payload = await tapChip("about", "niacinamide-serum");
+    expect(payload.products).toHaveLength(1);
+    const asks = payload.suggestions.map((chip: { ask: string }) => chip.ask);
+    expect(asks).not.toContain("about");
+    expect(asks).toContain("suits");
+  });
+
+  it("ignores a chip for a product this merchant does not stock", async () => {
+    // The intent is ours but the product reference is not, so it is resolved
+    // like everything else and an unknown one falls through to the ordinary
+    // dialogue rather than answering about nothing.
+    const payload = await tapChip("about", "a-product-from-another-shop");
+    expect(payload.reply).toBeTruthy();
+    expect(payload.products ?? []).toEqual([]);
+  });
+});
+
+describe("a tapped chip never has to be understood", () => {
+  // The regression that hid behind an empty utterance: the panel sends the
+  // chip's words as the transcript line, so every one of these arrives with a
+  // non-empty utterance that the classifiers would otherwise get hold of.
+  it("routes on the intent even though the label reads like a question", async () => {
+    const payload = await tapChip("suits", "niacinamide-serum", "Is it right for my skin?");
+    // Not "that one's outside my world" — the tangent answer this used to get.
+    expect(payload.reply.toLowerCase()).not.toMatch(/outside my world|only cover/);
+    expect(payload.phase).toBe("asking");
+  });
+
+  it("routes 'What's it good for?' on the intent too", async () => {
+    const products = await listTenantProducts(slug);
+    const target = products.find((p) => p.url?.includes("niacinamide-serum"))!;
+    if (!target.concernsJson.length) return;
+    const payload = await tapChip("about", "niacinamide-serum", "What's it good for?");
+    expect(payload.reply).toContain(target.name);
+    expect(payload.reply.toLowerCase()).not.toMatch(/outside my world|only cover/);
   });
 });
