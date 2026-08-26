@@ -21,6 +21,15 @@ It is worth doing for a reason that is not the obvious one. See
 The namespace and key are what the sync looks for. `custom.ingredients` exactly
 — a different namespace is a different field and will not be read.
 
+**Multi-line text** is the recommended type, but *List of single line text* and
+*Rich text* are both read correctly too, so a definition already created as one
+of those does not need redoing.
+
+The one type that will **not** work is a reference — *Metaobject*, *Product*,
+*File*. Those store object ids rather than words, and the sync shows nothing
+rather than showing a shopper `gid://shopify/Metaobject/123`. If ingredients are
+already built as a metaobject library, say so and we will add the extra lookup.
+
 ## 2. Fill it in bulk
 
 **Create the definition first, then export.** Once it exists, Shopify includes a

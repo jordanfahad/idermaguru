@@ -80,8 +80,88 @@ const STRONG = /retinol|retinal|retinoid|tretinoin|adapalene|benzoyl|glycolic|sa
 const MAX_INGREDIENTS = 80;
 const MAX_INGREDIENT_LENGTH = 80;
 
+/**
+ * A Shopify object id. Never an ingredient, and the thing a reference-type
+ * metafield stores instead of one.
+ */
+const GID = /^gid:\/\/shopify\//i;
+
+/**
+ * The shape a metafield's value arrives in depends on the type the merchant
+ * picked when they created the definition, and only one of those types is a
+ * plain string.
+ *
+ * The guide says multi-line text, but the definition screen offers a dozen
+ * types and the value comes back as an opaque string whatever they chose:
+ *
+ *   multi-line text     "Aqua, Glycerin, Niacinamide"
+ *   list of text        "[\"Aqua\",\"Glycerin\",\"Niacinamide\"]"
+ *   rich text           "{\"type\":\"root\",\"children\":[…]}"
+ *   metaobject list     "[\"gid://shopify/Metaobject/123\", …]"
+ *
+ * Reading all four is not politeness. A merchant who picked "list of single
+ * line text" — a perfectly reasonable reading of "put the ingredients here" —
+ * would otherwise have had `["Aqua"` and `"Glycerin"` shown to their shoppers
+ * as ingredients, on 444 products, with nothing in the sync to say so.
+ */
+function jsonList(trimmed: string): string[] | null {
+  if (trimmed.charAt(0) !== "[") return null;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((entry): entry is string => typeof entry === "string");
+  } catch {
+    return null;
+  }
+}
+
+/** Every text run in a rich-text tree, with a separator where a line ended. */
+function richTextRuns(node: unknown, into: string[]): void {
+  if (Array.isArray(node)) {
+    for (const child of node) richTextRuns(child, into);
+    return;
+  }
+  if (!node || typeof node !== "object") return;
+
+  const record = node as Record<string, unknown>;
+  if (typeof record.value === "string") into.push(record.value);
+  if (record.children) {
+    richTextRuns(record.children, into);
+    // Runs inside one paragraph are pieces of one line — bold on part of it is
+    // enough to split them — so they join with nothing. The end of a paragraph
+    // or a bullet is a real boundary.
+    if (record.type === "paragraph" || record.type === "list-item") into.push(", ");
+  }
+}
+
 export function parseIngredients(value: string | null | undefined): string[] {
   if (!value) return [];
+
+  const trimmed = String(value).trim();
+
+  const list = jsonList(trimmed);
+  if (list) {
+    // A reference list holds ids. We could resolve them with another GraphQL
+    // hop, but showing a shopper "gid://shopify/Metaobject/123" is worse than
+    // showing them nothing, and nothing lets the description fallback try.
+    if (list.some((entry) => GID.test(entry.trim()))) return [];
+    return splitIngredients(list.join(", "));
+  }
+
+  if (trimmed.charAt(0) === "{") {
+    try {
+      const runs: string[] = [];
+      richTextRuns(JSON.parse(trimmed), runs);
+      if (runs.length) return splitIngredients(runs.join(""));
+    } catch {
+      // Not rich text after all. Fall through and read it as plain text.
+    }
+  }
+
+  return splitIngredients(trimmed);
+}
+
+function splitIngredients(value: string): string[] {
   /*
    * Line breaks become commas BEFORE the HTML is stripped, and the order is
    * not incidental: stripHtml flattens every run of whitespace to a single
@@ -91,7 +171,7 @@ export function parseIngredients(value: string | null | undefined): string[] {
    * Three forms of the same thing: a real newline from a spreadsheet paste,
    * and <br> or a closed block from a rich-text field.
    */
-  const separated = String(value)
+  const separated = value
     .replace(/<br\s*\/?>|<\/p>|<\/li>|<\/div>/gi, ",")
     .replace(/[\n\r]+/g, ",");
   return Array.from(
@@ -100,8 +180,12 @@ export function parseIngredients(value: string | null | undefined): string[] {
         .split(/[,;]+/)
         .map((part) => part.replace(/\s+/g, " ").trim())
         // Drop the punctuation-only fragments a trailing "." or "()" leaves
-        // behind, and anything too long to be an ingredient name.
-        .filter((part) => part.length > 1 && part.length <= MAX_INGREDIENT_LENGTH && /[a-z]/i.test(part)),
+        // behind, anything too long to be an ingredient name, and any object id
+        // that reached this path as a single reference rather than a list.
+        .filter(
+          (part) =>
+            part.length > 1 && part.length <= MAX_INGREDIENT_LENGTH && /[a-z]/i.test(part) && !GID.test(part),
+        ),
     ),
   ).slice(0, MAX_INGREDIENTS);
 }

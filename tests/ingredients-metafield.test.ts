@@ -71,6 +71,40 @@ describe("parsing an ingredient list", () => {
     expect(parseIngredients("   ")).toEqual([]);
   });
 
+  it("reads a list-of-text metafield, not just a multi-line one", () => {
+    // The definition screen offers a dozen types and the value comes back as an
+    // opaque string whatever was picked. "List of single line text" is a
+    // reasonable reading of "put the ingredients here", and without this a
+    // shopper would have been shown `["Aqua` as an ingredient.
+    expect(parseIngredients('["Aqua","Glycerin","Niacinamide"]')).toEqual(["Aqua", "Glycerin", "Niacinamide"]);
+  });
+
+  it("reads a rich-text metafield", () => {
+    const rich = JSON.stringify({
+      type: "root",
+      children: [
+        { type: "paragraph", children: [{ type: "text", value: "Aqua, Glycerin, " }, { type: "text", value: "Niacinamide", bold: true }] },
+        { type: "paragraph", children: [{ type: "text", value: "Tocopherol" }] },
+      ],
+    });
+    expect(parseIngredients(rich)).toEqual(["Aqua", "Glycerin", "Niacinamide", "Tocopherol"]);
+  });
+
+  it("shows nothing rather than an object id", () => {
+    // A reference-type metafield stores ids. Resolving them would take another
+    // GraphQL hop; showing them to a shopper is worse than showing nothing, and
+    // nothing lets the description fallback have a go.
+    expect(parseIngredients('["gid://shopify/Metaobject/123","gid://shopify/Metaobject/456"]')).toEqual([]);
+    expect(parseIngredients("gid://shopify/Metaobject/123")).toEqual([]);
+  });
+
+  it("still reads plain text that merely starts with a bracket", () => {
+    // Not valid JSON, so it falls through to being read as text rather than
+    // being thrown away for looking like a list.
+    expect(parseIngredients("[Aqua], Glycerin")).toEqual(["[Aqua]", "Glycerin"]);
+    expect(parseIngredients("[unfinished, Glycerin")).toEqual(["[unfinished", "Glycerin"]);
+  });
+
   it("is bounded, because one pathological cell is read on every catalogue load", () => {
     const many = Array.from({ length: 300 }, (_, i) => `Ingredient ${i}`).join(", ");
     expect(parseIngredients(many).length).toBeLessThanOrEqual(80);
