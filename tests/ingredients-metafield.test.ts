@@ -34,7 +34,8 @@ function product(overrides: Partial<ShopifyProduct> = {}): ShopifyProduct {
   };
 }
 
-const map = (ingredients?: string | null) => mapShopifyProduct(product(), "tenant-1", "shop.myshopify.com", "AED", ingredients);
+const map = (ingredients?: string | null) =>
+  mapShopifyProduct(product(), "tenant-1", "shop.myshopify.com", { currency: "AED", ingredients });
 
 describe("parsing an ingredient list", () => {
   it("splits the commas every carton in the world uses", () => {
@@ -121,9 +122,99 @@ describe("what the ingredient list changes about a product", () => {
       product({ title: "Acne Spot Treatment", body_html: "<p>For blemishes and breakouts.</p>" }),
       "tenant-1",
       "shop.myshopify.com",
-      "AED",
-      long,
+      { currency: "AED", ingredients: long },
     );
     expect(mapped?.concernsJson).toContain("acne");
+  });
+});
+
+/**
+ * The list a merchant only ever wrote into the description.
+ *
+ * Filling custom.ingredients across 444 products takes an afternoon, and most
+ * of them already carry an INCI list in the description under a heading. This
+ * reads it when the metafield is empty — and, much more often, declines to.
+ */
+describe("falling back to the description", () => {
+  const inci = "Aqua, Glycerin, Niacinamide, Butylene Glycol, Panthenol, Phenoxyethanol";
+
+  it("reads a list that sits under an Ingredients heading", () => {
+    const mapped = mapShopifyProduct(
+      product({ body_html: `<p>A night cream.</p><p>Ingredients: ${inci}</p>` }),
+      "t",
+      "s.myshopify.com",
+    );
+    expect(mapped?.ingredientsJson).toContain("Niacinamide");
+    expect(mapped?.ingredientsJson).toContain("Aqua");
+  });
+
+  it("stops at the next section instead of swallowing the rest of the page", () => {
+    // The failure this guards against is a shopper being shown "apply two
+    // pumps morning and evening" in a list headed Ingredients.
+    const mapped = mapShopifyProduct(
+      product({ body_html: `<p>Ingredients: ${inci}</p><p>How to use: apply two pumps morning and evening.</p>` }),
+      "t",
+      "s.myshopify.com",
+    );
+    expect(mapped?.ingredientsJson).toEqual([
+      "Aqua",
+      "Glycerin",
+      "Niacinamide",
+      "Butylene Glycol",
+      "Panthenol",
+      "Phenoxyethanol",
+    ]);
+  });
+
+  it("reads a bulleted list", () => {
+    const mapped = mapShopifyProduct(
+      product({ body_html: "<p>INCI</p><ul><li>Aqua</li><li>Glycerin</li><li>Retinol</li><li>Tocopherol</li><li>Squalane</li></ul>" }),
+      "t",
+      "s.myshopify.com",
+    );
+    expect(mapped?.ingredientsJson).toContain("Retinol");
+    // And the point of reading it at all: the pregnancy gate can now see it.
+    expect(mapped?.pregnancySafety).toBe("AVOID");
+  });
+
+  it("refuses marketing prose that happens to use the word", () => {
+    const mapped = mapShopifyProduct(
+      product({ body_html: "<p>Ingredients you can trust. Dermatologist tested. Made in Korea.</p>" }),
+      "t",
+      "s.myshopify.com",
+    );
+    expect(mapped?.ingredientsJson).toEqual([]);
+  });
+
+  it("refuses a list too short to be an INCI list", () => {
+    // A "key ingredients" highlight reel is not what is in the bottle.
+    const mapped = mapShopifyProduct(
+      product({ body_html: "<p>Ingredients: Centella, Madecassoside</p>" }),
+      "t",
+      "s.myshopify.com",
+    );
+    expect(mapped?.ingredientsJson).toEqual([]);
+  });
+
+  it("refuses a long list with nothing a formula actually contains", () => {
+    // Length alone is not evidence. A comma-separated run of claims is long.
+    const mapped = mapShopifyProduct(
+      product({
+        body_html: "<p>Ingredients: cruelty free, vegan, paraben free, sulfate free, dermatologist tested, hypoallergenic</p>",
+      }),
+      "t",
+      "s.myshopify.com",
+    );
+    expect(mapped?.ingredientsJson).toEqual([]);
+  });
+
+  it("never overrides the metafield the merchant filled in", () => {
+    const mapped = mapShopifyProduct(
+      product({ body_html: `<p>Ingredients: ${inci}</p>` }),
+      "t",
+      "s.myshopify.com",
+      { ingredients: "Snail Mucin, Centella" },
+    );
+    expect(mapped?.ingredientsJson).toEqual(["Snail Mucin", "Centella"]);
   });
 });

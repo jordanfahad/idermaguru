@@ -110,27 +110,112 @@ function stripHtml(value: string | null | undefined): string {
   return (value ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * The same text, but with the block structure kept as newlines.
+ *
+ * stripHtml flattens a description to one line, which is the right shape for
+ * regex matching and the wrong one for finding where a section starts and
+ * stops. This keeps the paragraph and list breaks that tell "Ingredients:" from
+ * the "How to use" heading three lines below it.
+ */
+function blockText(html: string | null | undefined): string {
+  return String(html ?? "")
+    .replace(/<\s*(br|\/p|\/li|\/div|\/h[1-6]|\/tr|\/td)\s*\/?>/gi, "\n")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/[^\S\n]+/g, " ")
+    .trim();
+}
+
+/**
+ * The ingredient list a merchant only ever wrote into the description.
+ *
+ * A fallback for the metafield, not a replacement: filling custom.ingredients
+ * across a catalogue takes an afternoon, and until it is done most products
+ * have their INCI list sitting in the description under a heading, where
+ * nothing could read it.
+ *
+ * Deliberately hard to satisfy, because the failure mode is showing a shopper
+ * "How to use: apply two pumps morning and evening" under the word
+ * Ingredients. Two gates, both required: the list has to be long enough to be
+ * an INCI list at all, and it has to contain at least one of the handful of
+ * things that appear in nearly every cosmetic formula. Prose passes neither.
+ */
+const INGREDIENT_HEADING = /(?:^|\n)[^\S\n]*(?:full[^\S\n]+)?(?:ingredients?|inci|composition)\b[^\S\n]*[:：\-–]?[^\S\n]*/i;
+const INCI_BEDROCK =
+  /\b(aqua|water|glycerin|glycerine|butylene glycol|propylene glycol|phenoxyethanol|dimethicone|cetearyl|caprylic|sodium hydroxide|tocopherol|citric acid|xanthan|parfum|fragrance)\b/i;
+const MIN_INCI_PARTS = 5;
+/** Where an ingredient list ends: the next thing a product page talks about. */
+const SECTION_LABEL =
+  /^(?:how to use|how to apply|directions?|usage|application|benefits?|key benefits|description|about|details|size|volume|net wt|weight|warnings?|caution|precautions?|storage|suitable for|skin type|made in|shelf life|expiry)\b/i;
+
+export function ingredientsFromDescription(bodyHtml: string | null | undefined): string[] {
+  const text = blockText(bodyHtml);
+  if (!text) return [];
+
+  const heading = INGREDIENT_HEADING.exec(text);
+  if (!heading) return [];
+
+  const lines: string[] = [];
+  for (const line of text.slice(heading.index + heading[0].length).split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (lines.length) break;
+      continue;
+    }
+    if (SECTION_LABEL.test(trimmed)) break;
+    lines.push(trimmed);
+  }
+
+  const parsed = parseIngredients(lines.join(", "));
+  if (parsed.length < MIN_INCI_PARTS) return [];
+  return INCI_BEDROCK.test(parsed.join(" ")) ? parsed : [];
+}
+
+export type MapOptions = {
+  /**
+   * The shop's own currency, read from the Shopify shop endpoint at sync time.
+   * This used to be hardcoded to AED, which is right for one merchant in Dubai
+   * and wrong for every other store this is sold to — their prices would have
+   * been relabelled into a currency they do not trade in.
+   */
+  currency?: string;
+  /**
+   * The custom.ingredients metafield, when the merchant keeps one. Passed in
+   * rather than fetched here because it arrives from a separate GraphQL call —
+   * REST's products.json carries no metafields, which is why this field was
+   * empty for as long as it has existed.
+   */
+  ingredients?: string | null;
+  /**
+   * The host to build product links from. Without it the link points at the
+   * raw myshopify domain, which is not where the shop's own catalogue rows
+   * point and not a domain a shopper recognises.
+   */
+  storefrontHost?: string;
+  /**
+   * The SKU an existing row already holds for this product, when the catalogue
+   * has one. Reusing it makes the write an update of that row instead of an
+   * insert beside it — see the sync route, which resolves it.
+   */
+  sku?: string;
+};
+
 export function mapShopifyProduct(
   product: ShopifyProduct,
   tenantId: string,
   shopDomain: string,
-  // The shop's own currency, read from the Shopify shop endpoint at sync time.
-  // This used to be hardcoded to AED, which is right for one merchant in Dubai
-  // and wrong for every other store this is sold to — their prices would have
-  // been relabelled into a currency they do not trade in.
-  currency = "AED",
-  // The custom.ingredients metafield, when the merchant keeps one. Passed in
-  // rather than fetched here because it arrives from a separate GraphQL call —
-  // REST's products.json carries no metafields, which is why this field was
-  // empty for as long as it has existed.
-  ingredients?: string | null,
+  options: MapOptions = {},
 ): ProductCatalogItem | null {
   const variant = product.variants?.[0];
   const price = Number.parseFloat(variant?.price ?? "");
   if (!product.title || !Number.isFinite(price)) return null;
 
+  const currency = options.currency ?? "AED";
   const description = stripHtml(product.body_html).slice(0, 900);
-  const ingredientsJson = parseIngredients(ingredients);
+  const fromMetafield = parseIngredients(options.ingredients);
+  const ingredientsJson = fromMetafield.length ? fromMetafield : ingredientsFromDescription(product.body_html);
   /*
    * Everything below is derived from this string, and the ingredient list is
    * now part of it.
@@ -152,12 +237,12 @@ export function mapShopifyProduct(
   return {
     id: `shopify-${shopDomain}-${product.id}`,
     tenantId,
-    sku: variant?.sku || String(product.id),
+    sku: options.sku || variant?.sku || String(product.id),
     name: product.title.slice(0, 300),
     brand: product.vendor || shopDomain.replace(".myshopify.com", ""),
     category: (product.product_type || "skincare").toLowerCase(),
     description: description || product.title,
-    url: `https://${shopDomain.replace(".myshopify.com", "")}.myshopify.com/products/${product.handle}`,
+    url: `https://${options.storefrontHost || shopDomain}/products/${product.handle}`,
     imageUrl: product.images?.[0]?.src ?? null,
     price,
     currency,
@@ -230,6 +315,7 @@ function upsertSql(items: ProductCatalogItem[]): Prisma.Sql {
     (item) => Prisma.sql`(
       ${item.id}, ${item.tenantId}, ${item.sku}, ${item.name}, ${item.brand}, ${item.category},
       ${item.description}, ${item.url}, ${item.imageUrl}, ${item.price}, ${item.currency}, ${item.inStock},
+      ${JSON.stringify(item.ingredientsJson)}::jsonb,
       ${JSON.stringify(item.activeIngredientsJson)}::jsonb, ${JSON.stringify(item.skinTypesJson)}::jsonb,
       ${JSON.stringify(item.concernsJson)}::jsonb, ${JSON.stringify(item.avoidIfJson)}::jsonb,
       ${item.pregnancySafety}::"PregnancySafety", ${item.fragranceFree}, ${item.nonComedogenic},
@@ -241,6 +327,7 @@ function upsertSql(items: ProductCatalogItem[]): Prisma.Sql {
     INSERT INTO "Product" (
       "id", "tenantId", "sku", "name", "brand", "category",
       "description", "url", "imageUrl", "price", "currency", "inStock",
+      "ingredientsJson",
       "activeIngredientsJson", "skinTypesJson",
       "concernsJson", "avoidIfJson",
       "pregnancySafety", "fragranceFree", "nonComedogenic",
@@ -257,6 +344,13 @@ function upsertSql(items: ProductCatalogItem[]): Prisma.Sql {
       "price" = EXCLUDED."price",
       "currency" = EXCLUDED."currency",
       "inStock" = EXCLUDED."inStock",
+      -- Only when this sync actually found a list. A merchant part-way through
+      -- filling custom.ingredients would otherwise have the sync blank every
+      -- row they had not reached yet, wiping lists that arrived by CSV.
+      "ingredientsJson" = CASE
+        WHEN jsonb_array_length(EXCLUDED."ingredientsJson") > 0 THEN EXCLUDED."ingredientsJson"
+        ELSE "Product"."ingredientsJson"
+      END,
       "activeIngredientsJson" = EXCLUDED."activeIngredientsJson",
       "skinTypesJson" = EXCLUDED."skinTypesJson",
       "concernsJson" = EXCLUDED."concernsJson",

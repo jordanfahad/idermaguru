@@ -124,24 +124,56 @@ export type ShopifyProduct = {
   variants?: { id: number; price: string; sku?: string | null; inventory_quantity?: number }[];
 };
 
+export type ShopProfile = {
+  /** ISO currency the shop trades in, or null when the call failed. */
+  currency: string | null;
+  /**
+   * The host a shopper actually browses. Shopify calls it `domain`; it is the
+   * primary domain a store has configured — cicabelle.com, not
+   * a1ce04.myshopify.com — and falls back to the myshopify host for a store
+   * that never attached one.
+   */
+  primaryDomain: string | null;
+};
+
 /**
- * The shop's own currency, so synced prices carry the right symbol.
+ * The shop's own currency and storefront host, read once per sync.
  *
- * Returns null rather than guessing when the call fails; the caller keeps
+ * Currency was always the point of this call. The domain is the newer half and
+ * matters more: product URLs were built from the myshopify host, so every link
+ * the advisor showed pointed at a1ce04.myshopify.com — a domain a shopper has
+ * never seen, on a store whose own catalogue rows already carry cicabelle.com
+ * links. Two spellings of one product page is how a catalogue ends up with two
+ * rows for one product.
+ *
+ * Returns nulls rather than guessing when the call fails; the caller keeps
  * whatever it was already using instead of silently relabelling a catalogue.
  */
-export async function fetchShopCurrency(shop: string, accessToken: string): Promise<string | null> {
+export async function fetchShopProfile(shop: string, accessToken: string): Promise<ShopProfile> {
   try {
     const response = await fetch(`https://${shop}/admin/api/2024-10/shop.json`, {
       headers: { "X-Shopify-Access-Token": accessToken, accept: "application/json" },
     });
-    if (!response.ok) return null;
-    const payload = (await response.json()) as { shop?: { currency?: string } };
+    if (!response.ok) return { currency: null, primaryDomain: null };
+    const payload = (await response.json()) as { shop?: { currency?: string; domain?: string } };
     const currency = payload.shop?.currency?.trim().toUpperCase();
-    return currency && /^[A-Z]{3}$/.test(currency) ? currency : null;
+    return {
+      currency: currency && /^[A-Z]{3}$/.test(currency) ? currency : null,
+      primaryDomain: hostOnly(payload.shop?.domain),
+    };
   } catch {
-    return null;
+    return { currency: null, primaryDomain: null };
   }
+}
+
+/** A bare hostname, or null for anything that is not one. */
+function hostOnly(value: string | null | undefined): string | null {
+  const host = (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/[/?#].*$/, "");
+  return /^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)+$/.test(host) ? host : null;
 }
 
 /**
@@ -219,20 +251,38 @@ export async function fetchIngredientLists(
   return found;
 }
 
+export type ShopifyCatalogue = {
+  products: ShopifyProduct[];
+  /**
+   * Whether this is the whole store or a slice of it — false when a page
+   * request failed or the cap cut the walk short.
+   *
+   * The caller needs to know, because "everything the store did not send this
+   * time is discontinued" is only a safe conclusion about a complete list. A
+   * rate limit on page two of four would otherwise read as three quarters of
+   * the catalogue going out of stock.
+   */
+  complete: boolean;
+};
+
 /** Pages through the Admin REST catalogue. Capped so one sync cannot run away. */
 export async function fetchShopifyProducts(
   shop: string,
   accessToken: string,
   maxProducts = 1000,
-): Promise<ShopifyProduct[]> {
+): Promise<ShopifyCatalogue> {
   const collected: ShopifyProduct[] = [];
   let url: string | null = `https://${shop}/admin/api/2024-10/products.json?limit=250`;
+  let complete = true;
 
   while (url && collected.length < maxProducts) {
     const response: Response = await fetch(url, {
       headers: { "X-Shopify-Access-Token": accessToken, accept: "application/json" },
     });
-    if (!response.ok) break;
+    if (!response.ok) {
+      complete = false;
+      break;
+    }
 
     const payload = (await response.json()) as { products?: ShopifyProduct[] };
     collected.push(...(payload.products ?? []));
@@ -243,5 +293,6 @@ export async function fetchShopifyProducts(
     url = next ?? null;
   }
 
-  return collected.slice(0, maxProducts);
+  // A page still waiting when the loop ended means the cap stopped us short.
+  return { products: collected.slice(0, maxProducts), complete: complete && !url };
 }
