@@ -60,6 +60,99 @@ const SKIN_TYPES: { term: string; match: RegExp }[] = [
   { term: "normal", match: /all skin types/i },
 ];
 
+/**
+ * The store's own tag vocabulary, which is better than anything we can infer.
+ *
+ * Cicabelle's catalogue was restructured into four tag namespaces — `brand:`,
+ * `type:`, `concern:`, `ingredient:` — and this is curated data about what a
+ * product is and what it treats, sitting in the REST payload we already fetch.
+ * Everything below it in this file guesses the same facts by running regexes
+ * over marketing copy. A tag beats a guess every time.
+ *
+ * Read as an addition, never a replacement. Only 68% of the catalogue carries a
+ * concern tag, so switching to tags alone would strip the other third of
+ * everything they have; and a shop with no tag scheme at all — every other
+ * merchant this is sold to — has to keep syncing exactly as it does now.
+ *
+ * The tags string is attacker-adjacent only in the sense that it is free text a
+ * merchant types, so the loop is bounded and the values are matched against a
+ * fixed vocabulary rather than trusted.
+ */
+const MAX_TAGS = 250;
+const MAX_TAG_VALUES = 40;
+
+/**
+ * `concern:` values, mapped onto the vocabulary the recommender speaks.
+ *
+ * Four of the nine do not survive a round trip through the regexes below —
+ * "ageing" does not match /anti-?ag/, "sensitivity" does not match /sensitive/,
+ * "sun-protection" matches none of /spf|sunscreen|uv/ — so this map is what
+ * makes them count rather than a nicety.
+ */
+const TAGGED_CONCERN: Record<string, string> = {
+  acne: "acne",
+  pigmentation: "dark spots",
+  ageing: "fine lines",
+  aging: "fine lines",
+  dryness: "dryness",
+  sensitivity: "redness",
+  pores: "pores",
+  "hair-loss": "hair fall",
+  "hair-fall": "hair fall",
+  dandruff: "dandruff",
+  "sun-protection": "sun protection",
+};
+
+type ProductTags = { brand: string | null; concerns: string[]; actives: string[] };
+
+export function readProductTags(tags: string | null | undefined): ProductTags {
+  let brand: string | null = null;
+  const concerns: string[] = [];
+  const actives: string[] = [];
+
+  for (const raw of String(tags ?? "").split(",").slice(0, MAX_TAGS)) {
+    const tag = raw.trim().toLowerCase();
+    const colon = tag.indexOf(":");
+    if (colon < 1) continue;
+
+    const value = tag.slice(colon + 1).trim();
+    if (!value) continue;
+
+    switch (tag.slice(0, colon)) {
+      case "brand":
+        // First one wins; a product belongs to one brand.
+        if (!brand) brand = titleCase(deslug(value));
+        break;
+      case "concern": {
+        const mapped = TAGGED_CONCERN[value];
+        if (mapped && !concerns.includes(mapped) && concerns.length < MAX_TAG_VALUES) concerns.push(mapped);
+        break;
+      }
+      case "ingredient": {
+        // Kept as words rather than a slug, because these are then matched
+        // against the ACTIVES vocabulary: "vitamin-c" misses /vitamin c/.
+        const term = deslug(value);
+        if (term && !actives.includes(term) && actives.length < MAX_TAG_VALUES) actives.push(term);
+        break;
+      }
+    }
+  }
+
+  return { brand, concerns, actives };
+}
+
+function deslug(value: string): string {
+  return value.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function titleCase(value: string): string {
+  return value.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
+function unique(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
 const PREGNANCY_AVOID = /retinol|retinal|retinoid|tretinoin|adapalene|hydroquinone/i;
 const PREGNANCY_CAUTION = /salicylic|glycolic|benzoyl|mandelic|lactic acid|azelaic/i;
 const GENTLE = /gentle|sensitive|soothing|calming|centella|\bcica\b|panthenol|ceramide|barrier|fragrance[- ]?free/i;
@@ -300,6 +393,7 @@ export function mapShopifyProduct(
   const description = stripHtml(product.body_html).slice(0, 900);
   const fromMetafield = parseIngredients(options.ingredients);
   const ingredientsJson = fromMetafield.length ? fromMetafield : ingredientsFromDescription(product.body_html);
+  const tagged = readProductTags(product.tags);
   /*
    * Everything below is derived from this string, and the ingredient list is
    * now part of it.
@@ -310,12 +404,17 @@ export function mapShopifyProduct(
    * UNKNOWN pregnancy status, and sailed past the pregnancy gate. An INCI list
    * names what is actually in the bottle.
    *
+   * The raw tags are here too, and the de-slugged ingredient tags alongside
+   * them, which is not redundant: the raw string carries "ingredient:vitamin-c"
+   * and the ACTIVES entry looks for /vitamin c/, so without the second copy the
+   * store's own curated answer misses on the hyphen.
+   *
    * Capped: an ingredient list can run to hundreds of terms, and the
    * description is already capped for the same reason.
    */
-  const text = `${product.title} ${description} ${product.product_type ?? ""} ${product.tags ?? ""} ${ingredientsJson
-    .join(" ")
-    .slice(0, 1200)}`;
+  const text = `${product.title} ${description} ${product.product_type ?? ""} ${product.tags ?? ""} ${tagged.actives.join(
+    " ",
+  )} ${ingredientsJson.join(" ").slice(0, 1200)}`;
 
   const inventory = variant?.inventory_quantity;
   return {
@@ -323,7 +422,9 @@ export function mapShopifyProduct(
     tenantId,
     sku: options.sku || variant?.sku || String(product.id),
     name: product.title.slice(0, 300),
-    brand: product.vendor || shopDomain.replace(".myshopify.com", ""),
+    // The brand tag first, because it only exists where somebody curated it —
+    // and where it does, vendor is the store's own name on every product.
+    brand: tagged.brand || product.vendor || shopDomain.replace(".myshopify.com", ""),
     category: (product.product_type || "skincare").toLowerCase(),
     description: description || product.title,
     url: `https://${options.storefrontHost || shopDomain}/products/${product.handle}`,
@@ -335,7 +436,9 @@ export function mapShopifyProduct(
     ingredientsJson,
     activeIngredientsJson: ACTIVES.filter((a) => a.match.test(text)).map((a) => a.term),
     skinTypesJson: SKIN_TYPES.filter((s) => s.match.test(text)).map((s) => s.term),
-    concernsJson: CONCERNS.filter((c) => c.match.test(text)).map((c) => c.term),
+    // Union, not replacement: a third of the catalogue carries no concern tag
+    // and would lose everything the copy says about it.
+    concernsJson: unique([...CONCERNS.filter((c) => c.match.test(text)).map((c) => c.term), ...tagged.concerns]),
     avoidIfJson: PREGNANCY_AVOID.test(text) ? ["pregnancy"] : [],
     pregnancySafety: PREGNANCY_AVOID.test(text) ? "AVOID" : PREGNANCY_CAUTION.test(text) ? "CAUTION" : "UNKNOWN",
     fragranceFree: /fragrance[- ]?free|unscented/i.test(text),
