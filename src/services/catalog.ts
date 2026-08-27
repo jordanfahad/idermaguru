@@ -185,6 +185,40 @@ export async function importProductForTenant(
 }
 
 /**
+ * The SKU already on file for each product a tenant carries, by handle and by
+ * synthetic sync id.
+ *
+ * The sync's conflict key is (tenantId, sku), so a product's SKU decides
+ * whether a sync updates the row that is already there or inserts a second one
+ * beside it. Cicabelle's catalogue arrived by CSV, whose SKUs are
+ * `csv-<timestamp>-<row>` — nothing a Shopify variant will ever match — so the
+ * first sync would have written 444 new rows next to the 437 existing ones and
+ * left shoppers being shown the same product twice, one copy of it stale.
+ *
+ * Two keys, because either can be the one that still matches. The synthetic id
+ * `shopify-<shop>-<productId>` is exact and survives a merchant renaming a
+ * product; the handle is what links a Shopify product to a row that came from
+ * somewhere else entirely.
+ */
+export async function existingSkuIndex(tenantId: string) {
+  const rows = await withTenant(tenantId, (tx) =>
+    tx.product.findMany({ where: { tenantId }, select: { id: true, sku: true, url: true } }),
+  );
+
+  const byHandle = new Map<string, string>();
+  const byId = new Map<string, string>();
+  for (const row of rows ?? []) {
+    byId.set(row.id, row.sku);
+    const handle = productHandle(row.url ?? "");
+    // First row wins. A product carried on two domains has a row per spelling;
+    // one of them gets adopted and the other falls out of stock, which is the
+    // outcome we want either way round.
+    if (handle && !byHandle.has(handle)) byHandle.set(handle, row.sku);
+  }
+  return { byHandle, byId };
+}
+
+/**
  * Mark everything the merchant did not send this time as out of stock.
  *
  * Nothing else ever cleared the flag, so a product that vanished from the store
@@ -194,14 +228,23 @@ export async function importProductForTenant(
 export async function markMissingOutOfStock(tenantSlug: string, seenUrls: string[]) {
   const tenant = await getTenantBySlug(tenantSlug);
   if (!tenant) throw new Error("Tenant not found.");
+  return markMissingOutOfStockForTenantId(tenant.id, seenUrls);
+}
 
-  const result = await withTenant(tenant.id, (tx) =>
+export async function markMissingOutOfStockForTenantId(tenantId: string, seenUrls: string[]) {
+  // An empty list is not "the merchant sells nothing" — `notIn: []` matches
+  // every row, so a fetch that came back empty would retire the whole
+  // catalogue. Callers already refuse to act on a partial fetch; this refuses
+  // to act on no fetch at all.
+  if (!seenUrls.length) return 0;
+
+  const result = await withTenant(tenantId, (tx) =>
     tx.product.updateMany({
-      where: { tenantId: tenant.id, inStock: true, url: { notIn: seenUrls } },
+      where: { tenantId, inStock: true, url: { notIn: seenUrls } },
       data: { inStock: false },
     }),
   );
-  invalidateCatalogue(tenantSlug);
+  invalidateCatalogue();
   return result?.count ?? 0;
 }
 

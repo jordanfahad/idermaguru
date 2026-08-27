@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getAdminSessionCookieName, verifyAdminSession } from "@/lib/admin-auth";
-import { fetchIngredientLists, fetchShopCurrency, fetchShopifyProducts, normaliseShopDomain } from "@/lib/shopify";
-import { invalidateCatalogue } from "@/services/catalog";
+import { fetchIngredientLists, fetchShopProfile, fetchShopifyProducts, normaliseShopDomain } from "@/lib/shopify";
+import { existingSkuIndex, invalidateCatalogue, markMissingOutOfStockForTenantId } from "@/services/catalog";
 import { mapShopifyProduct, writeCatalogue } from "@/services/shopify-sync";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { getPrisma } from "@/server/db";
@@ -61,10 +61,11 @@ async function sync(request: Request) {
   if (!prisma) return jsonError("Database is not configured.", 503);
 
   const limit = 1000;
-  const [products, currency] = await Promise.all([
+  const [catalogue, profile] = await Promise.all([
     fetchShopifyProducts(shop, connection.access_token, limit),
-    fetchShopCurrency(shop, connection.access_token),
+    fetchShopProfile(shop, connection.access_token),
   ]);
+  const products = catalogue.products;
   // Fetched after the products, because it is keyed by their ids. A shop with
   // no custom.ingredients definition gets an empty map back and a catalogue
   // identical to the one it has today — see fetchIngredientLists.
@@ -73,14 +74,36 @@ async function sync(request: Request) {
     connection.access_token,
     products.map((product) => product.id),
   );
+  // Which rows are already here for these products. Without this the first sync
+  // of a catalogue that arrived by CSV writes a second copy of all of it.
+  const existing = await existingSkuIndex(connection.tenant_id);
 
   const mapped = products
     .map((product) =>
-      mapShopifyProduct(product, connection.tenant_id, shop, currency ?? undefined, ingredients.get(product.id)),
+      mapShopifyProduct(product, connection.tenant_id, shop, {
+        currency: profile.currency ?? undefined,
+        ingredients: ingredients.get(product.id),
+        storefrontHost: profile.primaryDomain ?? undefined,
+        sku:
+          existing.byId.get(`shopify-${shop}-${product.id}`) ??
+          existing.byHandle.get(product.handle.trim().toLowerCase()),
+      }),
     )
     .filter((product): product is NonNullable<typeof product> => product !== null);
 
   const written = await writeCatalogue(prisma, mapped);
+
+  // Everything the store no longer sells stops being recommendable — but only
+  // when we know we saw the whole store. A rate limit part-way through the
+  // pagination returns a slice, and retiring against a slice would take the
+  // rest of the catalogue off the shelf.
+  const retired = catalogue.complete
+    ? await markMissingOutOfStockForTenantId(
+        connection.tenant_id,
+        mapped.map((product) => product.url),
+      )
+    : 0;
+
   // The advisor holds the catalogue in memory for a moment; a sync is exactly
   // the event that should make it read again.
   invalidateCatalogue();
@@ -95,8 +118,10 @@ async function sync(request: Request) {
     fetched: products.length,
     imported: written,
     skipped: products.length - mapped.length,
+    withIngredients: mapped.filter((product) => product.ingredientsJson.length > 0).length,
+    retired,
     // Say so rather than quietly stopping at the cap: a merchant who cannot see
     // that half their catalogue was left out will not know to ask.
-    truncated: products.length >= limit,
+    truncated: !catalogue.complete,
   });
 }

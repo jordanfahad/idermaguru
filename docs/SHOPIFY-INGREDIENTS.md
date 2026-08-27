@@ -21,6 +21,15 @@ It is worth doing for a reason that is not the obvious one. See
 The namespace and key are what the sync looks for. `custom.ingredients` exactly
 — a different namespace is a different field and will not be read.
 
+**Multi-line text** is the recommended type, but *List of single line text* and
+*Rich text* are both read correctly too, so a definition already created as one
+of those does not need redoing.
+
+The one type that will **not** work is a reference — *Metaobject*, *Product*,
+*File*. Those store object ids rather than words, and the sync shows nothing
+rather than showing a shopper `gid://shopify/Metaobject/123`. If ingredients are
+already built as a metaobject library, say so and we will add the extra lookup.
+
 ## 2. Fill it in bulk
 
 **Create the definition first, then export.** Once it exists, Shopify includes a
@@ -57,6 +66,33 @@ runaway cell should not be re-read on every catalogue load.
 
 A product with no value syncs exactly as it does today. There is no penalty for
 filling in some and not others.
+
+---
+
+## If the list is already in the description
+
+Most catalogues already have the INCI list sitting in the product description
+under a heading. When the metafield is empty, the sync reads it from there:
+
+```
+Ingredients: Aqua, Glycerin, Niacinamide, Butylene Glycol, Panthenol
+
+How to use: apply two pumps morning and evening.
+```
+
+It stops at the next heading, so *How to use* does not end up in the list.
+
+This is a fallback, not a substitute — **the metafield always wins.** And it is
+deliberately hard to satisfy, because the failure it guards against is showing a
+shopper marketing copy under the word Ingredients. Both of these must hold:
+
+- at least five entries — a "key ingredients" highlight reel is not what is in
+  the bottle
+- at least one thing that appears in nearly every cosmetic formula (aqua,
+  glycerin, phenoxyethanol, tocopherol and so on)
+
+A run of claims — *cruelty free, vegan, paraben free, sulfate free* — is long
+enough and still gets rejected, because none of it is an ingredient.
 
 ---
 
