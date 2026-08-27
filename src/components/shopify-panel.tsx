@@ -26,6 +26,41 @@ async function readJson(response: Response) {
   }
 }
 
+/**
+ * What the sync actually did, in the one place a merchant will look.
+ *
+ * The route has always returned more than this panel showed. Two of the
+ * numbers matter enough to say out loud:
+ *
+ * `retired` is a write — products the store no longer sells, taken off the
+ * shelf. Somebody who cannot see that number cannot tell a healthy sync from
+ * one that quietly emptied their catalogue.
+ *
+ * `withIngredients` is how a merchant finds out their metafield is named
+ * something other than custom.ingredients, or holds references rather than
+ * words. Without it the failure is invisible: the sync reports success, and
+ * the ingredient chip is simply never there.
+ */
+export function syncSummary(shop: string, payload: Record<string, unknown>): string {
+  const count = (key: string) => (typeof payload[key] === "number" ? (payload[key] as number) : 0);
+  const parts = [`Imported ${count("imported")} of ${count("fetched")} products from ${shop}`];
+
+  if (count("skipped")) parts.push(`${count("skipped")} skipped (no usable price)`);
+  if (count("retired")) parts.push(`${count("retired")} no longer in the store, marked out of stock`);
+  parts.push(
+    count("withIngredients")
+      ? `${count("withIngredients")} with an ingredient list`
+      : "no ingredient lists found — check the metafield is custom.ingredients and holds text, not references",
+  );
+
+  return (
+    parts.join(" — ") +
+    (payload.truncated
+      ? ". This was only part of the store, so nothing was retired; sync again for the rest."
+      : ".")
+  );
+}
+
 function failureFor(status: number) {
   if (status === 401) return "Your admin session expired. Sign in again and retry.";
   if (status === 504 || status === 408) {
@@ -86,11 +121,7 @@ export function ShopifyPanel() {
       if (!response.ok || !payload) {
         throw new Error(payload?.error ?? failureFor(response.status));
       }
-      setMessage(
-        `Imported ${payload.imported} of ${payload.fetched} products from ${shop}` +
-          (payload.skipped ? ` — ${payload.skipped} skipped (no usable price)` : "") +
-          (payload.truncated ? `. Stopped at the first ${payload.fetched}; sync again for the rest.` : "."),
-      );
+      setMessage(syncSummary(shop, payload));
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sync failed.");
