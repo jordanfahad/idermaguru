@@ -194,7 +194,8 @@ const UI = {
     you: "You",
     agent: "Advisor",
     noVoice: "Voice isn't supported in this browser. Try Chrome or Safari, or use the text advisor.",
-    denied: "I couldn't access the microphone. Allow mic permission, or use the text advisor.",
+    denied: "I couldn't reach the microphone. Allow mic access in your browser, or just type below — I've switched to chat.",
+    deniedEmbedded: "This page hasn't given me microphone access, so voice can't start here. I've switched to chat — type below and I'll answer just the same.",
     save: "Save",
     saved: "Saved",
     cart: "Add routine to cart",
@@ -252,7 +253,8 @@ const UI = {
     you: "أنت",
     agent: "المستشار",
     noVoice: "الصوت غير مدعوم في هذا المتصفح. جرّب Chrome أو Safari أو استخدم المستشار الكتابي.",
-    denied: "تعذّر الوصول إلى الميكروفون. امنح الإذن أو استخدم المستشار الكتابي.",
+    denied: "تعذّر الوصول إلى الميكروفون. اسمح بالإذن في المتصفح، أو اكتب أدناه — انتقلت إلى المحادثة.",
+    deniedEmbedded: "هذه الصفحة لم تمنحني إذن الميكروفون، لذا لا يمكن بدء الصوت هنا. انتقلت إلى المحادثة — اكتب أدناه وسأجيبك بالمثل.",
     save: "حفظ",
     saved: "محفوظ",
     cart: "أضف الروتين إلى السلة",
@@ -389,6 +391,8 @@ export function VoiceAgent({
     startedRef.current = true;
     setStarted(true);
   }, []);
+
+
   const [promptIndex, setPromptIndex] = useState(0);
 
   const [camera, setCamera] = useState<"off" | "consent" | "live" | "reviewing">("off");
@@ -507,6 +511,35 @@ export function VoiceAgent({
     void callCtxRef.current?.close().catch(() => {});
     callCtxRef.current = null;
   }, [cancelRecordedTurn]);
+
+  /**
+   * The microphone is not going to work, so stop offering it.
+   *
+   * Until now every one of these paths set a message and left the panel in
+   * Voice mode, staring at an orb that would fail again on the next tap. A
+   * shopper on a storefront does not debug permissions; they leave. Chat needs
+   * no permission from anybody and reaches the same advisor.
+   *
+   * Distinguishes the two reasons, because the advice differs and the wrong
+   * advice is worse than none: a shopper who was never ASKED cannot fix it by
+   * granting anything. An embedded panel only gets a microphone if the page
+   * that framed it said so with allow="microphone" — see docs/EMBED.md — and
+   * when that is missing the browser refuses without ever prompting.
+   */
+  const framed = typeof window !== "undefined" && window.self !== window.top;
+  const giveUpOnVoice = useCallback(
+    (reason: "denied" | "unsupported") => {
+      continueRef.current = false;
+      recognitionRef.current?.abort();
+      recognitionRef.current = null;
+      releaseCall();
+      modeRef.current = "chat";
+      setMode("chat");
+      setPhase("idle");
+      setNotice(reason === "unsupported" ? t.noVoice : framed ? t.deniedEmbedded : t.denied);
+    },
+    [t.noVoice, t.denied, t.deniedEmbedded, framed, releaseCall],
+  );
 
   /**
    * Bring the routine to the shopper on a phone.
@@ -1202,9 +1235,7 @@ export function VoiceAgent({
         const stream = await ensureCallStream();
         if (token !== recordedTurnRef.current || modeRef.current !== "voice") return;
         if (!stream) {
-          setNotice(t.denied);
-          continueRef.current = false;
-          setPhase("idle");
+          giveUpOnVoice("denied");
           return;
         }
 
@@ -1382,8 +1413,7 @@ export function VoiceAgent({
       };
       const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
       if (!Ctor) {
-        setNotice(t.noVoice);
-        setPhase("idle");
+        giveUpOnVoice("unsupported");
         return;
       }
 
@@ -1440,9 +1470,7 @@ export function VoiceAgent({
 
       recognition.onerror = (event) => {
         if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
-          setNotice(t.denied);
-          continueRef.current = false;
-          setPhase("idle");
+          giveUpOnVoice("denied");
         }
         // "no-speech" and "aborted" are ordinary: onend decides what happens.
       };
@@ -1926,6 +1954,19 @@ export function VoiceAgent({
       </div>
 
       <p className="va-status" aria-live="polite">{mode === "voice" ? statusLabel : busy ? t.thinking : ""}</p>
+      {/*
+        Under the orb, which is the only place the shopper is looking.
+        This used to render at the very bottom of the panel, below the mode
+        buttons, the camera consent and the common-concerns list — off-screen
+        on a phone. So the advisor would explain exactly why it had gone quiet
+        and nobody ever saw it: what reached the shopper was an orb that said
+        "tap when you're ready" and then did nothing, forever.
+      */}
+      {notice ? (
+        <p className="va-notice va-notice-orb" role="status">
+          {notice}
+        </p>
+      ) : null}
       <p className="va-interim">{interim ? <span>{interim}</span> : null}</p>
 
       {!started ? (
@@ -2222,9 +2263,13 @@ export function VoiceAgent({
         </form>
       ) : null}
 
+      {/* The notice itself now sits under the orb. Only the escape hatch stays
+          down here, and only while something is actually wrong. */}
       {notice ? (
         <p className="va-notice">
-          {notice} <a href="/live-consultation-1">{t.fallback}</a>
+          <a href="/live-consultation-1" target="_blank" rel="noreferrer">
+            {t.fallback}
+          </a>
         </p>
       ) : null}
 

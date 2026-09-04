@@ -664,3 +664,16 @@
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
+
+/* The failure message, under the orb where the shopper is looking.
+   It used to render at the very bottom of the panel — below the mode buttons,
+   the camera consent and the concerns list — which on a phone is off-screen.
+   The advisor explained why it had gone quiet and nobody ever saw it. */
+.va-notice-orb {
+  margin: 6px auto 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(163, 66, 31, 0.07);
+  border: 1px solid rgba(163, 66, 31, 0.18);
+  line-height: 1.45;
+}

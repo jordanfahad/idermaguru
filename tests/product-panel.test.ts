@@ -80,6 +80,48 @@ describe("the shopper getting there first", () => {
   });
 });
 
+/**
+ * The microphone failing without the shopper ever finding out.
+ *
+ * From a customer's screen recording: the advisor greeted, then sat on "TAP
+ * WHEN YOU'RE READY" and never listened again. It had a message explaining
+ * exactly why — and rendered it at the very bottom of the panel, below the
+ * mode buttons, the camera consent and the concerns list, which on a phone is
+ * off-screen. So the panel explained itself to nobody, and stayed in Voice
+ * mode offering an orb that would fail again on the next tap.
+ */
+describe("when the microphone cannot be had", () => {
+  it("shows the reason under the orb, not at the bottom of the page", () => {
+    const orbNotice = advisor.indexOf('className="va-notice va-notice-orb"');
+    const status = advisor.indexOf('className="va-status"');
+    const modes = advisor.indexOf('className="va-modes"');
+    expect(orbNotice, "the notice must render next to the orb").toBeGreaterThan(status);
+    expect(orbNotice, "and above the mode buttons, not below the fold").toBeLessThan(modes);
+  });
+
+  it("moves the shopper to chat instead of leaving a dead orb", () => {
+    // A shopper on a storefront does not debug permissions; they leave.
+    expect(advisor).toMatch(/modeRef\.current = "chat";\s*setMode\("chat"\);\s*setPhase\("idle"\);/);
+  });
+
+  it("routes every hard failure through the one fallback", () => {
+    expect((advisor.match(/giveUpOnVoice\("(denied|unsupported)"\)/g) ?? []).length).toBe(3);
+    // The old shape left the panel in voice mode with a message nobody saw.
+    expect(advisor).not.toMatch(/setNotice\(t\.denied\);\s*continueRef\.current = false;/);
+  });
+
+  it("does not tell a shopper to grant what they were never asked for", () => {
+    // An embedded panel gets no microphone unless the page that framed it said
+    // allow="microphone"; the browser then refuses without ever prompting, so
+    // "allow mic permission" is advice the shopper cannot act on.
+    expect(advisor).toMatch(/window\.self !== window\.top/);
+    expect(advisor).toMatch(/framed \? t\.deniedEmbedded : t\.denied/);
+    const embedded = advisor.match(/deniedEmbedded: "[^"]+"/g) ?? [];
+    expect(embedded.length, "both copy tables").toBe(2);
+    expect(embedded.some((line) => /[؀-ۿ]/.test(line))).toBe(true);
+  });
+});
+
 describe("adding to the shop's cart from inside an iframe", () => {
   it("addresses the shop's own origin, never a wildcard", () => {
     // The one that matters. postMessage(..., "*") on a panel embedded by an
