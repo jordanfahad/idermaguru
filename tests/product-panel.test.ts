@@ -110,15 +110,28 @@ describe("when the microphone cannot be had", () => {
     expect(advisor).not.toMatch(/setNotice\(t\.denied\);\s*continueRef\.current = false;/);
   });
 
-  it("does not tell a shopper to grant what they were never asked for", () => {
-    // An embedded panel gets no microphone unless the page that framed it said
-    // allow="microphone"; the browser then refuses without ever prompting, so
-    // "allow mic permission" is advice the shopper cannot act on.
-    expect(advisor).toMatch(/window\.self !== window\.top/);
-    expect(advisor).toMatch(/framed \? t\.deniedEmbedded : t\.denied/);
+  it("only blames the page when it can actually check", () => {
+    // allow="microphone" is permission DELEGATION: with it the shopper still
+    // gets the ordinary prompt and can still say no. Being in an iframe is
+    // therefore not evidence of anything, and treating it as evidence meant
+    // telling a shopper who had just tapped "Don't Allow" that the page was
+    // at fault. Only the Permissions Policy answers it, and only where it
+    // exists — Safari does not implement it, which is most of this traffic.
+    expect(advisor).toMatch(/function pageBlocksMic\(\): boolean \| null/);
+    expect(advisor).toMatch(/pageBlocksMic\(\) === true \? t\.deniedEmbedded : t\.denied/);
+    expect(advisor, "being framed is not evidence").not.toMatch(/framed \? t\.deniedEmbedded/);
     const embedded = advisor.match(/deniedEmbedded: "[^"]+"/g) ?? [];
     expect(embedded.length, "both copy tables").toBe(2);
     expect(embedded.some((line) => /[؀-ۿ]/.test(line))).toBe(true);
+  });
+
+  it("names both causes when it cannot tell them apart", () => {
+    // The common case on this store, since Safari has no Permissions Policy
+    // API. Asserting a single cause here would be a guess presented as fact.
+    const generic = advisor.match(/\n    denied: "[^"]+"/g) ?? [];
+    expect(generic.length).toBe(2);
+    expect(generic[0]).toMatch(/browser blocked it/);
+    expect(generic[0]).toMatch(/page hasn't allowed it/);
   });
 });
 
