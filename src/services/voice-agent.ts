@@ -622,6 +622,51 @@ export function readsMicCheck(input: string): boolean {
   return MIC_CHECK.test(normaliseTranscript(input)) || MIC_CHECK.test(input);
 }
 
+/**
+ * A shopper asking about the product whose page they are standing on.
+ *
+ * Only ever consulted when the storefront has told us which product that is,
+ * so "what is this" has something concrete to be about. Deliberately narrow:
+ * it wants a demonstrative — this, it, that — or an explicit mention of the
+ * product or the page, so "what's good for dry skin" stays a skin concern and
+ * goes through the ordinary dialogue.
+ *
+ * The last two patterns are the ones a real shopper produced after being
+ * ignored twice: "I wanted to know about this Huda Beauty product because I
+ * come from the product page."
+ */
+const PRODUCT_QUESTION =
+  /\b(what(?:'s| is| does)?\s+(?:this|it|that)\b|tell me (?:more )?about (?:this|it|that)\b|about (?:this|the) (?:product|item|one)\b|(?:this|the) product page\b|is (?:this|it) (?:good|any good|worth|right|suitable|ok|okay)\b|(?:what|who)(?:'s| is)? (?:this|it) for\b|how (?:do i|to) use (?:this|it)\b)/i;
+const PRODUCT_QUESTION_AR =
+  /(ما هذا|ما هو هذا|عن هذا المنتج|هذا المنتج|عن المنتج|صفحة المنتج|هل هذا مناسب|لماذا هذا)/;
+
+/*
+ * ...unless they are also telling us about themselves.
+ *
+ * "What is this? My face is burning and blistering after using it" is a
+ * question about a product AND a person in trouble, and answering the first
+ * half walks past the second. "Is this right for my skin?" is a question no
+ * label can answer — the safety questions are what answer it.
+ *
+ * mentionsSkinOrHair is the wrong gate for this and it is worth saying why:
+ * its job is "is this about skin at all", so the word `product` is in its
+ * list, and every product question matches it. What is wanted here is
+ * narrower — the shopper speaking about their own skin, or naming a symptom
+ * at all.
+ */
+const OWN_SYMPTOM =
+  /\b(my|i(?:'m| am| have| ve| had| get| feel))\b[\s\S]{0,40}\b(skin|face|hair|scalp|lips?|eyes?|cheeks?|forehead|chin|neck|acne|pimple|rash|burn\w*|blister\w*|itch\w*|sting\w*|irritat\w*|react\w*|peel\w*|flak\w*|redness|dry|oily|sensitive|allerg\w*|pregnan\w*)\b/i;
+const SYMPTOM_WORD =
+  /\b(burn\w*|blister\w*|rash|hives|itch\w*|sting\w*|swollen|swelling|bleed\w*|painful|sore|infect\w*|reaction)\b/i;
+const OWN_SYMPTOM_AR = /(بشرتي|وجهي|شعري|حساسية|حرقان|طفح|احمرار|حامل)/;
+
+export function readsProductQuestion(input: string): boolean {
+  const text = normaliseTranscript(input);
+  const asks = PRODUCT_QUESTION.test(text) || PRODUCT_QUESTION.test(input) || PRODUCT_QUESTION_AR.test(input);
+  if (!asks) return false;
+  return !(OWN_SYMPTOM.test(text) || SYMPTOM_WORD.test(text) || OWN_SYMPTOM_AR.test(input));
+}
+
 export type Aside = "greeting" | "identity" | "thanks" | "offtopic" | "hearing";
 
 /**
@@ -806,6 +851,13 @@ const COPY = {
     /** Built from our own concern tags, never from the merchant's marketing copy. */
     productAbout: (product: string, concerns: string) =>
       `${product} is meant for ${concerns}. If you tell me about your skin I can say whether it's a good match for you.`,
+    // What a product is, when the catalogue holds no concerns for it — makeup
+    // and devices, mostly, where "meant for dark spots" would be an invention.
+    // The description is the merchant's own words about their own product.
+    productDescribe: (product: string, description: string) =>
+      `${description} That's ${product}. Tell me about your skin and I can say whether it suits you.`,
+    productBare: (product: string) =>
+      `${product} — I hold the price and the link for it, but not much else. Tell me about your skin and I'll say whether it's one I'd suggest.`,
     productActives: (product: string, actives: string) =>
       `The active ingredients in ${product} are ${actives}. Whether they suit you depends on your skin and a couple of safety questions — say the word and I'll ask them.`,
     chip: {
@@ -957,6 +1009,10 @@ const COPY = {
     greetingAboutProduct: (product: string) => `مرحباً — أنت تطّلع على ${product}. ما الذي تودّ معرفته؟`,
     productAbout: (product: string, concerns: string) =>
       `${product} مخصّص لـ ${concerns}. أخبرني عن بشرتك وسأقول لك إن كان مناسباً لك.`,
+    productDescribe: (product: string, description: string) =>
+      `${description} هذا هو ${product}. أخبرني عن بشرتك وسأقول لك إن كان مناسباً لك.`,
+    productBare: (product: string) =>
+      `${product} — لديّ سعره ورابطه فقط، دون تفاصيل أكثر. أخبرني عن بشرتك وسأقول لك إن كنت أنصح به.`,
     productActives: (product: string, actives: string) =>
       `المكوّنات الفعّالة في ${product} هي ${actives}. ملاءمتها لك تعتمد على بشرتك وعلى سؤالين للسلامة — قل لي وسأطرحهما.`,
     chip: {
