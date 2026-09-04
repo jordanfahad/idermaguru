@@ -248,3 +248,35 @@ describe("the panel speaks Arabic as well as English", () => {
     expect(added.some((line) => /[؀-ۿ]/.test(line))).toBe(true);
   });
 });
+
+/**
+ * The microphone that reports itself alive while producing silence.
+ *
+ * A shopper four turns into a conversation kept talking and the advisor heard
+ * nothing — five recordings sent, five transcribed to nothing, then it stood
+ * down. The held stream was being reused on `readyState === "live"` alone, and
+ * on iOS playing audio interrupts an open capture session: the track stays
+ * live, goes muted, and delivers digital silence.
+ */
+describe("a held microphone that has gone dead", () => {
+  it("does not trust readyState on its own", () => {
+    // The gap between these two checks is the entire bug.
+    expect(advisor).toMatch(/track\.readyState === "live" && !track\.muted/);
+    expect(advisor, "the old check accepted a muted track").not.toMatch(
+      /some\(\(track\) => track\.readyState === "live"\)\)\s*return current/,
+    );
+  });
+
+  it("lets the dead stream go before asking for another", () => {
+    // An orphaned track holds the iPhone's audio session in call mode, which
+    // is the bug the single-flight request was written for in the first place.
+    expect(advisor).toMatch(/if \(current\) \{\s*current\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);\s*callStreamRef\.current = null;/);
+  });
+
+  it("throws away a stream that recorded a full-size nothing", () => {
+    // Belt and braces for a route that dies without ever setting muted: a
+    // stream that produced real bytes and no words has earned being replaced
+    // rather than recorded from four more times.
+    expect(advisor).toMatch(/if \(blob\.size > 2048\) \{[\s\S]{0,180}callStreamRef\.current = null;/);
+  });
+});

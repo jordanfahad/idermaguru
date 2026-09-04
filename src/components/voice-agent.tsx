@@ -81,6 +81,24 @@ function pageBlocksMic(): boolean | null {
   }
 }
 
+/**
+ * Whether a held microphone stream can still actually produce audio.
+ *
+ * `readyState === "live"` is not enough, and the gap between those two is the
+ * whole bug. On iOS, playing audio interrupts an open capture session: the
+ * track stays live and goes MUTED, delivering digital silence while every
+ * check we had said it was fine. A shopper four turns into a conversation kept
+ * talking to a microphone that had been dead since the advisor's last reply —
+ * five recordings sent, five transcribed to nothing, and the advisor stood
+ * down as designed.
+ *
+ * A muted track cannot be un-muted from here; the only recovery is to drop it
+ * and ask for another.
+ */
+function usableStream(stream: MediaStream): boolean {
+  return stream.getAudioTracks().some((track) => track.readyState === "live" && !track.muted);
+}
+
 const IOS =
   typeof navigator !== "undefined" &&
   (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -479,7 +497,24 @@ export function VoiceAgent({
    */
   const ensureCallStream = useCallback(async (): Promise<MediaStream | null> => {
     const current = callStreamRef.current;
-    if (current?.getAudioTracks().some((track) => track.readyState === "live")) return current;
+    if (current && usableStream(current)) return current;
+    /*
+     * The held stream is no good any more, so let it go before asking for
+     * another — an orphaned track keeps the iPhone's audio session in call
+     * mode, which is the bug the single-flight above was written for.
+     */
+    if (current) {
+      current.getTracks().forEach((track) => track.stop());
+      callStreamRef.current = null;
+      if (vadNodesRef.current) {
+        try {
+          vadNodesRef.current.source.disconnect();
+        } catch {
+          // already detached
+        }
+        vadNodesRef.current = null;
+      }
+    }
     if (!callStreamPromiseRef.current) {
       callStreamPromiseRef.current = navigator.mediaDevices
         .getUserMedia({ audio: true })
@@ -1369,6 +1404,20 @@ export function VoiceAgent({
                   silentRestartsRef.current = 0;
                   void send(text);
                   return;
+                }
+                /*
+                 * Real audio in, no words out. That is a cough or a passing
+                 * car — or a capture route that has gone dead without saying
+                 * so, which is what happens on iOS when playback interrupts
+                 * the session. `muted` catches most of those in
+                 * ensureCallStream; this catches the rest, because a stream
+                 * that produced a full-size recording of nothing has earned
+                 * being thrown away rather than recorded from four more
+                 * times. The next attempt asks for a fresh one.
+                 */
+                if (blob.size > 2048) {
+                  callStreamRef.current?.getTracks().forEach((track) => track.stop());
+                  callStreamRef.current = null;
                 }
                 // Energy without words — noise, a cough. Listen again.
                 logClient("mic-silent", {
