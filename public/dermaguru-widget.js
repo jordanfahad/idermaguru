@@ -178,6 +178,38 @@
   }
 
   /*
+   * The product handle the storefront URL is already carrying.
+   *
+   * data-product is the explicit way to say what the shopper is looking at,
+   * and it is a line in a theme that somebody has to remember to add. When it
+   * is missing the advisor opens with "What's bothering your skin?" on a page
+   * that is entirely about one product — which is the difference between an
+   * assistant and a form, and it is the failure nobody reports because it
+   * looks like it is working.
+   *
+   * Every Shopify storefront spells a product page the same way, so the widget
+   * can read it off the URL it is already running on:
+   *
+   *   /products/snail-mucin
+   *   /collections/korean-beauty/products/snail-mucin
+   *   /en-ae/products/snail-mucin
+   *
+   * Guessing is safe here only because of what happens next: the server
+   * RESOLVES the reference against the merchant's own catalogue rather than
+   * repeating it back, so a handle matching nothing produces exactly the
+   * greeting we have today, and a handle from another shop produces nothing at
+   * all. Without that, reading an identifier off the address bar and putting
+   * it in the advisor's mouth would be a way to make it say anything.
+   */
+  function productFromPath(path) {
+    var parts = String(path == null ? "" : path).split("/");
+    for (var i = 0; i < parts.length - 1; i++) {
+      if (parts[i] === "products" && parts[i + 1]) return parts[i + 1];
+    }
+    return null;
+  }
+
+  /*
    * Pages the widget must stay off.
    *
    * A floating launcher is fixed to the viewport, so on any page with its own
@@ -1214,7 +1246,12 @@
     var offsetY = cssLength(script.getAttribute("data-offset-bottom"), "20px");
     var offsetX = cssLength(script.getAttribute("data-offset-side"), "20px");
     var mode = script.getAttribute("data-mode");
-    var product = script.getAttribute("data-product");
+    // Explicit wins, including an explicit nothing: data-product="" is how a
+    // merchant says "general advice here" on a page we would otherwise read as
+    // a product page.
+    var product = script.hasAttribute("data-product")
+      ? script.getAttribute("data-product")
+      : productFromPath(location.pathname);
 
     // A bar in the page rather than a launcher over it. Checked before the
     // others because it is the only mode whose position is decided by where
