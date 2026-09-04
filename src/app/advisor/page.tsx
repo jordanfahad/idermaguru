@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 type AdvisorPageProps = {
-  searchParams: Promise<{ lang?: string; tenant?: string; product?: string }>;
+  searchParams: Promise<{ lang?: string; tenant?: string; product?: string; q?: string }>;
 };
 
 /**
@@ -63,9 +63,26 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
   // along in every request of the session.
   const focusProduct = params.product?.trim().slice(0, 200) || undefined;
 
+  // A question the storefront asked on the shopper's behalf — Cicabelle's
+  // product page has buttons ("Ask DermaGuru if this suits your skin") that
+  // open this panel with the question already chosen.
+  //
+  // Capped and stripped of line breaks, then treated as though the shopper had
+  // typed it. It is not trusted beyond that: it goes in as an utterance, and an
+  // utterance is the one thing this system has never taken instruction from —
+  // the safety triage and the deterministic dialogue decide what happens next,
+  // and the LLM only ever phrases what they decided.
+  const initialQuestion = params.q?.replace(/\s+/g, " ").trim().slice(0, 300) || undefined;
+
   return (
     <main className="advisor-embed" dir={initialLang === "ar" ? "rtl" : "ltr"}>
-      <VoiceAgent initialLang={initialLang} variant="full" tenantSlug={tenantSlug} focusProduct={focusProduct} />
+      <VoiceAgent
+        initialLang={initialLang}
+        variant="full"
+        tenantSlug={tenantSlug}
+        focusProduct={focusProduct}
+        initialQuestion={initialQuestion}
+      />
     </main>
   );
 }

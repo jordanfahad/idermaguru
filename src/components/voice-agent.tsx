@@ -231,6 +231,8 @@ const UI = {
     liveTranscript: "Live transcript",
     quickPicks: "Common concerns",
     aboutThis: "About this product",
+    addToBag: "Add to bag",
+    addedToBag: "Added to your bag.",
     yourRoutine: "Your routine",
     steps: (n: number) => (n === 1 ? "1 step" : `${n} steps`),
     routine: { am: "Morning", daily: "Daily", pm: "Evening", optional: "As needed" },
@@ -286,6 +288,8 @@ const UI = {
     liveTranscript: "النص المباشر",
     quickPicks: "مشاكل شائعة",
     aboutThis: "عن هذا المنتج",
+    addToBag: "أضف إلى الحقيبة",
+    addedToBag: "تمت الإضافة إلى حقيبتك.",
     yourRoutine: "روتينك",
     steps: (n: number) => (n === 1 ? "خطوة واحدة" : `${n} خطوات`),
     routine: { am: "صباحاً", daily: "يومياً", pm: "مساءً", optional: "عند الحاجة" },
@@ -312,6 +316,7 @@ export function VoiceAgent({
   variant = "full",
   tenantSlug,
   focusProduct,
+  initialQuestion,
 }: {
   initialLang?: Lang;
   /** "full" is the shopper product; "compact" is the homepage demo. */
@@ -331,6 +336,16 @@ export function VoiceAgent({
    * opened from the floating launcher.
    */
   focusProduct?: string;
+  /**
+   * A question the storefront asked on the shopper's behalf.
+   *
+   * Cicabelle's product page carries buttons — "Ask DermaGuru if this suits
+   * your skin", "How do I use X in my routine?" — that open the panel with the
+   * question already chosen. Treated exactly as though the shopper had typed
+   * it: it goes through the ordinary dialogue, and the answer is text, because
+   * nobody has tapped anything a browser will let us speak through yet.
+   */
+  initialQuestion?: string;
 }) {
   const [lang, setLang] = useState<Lang>(initialLang);
   const [mode, setMode] = useState<Mode>("voice");
@@ -345,6 +360,15 @@ export function VoiceAgent({
   const replayRef = useRef<string[]>([]);
   const [draft, setDraft] = useState("");
   const [products, setProducts] = useState<AgentProduct[]>([]);
+  /**
+   * The product the shopper is standing in front of.
+   *
+   * Kept apart from `products` on purpose. That list is the routine, and the
+   * column that renders it is headed "Your routine" — so putting the page's
+   * own product in it both mislabelled it and displaced the chips that were
+   * the point of showing it.
+   */
+  const [focus, setFocus] = useState<AgentProduct | null>(null);
   /** The follow-ups this turn offered, if any — see suggestionsFor on the server. */
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [disclosure, setDisclosure] = useState<string | null>(null);
@@ -945,16 +969,24 @@ export function VoiceAgent({
 
   /** Applies a turn's payload: state, transcript, and the spoken reply. */
   const handleTurn = useCallback(
-    (payload: {
-      slots?: Record<string, unknown>;
-      language?: string;
-      products?: AgentProduct[];
-      suggestions?: Suggestion[];
-      disclosure?: string;
-      reply?: string;
-      phase?: string;
-      speech?: string[];
-    }) => {
+    (
+      payload: {
+        slots?: Record<string, unknown>;
+        language?: string;
+        products?: AgentProduct[];
+        focus?: AgentProduct | null;
+        suggestions?: Suggestion[];
+        disclosure?: string;
+        reply?: string;
+        phase?: string;
+        speech?: string[];
+      },
+      // The opening turn on a product page arrives before anybody has tapped
+      // anything. Speaking it would need an audio autoplay permission we do
+      // not have and would not deserve if we did — an advisor that starts
+      // talking the moment a panel opens on somebody's storefront.
+      options?: { silent?: boolean },
+    ) => {
       slotsRef.current = payload.slots ?? slotsRef.current;
       if (typeof payload.language === "string" && payload.language) {
         spokenLangRef.current = payload.language;
@@ -965,6 +997,10 @@ export function VoiceAgent({
         setProducts(payload.products);
         setDisclosure(typeof payload.disclosure === "string" ? payload.disclosure : null);
       }
+      // Only ever set, never cleared by a turn that carries none. What the
+      // shopper is looking at does not stop being true because they asked
+      // something else about it.
+      if (payload.focus) setFocus(payload.focus);
       // Assigned on every turn, not only when non-empty: an answered chip has
       // to disappear, and a turn that offers nothing has to clear what the
       // last one offered. The products above are deliberately not like this —
@@ -975,7 +1011,7 @@ export function VoiceAgent({
       setTurns((current) => [...current, { role: "agent", text: reply }]);
 
       // Chat mode stays silent and never grabs the microphone.
-      if (modeRef.current === "chat") {
+      if (options?.silent || modeRef.current === "chat") {
         setPhase("idle");
         return;
       }
@@ -1015,6 +1051,101 @@ export function VoiceAgent({
     },
     [requestTurn, handleTurn, t.error],
   );
+
+  /**
+   * Add to bag, from inside somebody else's page.
+   *
+   * The advisor is an iframe on another origin, so it cannot touch the
+   * storefront's cart — that is the browser working correctly, not a gap. What
+   * it can do is say what the shopper asked for and let the page it is
+   * embedded in do the adding.
+   *
+   * The message carries the HANDLE, not a variant id. We do not hold Shopify
+   * variant ids: the sync reads products, keeps the first variant's price and
+   * SKU, and those SKUs are `csv-<timestamp>-<row>` on most of this catalogue
+   * — a number that would look like an id and add the wrong thing. The handle
+   * is the one identifier that is correct on every row, and the storefront can
+   * turn it into a variant with the product JSON it already has.
+   *
+   * Addressed to the shop's own origin rather than "*". We know it: it is the
+   * origin of the product's own URL, which came out of the merchant's
+   * catalogue, not out of the page we are embedded in. A panel framed by
+   * somebody else gets its message dropped by the browser, which is the right
+   * outcome and not one we have to police ourselves.
+   */
+  const addToParentCart = useCallback((product: AgentProduct) => {
+    let origin: string;
+    try {
+      origin = new URL(product.url).origin;
+    } catch {
+      return;
+    }
+    const handle = product.url.split("#")[0].split("?")[0].split("/").filter(Boolean).pop();
+    if (!handle) return;
+
+    try {
+      window.parent.postMessage(
+        {
+          type: "dermaguru:add-to-cart",
+          // Present from the first message so the listener can refuse a shape
+          // it does not know, rather than guess at one.
+          version: 1,
+          handle,
+          quantity: 1,
+          url: product.url,
+        },
+        origin,
+      );
+      setNotice(t.addedToBag);
+    } catch {
+      setNotice(t.error);
+    }
+  }, [t.addedToBag, t.error]);
+
+  /**
+   * Opening a product page with an offer rather than a question.
+   *
+   * The panel used to greet from a hardcoded line the moment somebody tapped
+   * the microphone, and never asked the server for an opening turn at all — so
+   * everything the route knows how to say about the product on the page was
+   * unreachable, and a shopper standing in front of one product was asked
+   * "what's bothering your skin?" as though the page did not exist.
+   *
+   * Runs once, and only with a product: on our own pages, and on the floating
+   * launcher anywhere but a product page, there is nothing to open about.
+   *
+   * Silent, and it does not set `started` — nothing has been tapped, so there
+   * is no gesture to speak through and no conversation to be in the middle of.
+   * What appears is the greeting, the card, and the chips. Tapping any of them
+   * is the gesture.
+   */
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (!focusProduct || openedRef.current) return;
+    openedRef.current = true;
+
+    // A pre-seeded question is a stronger instruction than "open about this",
+    // and it answers with the product in hand anyway, so it replaces the
+    // opening turn rather than racing it.
+    if (initialQuestion) {
+      modeRef.current = "chat";
+      setMode("chat");
+      setStarted(true);
+      void send(initialQuestion);
+      return;
+    }
+
+    requestTurn("")
+      .then((payload) => handleTurn(payload, { silent: true }))
+      // Silence is the right failure. The shopper still has the microphone and
+      // the text box, and a red error on a storefront panel nobody has touched
+      // yet would be worse than the greeting they did not get.
+      .catch(() => {});
+    // Deliberately not depending on send/requestTurn/handleTurn: they are
+    // rebuilt as state changes, and this must fire once on arrival, not again
+    // every time the conversation moves.
+    // eslint-disable-next-line
+  }, [focusProduct, initialQuestion]);
 
   /**
    * One recorded turn of the iOS call.
@@ -1952,6 +2083,48 @@ export function VoiceAgent({
           </div>
         ) : (
           <div className="va-panel" key="picks">
+            {/*
+              The product the shopper is standing in front of, above the things
+              we can say about it — the shape of the panel they already know
+              from every other advisor on a product page.
+            */}
+            {focus ? (
+              <article className="va-focus">
+                {focus.imageUrl ? (
+                  <img
+                    src={focus.imageUrl}
+                    alt={`${focus.brand ? `${focus.brand} ` : ""}${focus.name}`}
+                    // Shopify's CDN refuses a request carrying a referrer from
+                    // another domain, which is exactly what an embedded panel is.
+                    referrerPolicy="no-referrer"
+                    onError={(event) => {
+                      event.currentTarget.classList.add("va-rx-noimg");
+                      event.currentTarget.removeAttribute("src");
+                      event.currentTarget.alt = "";
+                    }}
+                  />
+                ) : (
+                  <div className="va-rx-noimg" />
+                )}
+                <div className="va-focus-body">
+                  {focus.brand ? <span className="va-focus-brand">{focus.brand}</span> : null}
+                  <strong>{focus.name}</strong>
+                  <span className="va-price">
+                    {focus.currency} {focus.price}
+                  </span>
+                  <div className="va-focus-actions">
+                    <button type="button" className="va-focus-add" onClick={() => addToParentCart(focus)}>
+                      <ShoppingCart size={14} />
+                      {t.addToBag}
+                    </button>
+                    <a className="va-focus-view" href={focus.url} target="_blank" rel="noreferrer">
+                      <ExternalLink size={13} />
+                      <span className="va-sr">{t.view}</span>
+                    </a>
+                  </div>
+                </div>
+              </article>
+            ) : null}
             {/*
               What the server offered for this product, when it offered
               anything. Those chips are computed from the fields we actually

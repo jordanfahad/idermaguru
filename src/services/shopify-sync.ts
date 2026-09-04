@@ -34,6 +34,14 @@ const ACTIVES: { term: string; match: RegExp }[] = [
   { term: "zinc oxide", match: /zinc oxide/i },
   { term: "titanium dioxide", match: /titanium dioxide/i },
   { term: "peptides", match: /peptide/i },
+  // The four `ingredient:` tags the store curates that this list had no word
+  // for. None of them changes a safety derivation — they match no pregnancy or
+  // strength pattern — but "what's in it" is unanswerable without them, and on
+  // a snail mucin essence the snail is the entire answer.
+  { term: "collagen", match: /collagen/i },
+  { term: "snail mucin", match: /snail/i },
+  { term: "rice", match: /\brice\b/i },
+  { term: "mugwort", match: /mugwort|artemisia/i },
 ];
 
 const CONCERNS: { term: string; match: RegExp }[] = [
@@ -99,6 +107,11 @@ const TAGGED_CONCERN: Record<string, string> = {
   pores: "pores",
   "hair-loss": "hair fall",
   "hair-fall": "hair fall",
+  // 31 active products, and the value this map was missing when it was written
+  // from a summary rather than from the store. There is no "damaged hair" in
+  // the recommender's vocabulary, so it lands in the general hair bucket —
+  // which is where a shopper asking about it would be answered from anyway.
+  "damaged-hair": "hair",
   dandruff: "dandruff",
   "sun-protection": "sun protection",
 };
