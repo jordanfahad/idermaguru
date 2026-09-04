@@ -1319,6 +1319,7 @@ export function VoiceAgent({
         const bins = analyser ? new Uint8Array(analyser.fftSize) : null;
 
         const standDown = () => {
+          logClient("mic-stand-down", { everHeard: everHeardRef.current, ios: IOS });
           silentRestartsRef.current = 0;
           setNotice(everHeardRef.current ? t.micIdle : t.micTrouble);
           setPhase("idle");
@@ -1331,7 +1332,22 @@ export function VoiceAgent({
           recorderRef.current = null;
           recorder.onstop = () => {
             if (token !== recordedTurnRef.current || modeRef.current !== "voice") return;
+            /*
+             * Everything below reports what the microphone actually produced.
+             *
+             * The playback side has been instrumented since the silent-advisor
+             * bug; the LISTENING side never was. So a shopper whose advisor
+             * went quiet mid-conversation left five identical 200s in the
+             * transcribe log and nothing else, and "they stopped talking" and
+             * "the microphone captured silence" are indistinguishable from
+             * outside the device. bytes and level tell them apart: a healthy
+             * blob that transcribes to nothing is a dead audio route, a tiny
+             * one is a recorder that never engaged, and a quiet meter with a
+             * real blob is the known suspended-analyser case.
+             */
+            const ms = Date.now() - startedAt;
             if (!chunks.length) {
+              logClient("mic-no-audio", { ms, level: Boolean(voiceAt), restarts: silentRestartsRef.current + 1 });
               silentRestartsRef.current += 1;
               if (silentRestartsRef.current > MAX_SILENT_RESTARTS) return standDown();
               restartTimerRef.current = window.setTimeout(recordTurn, 120);
@@ -1355,6 +1371,13 @@ export function VoiceAgent({
                   return;
                 }
                 // Energy without words — noise, a cough. Listen again.
+                logClient("mic-silent", {
+                  bytes: blob.size,
+                  ms,
+                  level: Boolean(voiceAt),
+                  restarts: silentRestartsRef.current + 1,
+                  ios: IOS,
+                });
                 silentRestartsRef.current += 1;
                 if (silentRestartsRef.current > MAX_SILENT_RESTARTS) return standDown();
                 setPhase("listening");
@@ -1980,19 +2003,6 @@ export function VoiceAgent({
       </div>
 
       <p className="va-status" aria-live="polite">{mode === "voice" ? statusLabel : busy ? t.thinking : ""}</p>
-      {/*
-        Under the orb, which is the only place the shopper is looking.
-        This used to render at the very bottom of the panel, below the mode
-        buttons, the camera consent and the common-concerns list — off-screen
-        on a phone. So the advisor would explain exactly why it had gone quiet
-        and nobody ever saw it: what reached the shopper was an orb that said
-        "tap when you're ready" and then did nothing, forever.
-      */}
-      {notice ? (
-        <p className="va-notice va-notice-orb" role="status">
-          {notice}
-        </p>
-      ) : null}
       <p className="va-interim">{interim ? <span>{interim}</span> : null}</p>
 
       {!started ? (
@@ -2289,14 +2299,25 @@ export function VoiceAgent({
         </form>
       ) : null}
 
-      {/* The notice itself now sits under the orb. Only the escape hatch stays
-          down here, and only while something is actually wrong. */}
+      {/*
+        Pinned, like the call bar, and for the same reason it is: the shopper
+        scrolls down to read the transcript, so anything in the flow of the
+        panel is off-screen exactly when it matters.
+
+        Putting it under the orb was the previous attempt at this, and this
+        screenshot is what that looks like once a conversation has a few turns
+        in it — the escape-hatch link visible at the bottom of the page, and
+        the sentence explaining why the advisor had gone quiet scrolled out of
+        sight above. It never competes with the call bar: that one renders only
+        while a call is active, and a notice means it is not.
+      */}
       {notice ? (
-        <p className="va-notice">
+        <div className="va-alert" role="status">
+          <span>{notice}</span>
           <a href="/live-consultation-1" target="_blank" rel="noreferrer">
             {t.fallback}
           </a>
-        </p>
+        </div>
       ) : null}
 
     </div>
