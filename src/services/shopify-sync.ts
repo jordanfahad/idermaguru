@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import type { ProductCatalogItem } from "@/domain/skincare";
 import type { ShopifyProduct } from "@/lib/shopify";
+import { BRAND_BY_HANDLE } from "@/data/brand-registry";
 
 export type { ShopifyProduct };
 
@@ -134,7 +135,7 @@ export function readProductTags(tags: string | null | undefined): ProductTags {
     switch (tag.slice(0, colon)) {
       case "brand":
         // First one wins; a product belongs to one brand.
-        if (!brand) brand = titleCase(deslug(value));
+        if (!brand) brand = brandName(value);
         break;
       case "concern": {
         const mapped = TAGGED_CONCERN[value];
@@ -160,6 +161,34 @@ function deslug(value: string): string {
 
 function titleCase(value: string): string {
   return value.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
+/**
+ * How a brand actually spells itself, when we already know.
+ *
+ * A tag is a slug, and de-slugging one guesses at the capitalisation: `cosrx`
+ * becomes "Cosrx", which is not how COSRX writes it, and `la-roche-posay`
+ * becomes "La Roche Posay" rather than "La Roche-Posay". A shopper who asked
+ * for a brand by name and is shown a misspelling of it has been given a reason
+ * to doubt the whole answer.
+ *
+ * The brand registry is a hand-classified export that already carries the
+ * right spelling for 425 products, so it is used here as a dictionary rather
+ * than as a second guess. Anything it does not know keeps the title-cased
+ * de-slug, which is still better than the vendor column — that says
+ * "Cicabelle" on every product in the store.
+ */
+const BRAND_SPELLING: Map<string, string> = (() => {
+  const spelling = new Map<string, string>();
+  for (const entry of Object.values(BRAND_BY_HANDLE)) {
+    const slug = entry.brand.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    if (slug && !spelling.has(slug)) spelling.set(slug, entry.brand);
+  }
+  return spelling;
+})();
+
+function brandName(slug: string): string {
+  return BRAND_SPELLING.get(slug) ?? titleCase(deslug(slug));
 }
 
 function unique(values: string[]): string[] {
