@@ -91,12 +91,19 @@ describe("the shopper getting there first", () => {
  * mode offering an orb that would fail again on the next tap.
  */
 describe("when the microphone cannot be had", () => {
-  it("shows the reason under the orb, not at the bottom of the page", () => {
-    const orbNotice = advisor.indexOf('className="va-notice va-notice-orb"');
-    const status = advisor.indexOf('className="va-status"');
-    const modes = advisor.indexOf('className="va-modes"');
-    expect(orbNotice, "the notice must render next to the orb").toBeGreaterThan(status);
-    expect(orbNotice, "and above the mode buttons, not below the fold").toBeLessThan(modes);
+  it("pins the reason so scrolling cannot hide it", () => {
+    // Under the orb was the previous attempt, and it failed the moment a
+    // conversation had a few turns in it: the shopper scrolls down to read the
+    // transcript and the sentence scrolls off the top. Anything in the flow of
+    // this panel is off-screen exactly when it matters.
+    expect(advisor).toMatch(/className="va-alert" role="status"/);
+    const alert = css.slice(css.indexOf(".va-alert {"), css.indexOf(".va-alert a"));
+    expect(alert).toContain("position: fixed");
+    expect(alert).toContain("z-index");
+  });
+
+  it("keeps the escape hatch with the message rather than at the far end of the page", () => {
+    expect(advisor).toMatch(/<span>\{notice\}<\/span>\s*<a[\s\S]{0,120}\{t\.fallback\}/);
   });
 
   it("moves the shopper to chat instead of leaving a dead orb", () => {
@@ -132,6 +139,36 @@ describe("when the microphone cannot be had", () => {
     expect(generic.length).toBe(2);
     expect(generic[0]).toMatch(/browser blocked it/);
     expect(generic[0]).toMatch(/page hasn't allowed it/);
+  });
+});
+
+/**
+ * Knowing why the microphone produced nothing.
+ *
+ * A shopper's advisor went quiet four turns into a conversation. The server
+ * logs showed five transcribe calls, all 200, and nothing else — because the
+ * playback side has been instrumented since the silent-advisor bug and the
+ * LISTENING side never was. From outside the device, "they stopped talking"
+ * and "the microphone captured silence" look identical.
+ */
+describe("reporting what the microphone produced", () => {
+  it("reports a recording that transcribed to nothing", () => {
+    expect(advisor).toMatch(/logClient\("mic-silent", \{[\s\S]{0,160}bytes: blob\.size/);
+  });
+
+  it("reports the size and the meter, which are what tell the causes apart", () => {
+    // A healthy blob that transcribes to nothing is a dead audio route; a tiny
+    // one is a recorder that never engaged; a quiet meter with a real blob is
+    // the known suspended-analyser case.
+    const call = advisor.slice(advisor.indexOf('logClient("mic-silent"'));
+    expect(call.slice(0, 300)).toMatch(/bytes:/);
+    expect(call.slice(0, 300)).toMatch(/level: Boolean\(voiceAt\)/);
+    expect(call.slice(0, 300)).toMatch(/restarts:/);
+  });
+
+  it("reports a recorder that captured no audio at all, and the give-up", () => {
+    expect(advisor).toMatch(/logClient\("mic-no-audio"/);
+    expect(advisor).toMatch(/logClient\("mic-stand-down", \{ everHeard: everHeardRef\.current/);
   });
 });
 

@@ -665,15 +665,34 @@
   overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
 
-/* The failure message, under the orb where the shopper is looking.
-   It used to render at the very bottom of the panel — below the mode buttons,
-   the camera consent and the concerns list — which on a phone is off-screen.
-   The advisor explained why it had gone quiet and nobody ever saw it. */
-.va-notice-orb {
-  margin: 6px auto 0;
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: rgba(163, 66, 31, 0.07);
-  border: 1px solid rgba(163, 66, 31, 0.18);
-  line-height: 1.45;
+/* The failure message, pinned like the call bar and for the same reason:
+   the shopper scrolls down to read the transcript, so anything in the flow of
+   the panel is off-screen exactly when it matters. It never competes with the
+   call bar — that renders only while a call is active, and a notice means it
+   is not. */
+.va-alert {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(92vw, 560px);
+  padding: 11px 18px;
+  border-radius: 18px;
+  background: rgba(30, 27, 24, 0.94);
+  color: #fdfcfa;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: start;
+  box-shadow: 0 14px 34px rgba(27, 26, 23, 0.28);
+  animation: va-rise 300ms ease both;
+}
+.va-alert a {
+  color: #fdfcfa;
+  white-space: nowrap;
+  text-decoration: underline;
+  flex: none;
 }
