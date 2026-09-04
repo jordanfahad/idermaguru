@@ -172,7 +172,13 @@ export async function POST(request: Request) {
           speech: speakable(spoken, "", line),
           phase: "asking",
           slots: input.slots ?? {},
-          products: [focusCard(focus)],
+          products: [],
+          // Not `products`. The card for the thing the shopper is already
+          // looking at is not a routine, and the panel that renders `products`
+          // is headed "Your routine — 1 step" — which both mislabels it and
+          // takes the place of the chips, so the offer arrived with nowhere to
+          // put its own follow-ups.
+          focus: focusCard(focus),
           // The tapped chip is gone; what is left is what is still worth
           // offering, so the panel does not invite the same tap twice.
           suggestions: suggestionsFor(focus, copy).filter((chip) => chip.ask !== input.ask),
@@ -219,9 +225,11 @@ export async function POST(request: Request) {
         speech: speakable(spoken, "", opening),
         phase: "asking",
         slots: {},
+        products: [],
         // The card is the product the shopper is standing in front of, not a
-        // recommendation — see focusCard.
-        products: focus ? [focusCard(focus)] : [],
+        // recommendation — see focusCard — so it travels in its own field and
+        // the routine column stays empty until there is a routine.
+        focus: focus ? focusCard(focus) : null,
         suggestions: focus ? suggestionsFor(focus, copy) : [],
         language: spoken,
         rtl: isRtl(spoken),

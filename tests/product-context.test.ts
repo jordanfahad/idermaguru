@@ -199,8 +199,13 @@ describe("what the panel offers about a product", () => {
     // anybody. Claiming a reason before a single safety question has been
     // asked would be a recommendation nobody earned.
     const payload = await openAdvisor("niacinamide-serum");
-    expect(payload.products).toHaveLength(1);
-    const card = payload.products[0];
+    // In `focus`, not `products`. The routine column renders `products` under
+    // the heading "Your routine — 1 step", so the page's own product arriving
+    // there both mislabelled it and took the place of the chips that were the
+    // reason for showing it.
+    expect(payload.products).toEqual([]);
+    const card = payload.focus;
+    expect(card).toBeTruthy();
     expect(card.name).toBeTruthy();
     expect(card.url).toBeTruthy();
     expect(card.step).toBe("");
@@ -224,6 +229,7 @@ describe("what the panel offers about a product", () => {
     const payload = await openAdvisor();
     expect(payload.suggestions).toEqual([]);
     expect(payload.products).toEqual([]);
+    expect(payload.focus).toBeNull();
   });
 });
 
@@ -277,7 +283,8 @@ describe("tapping a follow-up", () => {
 
   it("keeps the card up and stops offering the chip already tapped", async () => {
     const payload = await tapChip("about", "niacinamide-serum");
-    expect(payload.products).toHaveLength(1);
+    expect(payload.focus).toBeTruthy();
+    expect(payload.products).toEqual([]);
     const asks = payload.suggestions.map((chip: { ask: string }) => chip.ask);
     expect(asks).not.toContain("about");
     expect(asks).toContain("suits");

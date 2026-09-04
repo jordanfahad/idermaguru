@@ -1,0 +1,121 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+/**
+ * The product page opening with an offer, and what it is allowed to do from
+ * inside somebody else's page.
+ *
+ * The server has been able to open about a product since #16. The panel never
+ * asked: it greeted from a hardcoded line the moment somebody tapped the
+ * microphone and made no opening request at all, so a shopper standing in
+ * front of one product was asked "what's bothering your skin?" as though the
+ * page did not exist. Everything below is the wiring that closes that, and the
+ * one security property the add-to-bag message rests on.
+ */
+
+const advisor = readFileSync(new URL("../src/components/voice-agent.tsx", import.meta.url), "utf8");
+const page = readFileSync(new URL("../src/app/advisor/page.tsx", import.meta.url), "utf8");
+const css = readFileSync(new URL("../src/components/voice-agent.css", import.meta.url), "utf8");
+
+describe("opening about the product on the page", () => {
+  it("asks the server for an opening turn when there is a product", () => {
+    // The whole fix. Without this call the focus card and the chips are
+    // computed by a route nothing ever invokes.
+    expect(advisor).toMatch(/openedRef\.current = true/);
+    expect(advisor).toMatch(/requestTurn\(""\)[\s\S]{0,200}handleTurn\(payload, \{ silent: true \}\)/);
+  });
+
+  it("does it once, and only with a product", () => {
+    expect(advisor).toMatch(/if \(!focusProduct \|\| openedRef\.current\) return;/);
+  });
+
+  it("stays silent, because nobody has tapped anything yet", () => {
+    // An advisor that starts talking the moment a panel opens on a storefront
+    // would be a bug even if autoplay allowed it, which it does not.
+    expect(advisor).toMatch(/options\?\.silent \|\| modeRef\.current === "chat"/);
+  });
+
+  it("keeps the focus card out of the routine list", () => {
+    // `products` renders under "Your routine — 1 step". The page's own product
+    // arriving there mislabelled it AND displaced the chips, since the picks
+    // panel only renders when products is empty.
+    expect(advisor).toMatch(/if \(payload\.focus\) setFocus\(payload\.focus\)/);
+  });
+});
+
+describe("adding to the shop's cart from inside an iframe", () => {
+  it("addresses the shop's own origin, never a wildcard", () => {
+    // The one that matters. postMessage(..., "*") on a panel embedded by an
+    // arbitrary page broadcasts to whoever framed us; the product's own URL
+    // came out of the merchant's catalogue, so its origin is the shop's.
+    expect(advisor).toMatch(/origin = new URL\(product\.url\)\.origin/);
+    expect(advisor).toMatch(/window\.parent\.postMessage\(/);
+    expect(advisor).not.toMatch(/postMessage\([\s\S]{0,400}?,\s*"\*"\s*\)/);
+  });
+
+  it("sends the handle rather than an id we do not have", () => {
+    // The sync keeps the first variant's price and SKU, and on most of this
+    // catalogue those SKUs are `csv-<timestamp>-<row>` — a number that would
+    // look like a variant id and add the wrong thing.
+    expect(advisor).toMatch(/type: "dermaguru:add-to-cart"/);
+    expect(advisor).toMatch(/version: 1/);
+    expect(advisor).toMatch(/handle,/);
+    expect(advisor).not.toMatch(/variantId/);
+  });
+
+  it("refuses to post a message it cannot address", () => {
+    expect(advisor).toMatch(/\} catch \{\s*return;\s*\}/);
+    expect(advisor).toMatch(/if \(!handle\) return;/);
+  });
+});
+
+describe("a question the storefront asked on the shopper's behalf", () => {
+  it("reads q, flattens it, and caps it", () => {
+    // It arrives in a URL anyone can edit. Capped so it cannot ride along in
+    // every request of the session, flattened so it stays one utterance.
+    expect(page).toMatch(/params\.q\?\.replace\(\/\\s\+\/g, " "\)\.trim\(\)\.slice\(0, 300\)/);
+    expect(page).toMatch(/initialQuestion=\{initialQuestion\}/);
+  });
+
+  it("is sent as an utterance, which is the one thing the engine never obeys", () => {
+    expect(advisor).toMatch(/void send\(initialQuestion\)/);
+  });
+
+  it("takes precedence over the plain opening turn rather than racing it", () => {
+    expect(advisor).toMatch(/if \(initialQuestion\) \{[\s\S]{0,260}return;\s*\}/);
+  });
+});
+
+describe("the card renders in both directions", () => {
+  it("styles every class the card uses", () => {
+    for (const name of [".va-focus", ".va-focus-body", ".va-focus-brand", ".va-focus-actions", ".va-focus-add", ".va-focus-view", ".va-sr"]) {
+      expect(css, `${name} is used by the panel but never styled`).toContain(name);
+    }
+  });
+
+  it("uses logical properties, because cicabelle.com/ar is live", () => {
+    // margin-left on this card is a card in the wrong place for half the
+    // catalogue's traffic.
+    const block = css.slice(css.indexOf(".va-focus {"));
+    expect(block).toContain("margin-block-end");
+    expect(block).not.toMatch(/\.va-focus[^}]*margin-left/);
+  });
+
+  it("names the icon-only link for a screen reader", () => {
+    expect(advisor).toMatch(/className="va-sr">\{t\.view\}/);
+  });
+});
+
+describe("the panel speaks Arabic as well as English", () => {
+  it("translates the new strings rather than shipping them English-only", () => {
+    // lang=ar is live traffic from cicabelle.com/ar across 488 products, not a
+    // future nicety.
+    const strings = advisor.match(/addToBag: "[^"]+"/g) ?? [];
+    expect(strings.length, "addToBag must exist in both copy tables").toBe(2);
+    expect(strings.some((line) => /[؀-ۿ]/.test(line)), "one of them must be Arabic").toBe(true);
+
+    const added = advisor.match(/addedToBag: "[^"]+"/g) ?? [];
+    expect(added.length).toBe(2);
+    expect(added.some((line) => /[؀-ۿ]/.test(line))).toBe(true);
+  });
+});
