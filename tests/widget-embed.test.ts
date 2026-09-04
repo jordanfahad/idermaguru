@@ -463,6 +463,78 @@ describe("the icon launcher", () => {
 });
 
 /**
+ * Knowing which product the page is about without being told.
+ *
+ * `data-product` is a line in a theme somebody has to remember to add, and
+ * when it is missing the advisor opens with "What's bothering your skin?" on a
+ * page that is entirely about one product. That failure never gets reported,
+ * because the widget appears, opens, and answers — it just answers as though
+ * the page it is standing on did not exist.
+ *
+ * Executed rather than read, because the reading is the feature: too greedy
+ * and a collection page starts claiming to be a product.
+ */
+describe("reading the product out of the storefront URL", () => {
+  const source = widget.slice(widget.indexOf("function productFromPath"), widget.indexOf("/*\n   * Pages the widget"));
+  const sandbox: { productFromPath?: (path: string | null | undefined) => string | null } = {};
+  vm.runInNewContext(source + "\nthis.productFromPath = productFromPath;", sandbox);
+  const productFromPath = sandbox.productFromPath!;
+
+  it("was found in the shipped file", () => {
+    expect(typeof productFromPath, "productFromPath not extracted — has it been renamed?").toBe("function");
+  });
+
+  it("reads the plain product path", () => {
+    expect(productFromPath("/products/snail-mucin")).toBe("snail-mucin");
+  });
+
+  it("reads a product reached through a collection", () => {
+    // The path Cicabelle actually serves when a shopper taps a product from a
+    // collection, and the one that first showed this was broken.
+    expect(productFromPath("/collections/korean-beauty/products/snail-mucin")).toBe("snail-mucin");
+  });
+
+  it("reads a product under a locale prefix", () => {
+    // cicabelle.com/ar is live across 488 products.
+    expect(productFromPath("/ar/products/snail-mucin")).toBe("snail-mucin");
+    expect(productFromPath("/en-ae/collections/all/products/snail-mucin")).toBe("snail-mucin");
+  });
+
+  it("keeps everything after the handle out of it", () => {
+    expect(productFromPath("/products/snail-mucin/reviews")).toBe("snail-mucin");
+  });
+
+  it("claims nothing on a page that is not a product", () => {
+    for (const path of ["/", "/collections/korean-beauty", "/pages/about", "/cart", "/products", "/products/"]) {
+      expect(productFromPath(path), `${path} is not a product page`).toBeNull();
+    }
+  });
+
+  it("survives being handed nothing", () => {
+    expect(productFromPath(null)).toBeNull();
+    expect(productFromPath("")).toBeNull();
+  });
+});
+
+/**
+ * An explicit attribute still wins, including an explicit nothing.
+ *
+ * A merchant who wants general advice on a product page needs a way to say so,
+ * and `data-product=""` is it — which only works if presence is tested rather
+ * than truthiness, since an empty string would otherwise fall through to the
+ * guess.
+ */
+describe("data-product overrides the guess", () => {
+  it("tests for the attribute rather than for a non-empty value", () => {
+    expect(widget).toContain('script.hasAttribute("data-product")');
+  });
+
+  it("falls back to the path only when the attribute is absent", () => {
+    expect(widget).toMatch(/hasAttribute\("data-product"\)[\s\S]{0,120}productFromPath\(location\.pathname\)/);
+  });
+});
+
+/**
  * Pages the widget stays off.
  *
  * A floating launcher is fixed to the viewport, so on a page with its own
