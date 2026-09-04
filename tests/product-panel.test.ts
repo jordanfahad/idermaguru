@@ -22,7 +22,10 @@ describe("opening about the product on the page", () => {
     // The whole fix. Without this call the focus card and the chips are
     // computed by a route nothing ever invokes.
     expect(advisor).toMatch(/openedRef\.current = true/);
-    expect(advisor).toMatch(/requestTurn\(""\)[\s\S]{0,200}handleTurn\(payload, \{ silent: true \}\)/);
+    expect(advisor).toMatch(/requestTurn\(""\)\s*\.then\(/);
+    // Their ordering — and the guard that now sits between them — is pinned by
+    // "the shopper getting there first" below.
+    expect(advisor).toMatch(/handleTurn\(payload, \{ silent: true \}\)/);
   });
 
   it("does it once, and only with a product", () => {
@@ -40,6 +43,40 @@ describe("opening about the product on the page", () => {
     // arriving there mislabelled it AND displaced the chips, since the picks
     // panel only renders when products is empty.
     expect(advisor).toMatch(/if \(payload\.focus\) setFocus\(payload\.focus\)/);
+  });
+});
+
+/**
+ * The opening turn landing on a conversation that already started.
+ *
+ * Shipped broken and reported by customers within the hour as "the voice
+ * stops". The opening request includes an LLM call, so it resolves a second or
+ * two after the panel appears — by which time the shopper may have tapped the
+ * microphone. Applying it then reset the slots to empty (forgetting what they
+ * had just said), appended a greeting mid-transcript, and put the phase back
+ * to idle, which removed the call bar and turned the orb back into a start
+ * button while the advisor was still listening.
+ */
+describe("the shopper getting there first", () => {
+  it("checks whether the conversation started before applying the opening turn", () => {
+    expect(advisor).toMatch(/if \(startedRef\.current\) \{[\s\S]{0,160}return;\s*\}\s*handleTurn\(payload, \{ silent: true \}\)/);
+  });
+
+  it("keeps the card, which is a fact about the page rather than a turn", () => {
+    expect(advisor).toMatch(/if \(startedRef\.current\) \{\s*if \(payload\.focus\) setFocus\(payload\.focus\);/);
+  });
+
+  it("tracks started in a ref, because state does not reach an async closure", () => {
+    expect(advisor).toMatch(/const markStarted = useCallback\(\(\) => \{\s*startedRef\.current = true;\s*setStarted\(true\);/);
+  });
+
+  it("routes every start through that helper", () => {
+    // The invariant with teeth. A future call site that reaches for
+    // setStarted directly would leave the ref stale and bring the race back,
+    // and it would do it silently.
+    const direct = advisor.match(/setStarted\(/g) ?? [];
+    expect(direct.length, "setStarted must be called only inside markStarted").toBe(1);
+    expect((advisor.match(/markStarted\(\)/g) ?? []).length).toBeGreaterThanOrEqual(4);
   });
 });
 
