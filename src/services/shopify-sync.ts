@@ -191,6 +191,29 @@ function brandName(slug: string): string {
   return BRAND_SPELLING.get(slug) ?? titleCase(deslug(slug));
 }
 
+/**
+ * The brand a product title starts with.
+ *
+ * 109 of Cicabelle's active products carry no `brand:` tag, and the vendor
+ * column says "Cicabelle" on all 507 — so the first line of the card a shopper
+ * reads was the shop's own name where a brand should be. The product this was
+ * written for is titled "COSRX Advance Snail 96 Mucin Power Essence" and was
+ * showing as Cicabelle.
+ *
+ * Only names already in the registry count, and only at the START of the title
+ * followed by a word boundary. That is what keeps it from being a guess: it
+ * cannot invent a brand, only recognise one of the 82 this catalogue already
+ * knows. Longest first, so "Beauty of Joseon" is not read as "Beauty".
+ */
+const BRAND_PREFIXES: { name: string; probe: RegExp }[] = Array.from(new Set(Object.values(BRAND_BY_HANDLE).map((e) => e.brand)))
+  .sort((a, b) => b.length - a.length)
+  .map((name) => ({ name, probe: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i") }));
+
+function brandFromTitle(title: string): string | null {
+  const clean = title.trim();
+  return BRAND_PREFIXES.find((entry) => entry.probe.test(clean))?.name ?? null;
+}
+
 function unique(values: string[]): string[] {
   return Array.from(new Set(values));
 }
@@ -464,9 +487,10 @@ export function mapShopifyProduct(
     tenantId,
     sku: options.sku || variant?.sku || String(product.id),
     name: product.title.slice(0, 300),
-    // The brand tag first, because it only exists where somebody curated it —
-    // and where it does, vendor is the store's own name on every product.
-    brand: tagged.brand || product.vendor || shopDomain.replace(".myshopify.com", ""),
+    // Curated first, recognised second, vendor last. Vendor is the store's own
+    // name on every product in this catalogue, so it is the weakest of the
+    // three and not a tiebreaker for either of the others.
+    brand: tagged.brand || brandFromTitle(product.title) || product.vendor || shopDomain.replace(".myshopify.com", ""),
     category: (product.product_type || "skincare").toLowerCase(),
     description: description || product.title,
     url: `https://${options.storefrontHost || shopDomain}/products/${product.handle}`,
