@@ -148,3 +148,46 @@ describe("what a brand tag changes", () => {
     expect(map("brand:some-new-label")?.brand).toBe("Some New Label");
   });
 });
+
+/**
+ * The brand a title starts with, for the products nobody tagged.
+ *
+ * 109 of Cicabelle's active products carry no `brand:` tag and the vendor
+ * column says "Cicabelle" on all 507, so the first line of the card a shopper
+ * reads was the shop's own name where a brand should be.
+ */
+describe("recognising a brand in the title", () => {
+  const titled = (title: string, vendor = "Cicabelle") =>
+    mapShopifyProduct(product({ title, vendor, tags: "" }), "t", "shop.myshopify.com")?.brand;
+
+  it("reads the brand this actually shipped wrong", () => {
+    // The live row: no brand tag, vendor "cicabelle", card said Cicabelle.
+    expect(titled("COSRX Advance Snail 96 Mucin Power Essence", "cicabelle")).toBe("COSRX");
+  });
+
+  it("prefers the longest name, so a brand is not read as its first word", () => {
+    expect(titled("Beauty of Joseon Revive Serum Ginseng + Snail Mucin 30ml")).toBe("Beauty of Joseon");
+  });
+
+  it("only recognises names the catalogue already knows", () => {
+    // It cannot invent a brand — that is what keeps this from being a guess.
+    expect(titled("Hydrating Vitamin C Serum 30ml")).toBe("Cicabelle");
+  });
+
+  it("needs the name at the start, on a word boundary", () => {
+    expect(titled("Gentle cleanser, not COSRX")).toBe("Cicabelle");
+  });
+
+  it("never outranks the tag the merchant curated", () => {
+    const mapped = mapShopifyProduct(
+      product({ title: "COSRX Advance Snail 96 Mucin Power Essence", tags: "brand:la-roche-posay" }),
+      "t",
+      "shop.myshopify.com",
+    );
+    expect(mapped?.brand).toBe("La Roche-Posay");
+  });
+
+  it("leaves a real vendor alone when the title names nothing", () => {
+    expect(titled("Barrier Repair Cream", "AESTURA")).toBe("AESTURA");
+  });
+});
