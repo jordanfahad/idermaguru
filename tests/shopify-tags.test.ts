@@ -34,7 +34,7 @@ const map = (tags: string) => mapShopifyProduct(product({ tags }), "t", "shop.my
 describe("reading the tag namespaces", () => {
   it("picks the four namespaces out and ignores everything else", () => {
     const read = readProductTags("brand:cosrx, type:serum-ampoule, concern:acne, ingredient:niacinamide, bestseller");
-    expect(read.brand).toBe("Cosrx");
+    expect(read.brand).toBe("COSRX"); // spelled from the registry, not de-slugged
     expect(read.concerns).toEqual(["acne"]);
     expect(read.actives).toEqual(["niacinamide"]);
   });
@@ -126,10 +126,25 @@ describe("what a brand tag changes", () => {
     // Every product in this store carries vendor "Cicabelle", so the advisor
     // could not tell one brand from another.
     expect(map("")?.brand).toBe("Cicabelle");
-    expect(map("brand:la-roche-posay")?.brand).toBe("La Roche Posay");
+    expect(map("brand:la-roche-posay")?.brand).toBe("La Roche-Posay");
   });
 
   it("leaves vendor alone for a store that tags no brands", () => {
     expect(mapShopifyProduct(product({ vendor: "COSRX" }), "t", "shop.myshopify.com")?.brand).toBe("COSRX");
+  });
+
+  it("spells the brand the way the brand spells it", () => {
+    // A tag is a slug, so de-slugging guesses at the capitalisation: `cosrx`
+    // would come out "Cosrx", and `la-roche-posay` as "La Roche Posay". The
+    // registry already holds the right spelling for 425 products, so it is
+    // used as a dictionary rather than as a second guess.
+    expect(map("brand:cosrx")?.brand).toBe("COSRX");
+    expect(map("brand:la-roche-posay")?.brand).toBe("La Roche-Posay");
+  });
+
+  it("still names a brand the registry has never heard of", () => {
+    // Better a title-cased guess than "Cicabelle", which is what vendor says
+    // on every product in the store.
+    expect(map("brand:some-new-label")?.brand).toBe("Some New Label");
   });
 });
