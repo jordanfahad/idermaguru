@@ -191,3 +191,31 @@ describe("recognising a brand in the title", () => {
     expect(titled("Barrier Repair Cream", "AESTURA")).toBe("AESTURA");
   });
 });
+
+/**
+ * Free gifts do not belong in a routine.
+ *
+ * Cicabelle carries 13 promotional rows at AED 0.00 and two are in stock. One
+ * of them had concern tags, which made it recommendable — the advisor could
+ * put "FREE GIFT — Better Screen UV Serum SPF 50+" in a routine as the
+ * sunscreen step and send a shopper to a page for something they cannot buy
+ * on its own.
+ */
+describe("a product with no price to pay", () => {
+  it("is skipped, like a price that will not parse", () => {
+    expect(
+      mapShopifyProduct(product({ variants: [{ id: 1, price: "0.00", sku: "GIFT" }] }), "t", "shop.myshopify.com"),
+    ).toBeNull();
+    expect(
+      mapShopifyProduct(product({ variants: [{ id: 1, price: "0", sku: "GIFT" }] }), "t", "shop.myshopify.com"),
+    ).toBeNull();
+  });
+
+  it("does not take a real product with it", () => {
+    // The cheapest thing in this catalogue is a few dirhams; the guard must
+    // catch zero and nothing above it.
+    expect(
+      mapShopifyProduct(product({ variants: [{ id: 1, price: "0.50", sku: "TINY" }] }), "t", "shop.myshopify.com"),
+    ).not.toBeNull();
+  });
+});

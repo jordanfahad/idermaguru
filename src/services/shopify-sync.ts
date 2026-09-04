@@ -452,7 +452,21 @@ export function mapShopifyProduct(
 ): ProductCatalogItem | null {
   const variant = product.variants?.[0];
   const price = Number.parseFloat(variant?.price ?? "");
-  if (!product.title || !Number.isFinite(price)) return null;
+  /*
+   * A price of zero is not a usable price, for the same reason NaN is not.
+   *
+   * Cicabelle carries 13 promotional rows at AED 0.00 — "FREE GIFT — Dr. Jart+
+   * Soothing Hydra", "FREE GIFT — Better Screen UV Serum SPF 50+" — and two of
+   * them are in stock. One had concern tags, which made it recommendable: the
+   * advisor could put a free gift in a routine as the sunscreen step, and send
+   * a shopper to a page for something they cannot buy on its own.
+   *
+   * A routine is a list of things to go and buy. Nothing that cannot be bought
+   * belongs in one, so these are skipped exactly as an unparseable price is,
+   * and counted in the sync's own "skipped" line rather than disappearing
+   * quietly.
+   */
+  if (!product.title || !Number.isFinite(price) || price <= 0) return null;
 
   const currency = options.currency ?? "AED";
   const description = stripHtml(product.body_html).slice(0, 900);
