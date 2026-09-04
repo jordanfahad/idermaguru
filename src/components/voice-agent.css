@@ -679,7 +679,12 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  max-width: min(92vw, 560px);
+  /* WIDTH, not max-width. A fixed flex box shrink-wraps its content, and the
+     nowrap link inside then set the width — so the message was squeezed into a
+     six-character column with the link hanging off the edge. */
+  width: min(92vw, 560px);
+  box-sizing: border-box;
+  flex-wrap: wrap;
   padding: 11px 18px;
   border-radius: 18px;
   background: rgba(30, 27, 24, 0.94);
@@ -690,9 +695,16 @@
   box-shadow: 0 14px 34px rgba(27, 26, 23, 0.28);
   animation: va-rise 300ms ease both;
 }
+/* The message needs room before the link is allowed to sit beside it; below
+   that the link wraps onto its own line rather than crushing the sentence. */
+.va-alert > span {
+  flex: 1 1 240px;
+  min-width: 0;
+}
 .va-alert a {
   color: #fdfcfa;
   white-space: nowrap;
   text-decoration: underline;
   flex: none;
+  margin-inline-start: auto;
 }

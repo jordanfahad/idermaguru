@@ -320,3 +320,91 @@ describe("a tapped chip never has to be understood", () => {
     expect(payload.reply.toLowerCase()).not.toMatch(/outside my world|only cover/);
   });
 });
+
+/**
+ * Asking about the product out loud instead of tapping the chip.
+ *
+ * From a real conversation on a Huda Beauty page:
+ *
+ *   YOU      So what's this Huda Beauty product about? Can you tell me?
+ *   ADVISOR  Got it. How would you describe your skin — oily, dry, …?
+ *   YOU      I wanted to know about this Huda Beauty product because I come
+ *            from the product page.
+ *   ADVISOR  How would you describe your skin — oily, dry, …?
+ *   YOU      I'm asking you about this product because I am on the product page.
+ *
+ * The route knew the product the whole time. It had exactly one way in —
+ * tapping the chip — so a shopper who said the same thing aloud fell into the
+ * ordinary dialogue, where "what's this product about" is neither a skin
+ * concern nor a tangent, and so became the main concern.
+ */
+async function askAloud(utterance: string, product?: string, slots: Record<string, unknown> = {}) {
+  return POST(
+    new Request("http://localhost/api/voice-agent", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ utterance, slots, ...(product ? { product } : {}) }),
+    }),
+  ).then((response) => response.json());
+}
+
+describe("asking about the product in words", () => {
+  it("answers the question instead of asking about skin", async () => {
+    const products = await listTenantProducts(slug);
+    const target = products.find((p) => p.url?.includes("niacinamide-serum"))!;
+
+    const payload = await askAloud("So what's this product about? Can you tell me?", "niacinamide-serum");
+    expect(payload.reply).toContain(target.name);
+    expect(payload.reply.toLowerCase()).not.toMatch(/how would you describe your skin/);
+  });
+
+  it("answers the sentence a shopper reaches for after being ignored", async () => {
+    const payload = await askAloud(
+      "I'm asking you about this product because I am on the product page.",
+      "niacinamide-serum",
+    );
+    expect(payload.focus, "the card belongs with the answer").toBeTruthy();
+    expect(payload.reply.toLowerCase()).not.toMatch(/how would you describe your skin/);
+  });
+
+  it("does not swallow an ordinary skin concern", async () => {
+    // "what's good for dry skin" is a concern, not a question about the page.
+    const payload = await askAloud("I have dry skin and dark spots", "niacinamide-serum");
+    expect(payload.reply.toLowerCase()).toMatch(/skin|pregnan|allerg/);
+    expect(payload.focus ?? null).toBeNull();
+  });
+
+  it("needs a product to be about", async () => {
+    // Off a product page the same words have nothing concrete to refer to, so
+    // they go through the ordinary dialogue exactly as before.
+    const payload = await askAloud("what's this about?");
+    expect(payload.focus ?? null).toBeNull();
+  });
+
+  it("does not answer past somebody in discomfort", async () => {
+    // "What is this? My face is burning and blistering after using it" is a
+    // question about a product AND a person in trouble. Answered here it got a
+    // product blurb and walked straight past the second half; left to the
+    // ordinary dialogue it gets the acknowledgement and the interview.
+    const hurt = await askAloud(
+      "What is this? My face is burning and blistering after using it.",
+      "niacinamide-serum",
+    );
+    const same = await askAloud("What is this? My face is burning and blistering after using it.");
+    expect(hurt.reply, "the product must not change the answer to this").toBe(same.reply);
+    expect(hurt.reply.toLowerCase()).toMatch(/uncomfortable|sorry/);
+  });
+
+  it("leaves 'is this right for my skin' to the questions that answer it", async () => {
+    // Same gate: that one cannot be answered from a label, and asking the
+    // safety questions is what the ordinary dialogue is for.
+    const payload = await askAloud("is this right for my skin?", "niacinamide-serum");
+    expect(payload.focus ?? null).toBeNull();
+  });
+
+  it("stops offering the chip it just answered", async () => {
+    const payload = await askAloud("tell me about this", "niacinamide-serum");
+    const asks = (payload.suggestions ?? []).map((chip: { ask: string }) => chip.ask);
+    expect(asks).not.toContain("about");
+  });
+});

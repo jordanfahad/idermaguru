@@ -106,6 +106,16 @@ describe("when the microphone cannot be had", () => {
     expect(advisor).toMatch(/<span>\{notice\}<\/span>\s*<a[\s\S]{0,120}\{t\.fallback\}/);
   });
 
+  it("sizes itself instead of letting the link decide", () => {
+    // A fixed flex box shrink-wraps its content, so the nowrap link set the
+    // width and the sentence was squeezed into a six-character column with the
+    // link hanging off the screen edge.
+    const alert = css.slice(css.indexOf(".va-alert {"), css.indexOf(".va-alert a"));
+    expect(alert, "width, not max-width").toMatch(/\n  width: min\(92vw/);
+    expect(alert).toContain("box-sizing: border-box");
+    expect(alert, "the link must be able to wrap below the message").toContain("flex-wrap: wrap");
+  });
+
   it("moves the shopper to chat instead of leaving a dead orb", () => {
     // A shopper on a storefront does not debug permissions; they leave.
     expect(advisor).toMatch(/modeRef\.current = "chat";\s*setMode\("chat"\);\s*setPhase\("idle"\);/);

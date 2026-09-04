@@ -40,6 +40,7 @@ import {
   readsDone,
   readsFarewell,
   readsMicCheck,
+  readsProductQuestion,
   readsMore,
   readsStillThere,
   slotsToProfile,
@@ -165,7 +166,7 @@ export async function POST(request: Request) {
       if (focus) {
         const line =
           input.ask === "about"
-            ? copy.productAbout(focus.name, readableList(focus.concernsJson, lang))
+            ? aboutLine(focus, copy, lang)
             : copy.productActives(focus.name, readableList(focus.activeIngredientsJson, lang));
         return NextResponse.json({
           reply: await say(line),
@@ -324,6 +325,60 @@ export async function POST(request: Request) {
         language: spoken,
         rtl: isRtl(spoken),
       });
+    }
+
+    /*
+     * "So what's this Huda Beauty product about? Can you tell me?"
+     *
+     * Asked three times, on the product page, and answered three times with
+     * "how would you describe your skin — oily, dry, combination, or
+     * sensitive?". The shopper's third try was "I'm asking you about this
+     * product because I am on the product page", which is a person telling us
+     * plainly that we are not listening.
+     *
+     * The route knew the product all along. It just had exactly one way in:
+     * tapping the chip. A shopper who says the same thing out loud instead of
+     * tapping it went into the ordinary dialogue, where "what's this product
+     * about" is not a skin concern and not a tangent, so it became the main
+     * concern and the interview started.
+     *
+     * Below the safety triage on purpose, and not negotiable: "what is this,
+     * my face is burning" is a question about a product and an emergency, and
+     * the emergency is answered first.
+     */
+    /*
+     * Only when the product is the WHOLE of what they said.
+     *
+     * "What is this? My face is burning and blistering after using it" is a
+     * question about a product and a person in discomfort, and answering it
+     * with a product blurb — which is what this branch did before the gate —
+     * walks straight past the second half. Left to the ordinary dialogue it
+     * gets "that sounds really uncomfortable, sorry you're dealing with it"
+     * and the interview that follows from it.
+     *
+     * The same gate is why "is this right for my skin?" is not answered here
+     * either: that one needs the safety questions, and asking them is what the
+     * ordinary dialogue is for.
+     */
+    const askedAboutProduct = input.product && readsProductQuestion(input.utterance);
+    if (askedAboutProduct) {
+      const focus = await productForReference(input.product!, input.tenantSlug);
+      if (focus) {
+        const line = aboutLine(focus, copy, lang);
+        return NextResponse.json({
+          reply: await say(line),
+          speech: speakable(spoken, "", line),
+          phase: "asking",
+          slots: before,
+          products: [],
+          focus: focusCard(focus),
+          // "about" is what was just answered; what is left is what is still
+          // worth offering.
+          suggestions: suggestionsFor(focus, copy).filter((chip) => chip.ask !== "about"),
+          language: spoken,
+          rtl: isRtl(spoken),
+        });
+      }
     }
 
     // The opening line was never checked against anything: whatever the shopper
@@ -1616,6 +1671,33 @@ function matchRoutineItem<T extends { step: string; slot: string; name: string }
     }
   }
   return bestScore > 0 ? best : null;
+}
+
+/**
+ * What a product is for, in one line, without inventing anything.
+ *
+ * The concern tags are the good answer and 480 of 518 products have them. The
+ * ones that do not are makeup and devices — a Huda Beauty gloss, a light
+ * therapy mask — and for those the old line read "is meant for ." with the
+ * list left empty, which is worse than saying less. So it falls back to the
+ * merchant's own description of their own product, and then to the little we
+ * hold, rather than to a claim about what it treats.
+ */
+const DESCRIPTION_SENTENCES = 2;
+const MAX_DESCRIBE = 240;
+
+function aboutLine(product: ProductCatalogItem, copy: ReturnType<typeof agentCopy>, lang: AgentLang): string {
+  if (product.concernsJson.length) {
+    return copy.productAbout(product.name, readableList(product.concernsJson, lang));
+  }
+
+  // The first sentence or two only. A merchant's description runs to
+  // paragraphs, and this is spoken aloud.
+  const description = (product.description ?? "").replace(/\s+/g, " ").trim();
+  const sentences = description.match(/[^.!?]+[.!?]+/g)?.slice(0, DESCRIPTION_SENTENCES).join(" ").trim();
+  const opening = (sentences || description).slice(0, MAX_DESCRIBE).trim();
+
+  return opening ? copy.productDescribe(product.name, opening) : copy.productBare(product.name);
 }
 
 /**
