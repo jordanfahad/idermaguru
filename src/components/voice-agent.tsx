@@ -375,6 +375,20 @@ export function VoiceAgent({
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
+  /**
+   * The same fact as `started`, readable from an async closure.
+   *
+   * The opening turn on a product page is a network round trip that includes
+   * an LLM call, so it can land a second or two after the panel appeared — by
+   * which time the shopper may have tapped the microphone and be mid-sentence.
+   * State does not reach the closure that resolves it; this does.
+   */
+  const startedRef = useRef(false);
+  /** Both, together, so the async paths can never disagree with the UI. */
+  const markStarted = useCallback(() => {
+    startedRef.current = true;
+    setStarted(true);
+  }, []);
   const [promptIndex, setPromptIndex] = useState(0);
 
   const [camera, setCamera] = useState<"off" | "consent" | "live" | "reviewing">("off");
@@ -1130,13 +1144,35 @@ export function VoiceAgent({
     if (initialQuestion) {
       modeRef.current = "chat";
       setMode("chat");
-      setStarted(true);
+      markStarted();
       void send(initialQuestion);
       return;
     }
 
     requestTurn("")
-      .then((payload) => handleTurn(payload, { silent: true }))
+      .then((payload) => {
+        /*
+         * The shopper got there first.
+         *
+         * This request includes an LLM call, so it lands a second or two after
+         * the panel appeared — long enough for somebody to have tapped the
+         * microphone and started talking. Applying an OPENING turn on top of a
+         * live conversation does three things, and all of them read as the
+         * advisor breaking: it resets the slots to empty, so what they just
+         * said is forgotten; it appends a greeting into the middle of the
+         * transcript; and it puts the phase back to idle, which takes the call
+         * bar off the screen and turns the orb back into a start button while
+         * the advisor is still listening.
+         *
+         * The card is kept, because it is a fact about the page rather than a
+         * turn in the conversation. Everything else is dropped.
+         */
+        if (startedRef.current) {
+          if (payload.focus) setFocus(payload.focus);
+          return;
+        }
+        handleTurn(payload, { silent: true });
+      })
       // Silence is the right failure. The shopper still has the microphone and
       // the text box, and a red error on a storefront panel nobody has touched
       // yet would be worse than the greeting they did not get.
@@ -1540,7 +1576,7 @@ export function VoiceAgent({
     }
     continueRef.current = true;
     silentRestartsRef.current = 0;
-    setStarted(true);
+    markStarted();
     setNotice(null);
 
     // Greet instantly and locally — no round trip before the first word, and
@@ -1737,7 +1773,7 @@ export function VoiceAgent({
     if (!clean) return;
     modeRef.current = "chat";
     setMode("chat");
-    setStarted(true);
+    markStarted();
     setDraft("");
     setNotice(null);
     void send(clean);
@@ -2145,7 +2181,7 @@ export function VoiceAgent({
                         // would put a button we drew through the classifier.
                         modeRef.current = "chat";
                         setMode("chat");
-                        setStarted(true);
+                        markStarted();
                         setNotice(null);
                         void send(chip.label, chip.ask);
                       }}
