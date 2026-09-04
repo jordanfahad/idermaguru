@@ -54,6 +54,33 @@ const MAX_SILENT_RESTARTS = 4;
  * multiplexes happily, which is why this never reproduced in a headless test
  * and always reproduced on the shopper's phone.
  */
+/**
+ * Whether the embedding page has withheld the microphone — true, false, or
+ * "cannot tell".
+ *
+ * `allow="microphone"` on an iframe is permission DELEGATION, not permission:
+ * with it the shopper still gets the ordinary browser prompt, and can still
+ * say no. Those two failures look identical from getUserMedia and need
+ * opposite advice — one is fixed by tapping Allow, the other cannot be fixed
+ * by the shopper at all — so guessing between them means being confidently
+ * wrong half the time.
+ *
+ * The Permissions Policy API answers it where it exists. Safari does not
+ * implement it, which is most of this store's traffic, so null is the common
+ * answer and the copy for it has to cover both cases honestly.
+ */
+function pageBlocksMic(): boolean | null {
+  if (typeof document === "undefined") return null;
+  const policy = (document as Document & { featurePolicy?: { allowsFeature?: (feature: string) => boolean } })
+    .featurePolicy;
+  if (typeof policy?.allowsFeature !== "function") return null;
+  try {
+    return !policy.allowsFeature("microphone");
+  } catch {
+    return null;
+  }
+}
+
 const IOS =
   typeof navigator !== "undefined" &&
   (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -194,7 +221,7 @@ const UI = {
     you: "You",
     agent: "Advisor",
     noVoice: "Voice isn't supported in this browser. Try Chrome or Safari, or use the text advisor.",
-    denied: "I couldn't reach the microphone. Allow mic access in your browser, or just type below — I've switched to chat.",
+    denied: "I couldn't reach the microphone — either the browser blocked it, or this page hasn't allowed it. I've switched to chat; type below and I'll answer just the same.",
     deniedEmbedded: "This page hasn't given me microphone access, so voice can't start here. I've switched to chat — type below and I'll answer just the same.",
     save: "Save",
     saved: "Saved",
@@ -253,7 +280,7 @@ const UI = {
     you: "أنت",
     agent: "المستشار",
     noVoice: "الصوت غير مدعوم في هذا المتصفح. جرّب Chrome أو Safari أو استخدم المستشار الكتابي.",
-    denied: "تعذّر الوصول إلى الميكروفون. اسمح بالإذن في المتصفح، أو اكتب أدناه — انتقلت إلى المحادثة.",
+    denied: "تعذّر الوصول إلى الميكروفون — إمّا أن المتصفح منعه أو أن هذه الصفحة لم تسمح به. انتقلت إلى المحادثة؛ اكتب أدناه وسأجيبك بالمثل.",
     deniedEmbedded: "هذه الصفحة لم تمنحني إذن الميكروفون، لذا لا يمكن بدء الصوت هنا. انتقلت إلى المحادثة — اكتب أدناه وسأجيبك بالمثل.",
     save: "حفظ",
     saved: "محفوظ",
@@ -526,7 +553,6 @@ export function VoiceAgent({
    * that framed it said so with allow="microphone" — see docs/EMBED.md — and
    * when that is missing the browser refuses without ever prompting.
    */
-  const framed = typeof window !== "undefined" && window.self !== window.top;
   const giveUpOnVoice = useCallback(
     (reason: "denied" | "unsupported") => {
       continueRef.current = false;
@@ -536,9 +562,9 @@ export function VoiceAgent({
       modeRef.current = "chat";
       setMode("chat");
       setPhase("idle");
-      setNotice(reason === "unsupported" ? t.noVoice : framed ? t.deniedEmbedded : t.denied);
+      setNotice(reason === "unsupported" ? t.noVoice : pageBlocksMic() === true ? t.deniedEmbedded : t.denied);
     },
-    [t.noVoice, t.denied, t.deniedEmbedded, framed, releaseCall],
+    [t.noVoice, t.denied, t.deniedEmbedded, releaseCall],
   );
 
   /**
