@@ -290,3 +290,42 @@ describe("a held microphone that has gone dead", () => {
     expect(advisor).toMatch(/if \(blob\.size > 2048\) \{[\s\S]{0,180}callStreamRef\.current = null;/);
   });
 });
+
+/**
+ * The first thing the advisor says on a product page.
+ *
+ * It was GREETING[lang] unconditionally — "tell me what's bothering your skin
+ * or hair" — so a shopper standing on one product was opened with a general
+ * consultation, and the conversation went where a general consultation goes.
+ * The advisor knew the product; the first thing it said did not.
+ */
+describe("the spoken greeting on a product page", () => {
+  it("uses the opening turn's line rather than the scripted one", () => {
+    expect(advisor).toMatch(/const greeting = \(focusProduct && openingReplyRef\.current\) \|\| GREETING\[lang\]/);
+  });
+
+  it("does not await inside the tap", () => {
+    // begin() runs inside the gesture, and iOS only lets audio start within
+    // the gesture that asked for it. A round trip in the middle of that is how
+    // the first word gets refused, which is why the line is held in a ref and
+    // its audio prewarmed rather than fetched here.
+    const begin = advisor.slice(advisor.indexOf("const greeting = (focusProduct"));
+    expect(begin.slice(0, 400)).not.toMatch(/await/);
+  });
+
+  it("prewarms that line the moment it lands, like the scripted ones", () => {
+    expect(advisor).toMatch(/openingReplyRef\.current = line;[\s\S]{0,120}speechUrl\(line/);
+    expect(advisor).toMatch(/cache: "force-cache"/);
+  });
+
+  it("only speaks a line that actually named a product", () => {
+    // An opening turn for an unresolved product returns the ordinary greeting
+    // and focus null; using it would be the same words by a longer route, and
+    // holding it would mask the fallback.
+    expect(advisor).toMatch(/if \(line && payload\.focus\) \{/);
+  });
+
+  it("still falls back when the turn has not landed by the tap", () => {
+    expect(advisor).toMatch(/\|\| GREETING\[lang\]/);
+  });
+});

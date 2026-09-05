@@ -1228,6 +1228,15 @@ export function VoiceAgent({
    * is the gesture.
    */
   const openedRef = useRef(false);
+  /**
+   * The opening turn's line, held for the tap that will speak it.
+   *
+   * begin() cannot await a network call — it runs inside the gesture, and iOS
+   * only lets audio start within the gesture that asked for it. So the line is
+   * kept here as soon as it lands, and its audio is prewarmed the same way the
+   * scripted lines are, which is what makes it play on the tap itself.
+   */
+  const openingReplyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!focusProduct || openedRef.current) return;
     openedRef.current = true;
@@ -1261,6 +1270,17 @@ export function VoiceAgent({
          * The card is kept, because it is a fact about the page rather than a
          * turn in the conversation. Everything else is dropped.
          */
+        // Ready for the tap, whether or not the shopper has got there first.
+        const line = typeof payload.reply === "string" ? payload.reply.trim() : "";
+        if (line && payload.focus) {
+          openingReplyRef.current = line;
+          void fetch(speechUrl(line, spokenLangRef.current === "ar" ? "ar" : "en"), { cache: "force-cache" }).catch(
+            () => {
+              // Prewarming is an optimisation; speak() still works without it.
+            },
+          );
+        }
+
         if (startedRef.current) {
           if (payload.focus) setFocus(payload.focus);
           return;
@@ -1705,9 +1725,23 @@ export function VoiceAgent({
     markStarted();
     setNotice(null);
 
-    // Greet instantly and locally — no round trip before the first word, and
-    // the audio was prewarmed on page load so it plays on the tap itself.
-    const greeting = GREETING[lang];
+    /*
+     * On a product page, the first line names the product.
+     *
+     * It used to be GREETING[lang] unconditionally — "tell me what's bothering
+     * your skin or hair" — so a shopper standing on one product was opened
+     * with a general consultation and the conversation went where a general
+     * consultation goes. The advisor knew the product; the first thing it said
+     * did not.
+     *
+     * Taken from the opening turn, which has been in flight since the panel
+     * mounted and whose audio was prewarmed the moment it landed. NOT awaited
+     * here: this runs inside the tap, and iOS only lets audio start within the
+     * gesture that asked for it — a round trip in the middle of that is how
+     * the first word gets refused. If it has not arrived yet, the general
+     * greeting still opens and the card and chips still name the product.
+     */
+    const greeting = (focusProduct && openingReplyRef.current) || GREETING[lang];
     setTurns([{ role: "agent", text: greeting }]);
     replayRef.current = [greeting];
     setPhase("speaking");
