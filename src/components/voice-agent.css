@@ -672,8 +672,15 @@
    is not. */
 .va-alert {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
+  /* Centred by margin, NOT by translateX(-50%).
+     va-rise ends on `transform: none` and runs with fill-mode `both`, so the
+     animation's final keyframe outranks the rule and keeps outranking it — the
+     centring transform was wiped the moment the animation finished and the
+     alert sat at the midpoint, running off the right edge of the screen. The
+     call bar looks right because it never animates transform. */
+  left: 0;
+  right: 0;
+  margin-inline: auto;
   bottom: calc(14px + env(safe-area-inset-bottom, 0px));
   z-index: 60;
   display: flex;

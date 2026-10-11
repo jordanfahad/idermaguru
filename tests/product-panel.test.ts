@@ -329,3 +329,39 @@ describe("the spoken greeting on a product page", () => {
     expect(advisor).toMatch(/\|\| GREETING\[lang\]/);
   });
 });
+
+/**
+ * Two things that only go wrong inside somebody else's page.
+ */
+describe("the alert, centred without a transform", () => {
+  it("does not rely on translateX, which the animation wipes", () => {
+    // va-rise ends on `transform: none` and runs with fill-mode `both`, so the
+    // animation's final keyframe outranks the rule and keeps outranking it.
+    // The alert sat at the midpoint and ran off the right edge of the screen.
+    const alert = css.slice(css.indexOf(".va-alert {"), css.indexOf(".va-alert a"));
+    expect(alert).toContain("margin-inline: auto");
+    expect(alert, "left:50% + translateX is what broke").not.toMatch(/transform: translateX/);
+  });
+});
+
+describe("our own marketing, inside a merchant's storefront", () => {
+  const concierge = readFileSync(new URL("../src/components/concierge-consultation.tsx", import.meta.url), "utf8");
+
+  it("drops the 'Add to your store' CTA when framed", () => {
+    // It was selling our product to a merchant's own customers, on the shop
+    // they came to buy from.
+    expect(concierge).toMatch(/\{framed \? null : \(\s*<Link className="cc-bar-cta"/);
+  });
+
+  it("keeps the name but not the link out", () => {
+    // Framed, tapping the brand would navigate the merchant's panel to our
+    // homepage and strand the shopper there.
+    expect(concierge).toMatch(/\{framed \? \(\s*<span className="cc-brand">/);
+  });
+
+  it("decides after mount, so the server and the client agree", () => {
+    expect(concierge).toMatch(/useEffect\(\(\) => \{\s*try \{\s*setFramed\(window\.self !== window\.top\);/);
+    // Reading window.top across origins can throw, and a throw IS the answer.
+    expect(concierge).toMatch(/\} catch \{\s*setFramed\(true\);/);
+  });
+});

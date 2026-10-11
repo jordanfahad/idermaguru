@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ShieldCheck, Sparkles, Star } from "lucide-react";
 import type { LiveConsultationProduct, LiveConsultationVendor } from "@/data/live-consultations";
@@ -21,6 +21,28 @@ export function ConciergeConsultation({
   vendorShares: LiveConsultationVendor[];
 }) {
   const [showForm, setShowForm] = useState(false);
+  /*
+   * Whether this page is sitting inside somebody else's.
+   *
+   * It is ours, and on idermaguru.com the header below is exactly right: our
+   * name, linked to our homepage, next to "Add to your store". A merchant
+   * framed it in their storefront, so a Cicabelle shopper opening the advisor
+   * was shown a link out to our site and an advert selling our product to
+   * them, on the shop they came to buy from.
+   *
+   * Decided after mount, never during render: the server has no window, and
+   * branching on it in the markup would hand React two different trees.
+   * Reading window.top across origins can throw, and a throw IS the framed
+   * answer.
+   */
+  const [framed, setFramed] = useState(false);
+  useEffect(() => {
+    try {
+      setFramed(window.self !== window.top);
+    } catch {
+      setFramed(true);
+    }
+  }, []);
   const [lang, setLang] = useState<"en" | "ar">("en");
   const isAr = lang === "ar";
   const tr = (en: string, ar: string) => (isAr ? ar : en);
@@ -28,20 +50,37 @@ export function ConciergeConsultation({
   return (
     <div className={`cc${isAr ? " cc-rtl" : ""}`} dir={isAr ? "rtl" : "ltr"}>
       <header className="cc-bar">
-        <Link className="cc-brand" href="/">
-          <span className="cc-brand-mark">D</span>
-          <span>
-            DermaGuru
-            <small>{tr("AI skin advisor", "مستشار البشرة الذكي")}</small>
+        {/* The identity stays wherever this runs; the link out does not.
+            Framed, tapping it would navigate the merchant's panel to our
+            homepage and strand the shopper there. */}
+        {framed ? (
+          <span className="cc-brand">
+            <span className="cc-brand-mark">D</span>
+            <span>
+              DermaGuru
+              <small>{tr("AI skin advisor", "مستشار البشرة الذكي")}</small>
+            </span>
           </span>
-        </Link>
+        ) : (
+          <Link className="cc-brand" href="/">
+            <span className="cc-brand-mark">D</span>
+            <span>
+              DermaGuru
+              <small>{tr("AI skin advisor", "مستشار البشرة الذكي")}</small>
+            </span>
+          </Link>
+        )}
         <div className="cc-bar-right">
           <button type="button" className="cc-lang" onClick={() => setLang(isAr ? "en" : "ar")}>
             {isAr ? "EN" : "عربي"}
           </button>
-          <Link className="cc-bar-cta" href="/pricing">
-            {tr("Add to your store", "أضِفه إلى متجرك")}
-          </Link>
+          {/* Selling our product to a merchant's own customers, on the shop
+              they came to buy from. Ours to show on our site, nowhere else. */}
+          {framed ? null : (
+            <Link className="cc-bar-cta" href="/pricing">
+              {tr("Add to your store", "أضِفه إلى متجرك")}
+            </Link>
+          )}
         </div>
       </header>
 

@@ -570,7 +570,7 @@ export function extractInlineSlots(input: string): Partial<AgentSlots> {
 }
 
 const SKIN_TERMS =
-  /\b(skin|hair|scalp|face|facial|complexion|acne|pimple|blemish|spot|patch|blotch|bruis|dry|oily|greasy|pore|blackhead|wrinkle|line|dull|glow|tone|pigment|redness|irritat|itch|flake|dandruff|serum|cream|cleanser|wash|sunscreen|spf|moistur|routine|product|allerg|pregnan|breast|sensitive|barrier|eczema|rash|hives|burn|scar|stretch mark|mole|ingrown|chaf|callus|blister|lip|eye|nose|cheek|forehead|chin|neck|beard|shave)/i;
+  /\b(skin|hair|scalp|face|facial|complexion|acne|pimple|blemish|spot|patch|blotch|bruis|dry|oily|greasy|pore|blackhead|whitehead|wrinkle|line|dull|glow|tone|pigment|redness|irritat|itch|flake|dandr|serum|cream|cleanser|wash|sunscreen|spf|moistur|routine|product|allerg|pregnan|breast|sensitive|barrier|eczema|rash|hives|burn|scar|stretch mark|mole|ingrown|chaf|callus|blister|lip|eye|nose|cheek|forehead|chin|neck|beard|shave|rosacea|rosacia|psoria|melasma|keratosis|dermatitis|vitiligo|seborrh|folliculitis|milia|alopecia|urticaria|fungal|ringworm|tinea|wart|cold sore|impetigo|perioral|sun damage|sunburn|sun spot|crow'?s feet|crows feet|sag|puff|textur|razor|split end)/i;
 /**
  * How skin looks, as opposed to what it is attached to.
  *
