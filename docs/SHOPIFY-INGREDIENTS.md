@@ -46,8 +46,17 @@ merchants use if it starts to hurt.
 
 ## 3. Re-sync
 
-The catalogue only changes when the sync runs. Trigger it from the merchant
-dashboard, or `POST /api/shopify/sync`.
+The catalogue only changes when the sync runs.
+
+It runs **every six hours on its own** (`/api/cron/shopify-sync`, scheduled in
+`vercel.json`), across every connected store. To pick changes up immediately,
+press **Sync catalogue** on the merchant dashboard, or `POST
+/api/shopify/sync`. Both run the same code — see `services/catalogue-sync.ts`.
+
+The schedule needs `CRON_SECRET` set in the deployment's environment
+variables. Without it the scheduled route refuses to run rather than exposing
+an unauthenticated endpoint that rewrites the catalogue; the dashboard button
+is unaffected.
 
 ---
 
