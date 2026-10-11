@@ -2097,6 +2097,10 @@ export function VoiceAgent({
         </div>
       ) : null}
 
+      {/* One row, so a phone can lay language and input mode side by side
+          instead of stacking two pill bars of different widths down the
+          middle of the panel. On a wide screen this is a no-op column. */}
+      <div className="va-controls-row">
       <div className="va-langs" role="group" aria-label="Language">
         <button
           type="button"
@@ -2138,6 +2142,7 @@ export function VoiceAgent({
           <MessageSquare size={14} />
           {t.chatMode}
         </button>
+      </div>
       </div>
 
       <button type="button" className="va-skin-btn" onClick={() => setCamera("consent")}>
