@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, Clock, ExternalLink, Heart, Loader2, MessageSquare, Mic, RotateCcw, Send, ShoppingCart, Sparkles, Square } from "lucide-react";
+import { Camera, Clock, ExternalLink, Heart, Loader2, Mic, RotateCcw, Send, ShoppingCart, Sparkles, Square, X } from "lucide-react";
 import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
 import { speechLocale } from "@/services/language";
 import { acknowledgements, describePhoto, fixedLines, scriptedLines } from "@/services/voice-agent";
@@ -226,10 +226,10 @@ const PROMPTS = {
 
 const UI = {
   en: {
-    voiceMode: "Voice",
-    chatMode: "Chat",
-    trySaying: "Try saying",
-    typeHere: "Type your skin or hair concern…",
+    advisorName: "DermaGuru",
+    online: "Online — ask me anything",
+    dismiss: "Dismiss",
+    typeHere: "Ask about your skin or hair…",
     send: "Send",
     start: "Tap to speak",
     stop: "Stop",
@@ -238,20 +238,18 @@ const UI = {
     speaking: "Speaking",
     you: "You",
     agent: "Advisor",
-    noVoice: "Voice isn't supported in this browser. Try Chrome or Safari, or use the text advisor.",
-    denied: "I couldn't reach the microphone — either the browser blocked it, or this page hasn't allowed it. I've switched to chat; type below and I'll answer just the same.",
-    deniedEmbedded: "This page hasn't given me microphone access, so voice can't start here. I've switched to chat — type below and I'll answer just the same.",
+    noVoice: "Voice isn't supported in this browser. Try Chrome or Safari — or just type below.",
+    denied: "I couldn't reach the microphone — either the browser blocked it, or this page hasn't allowed it. Type below and I'll answer just the same.",
+    deniedEmbedded: "This page hasn't given me microphone access, so voice can't start here. Type below and I'll answer just the same.",
     save: "Save",
     saved: "Saved",
     cart: "Add routine to cart",
     view: "View",
     sponsored: "Sponsored",
-    replay: "Tap when you're ready",
-    fallback: "Open the full advisor",
-    error: "Something went wrong. Tap the mic to try again.",
+    error: "Something went wrong — give it another try.",
     micTrouble:
-      "I'm not hearing anything from the microphone. Tap the orb to try again — or switch to Chat and type, that always works.",
-    micIdle: "Still with you — tap the orb whenever you're ready to carry on.",
+      "I'm not hearing anything from the microphone. Tap the mic to try again — or just type below, that always works.",
+    micIdle: "Still with you — tap the mic whenever you're ready to carry on.",
     youSpeaking: "You're speaking — I'm listening →",
     advisorSpeaking: "Your advisor speaking →",
     hearAgain: "Hear that again",
@@ -285,10 +283,10 @@ const UI = {
     startOver: "Start a new routine",
   },
   ar: {
-    voiceMode: "صوت",
-    chatMode: "محادثة",
-    trySaying: "جرّب أن تقول",
-    typeHere: "اكتب مشكلة بشرتك أو شعرك…",
+    advisorName: "ديرما جورو",
+    online: "متصل — اسألني أي شيء",
+    dismiss: "إغلاق",
+    typeHere: "اسأل عن بشرتك أو شعرك…",
     send: "إرسال",
     start: "اضغط للتحدث",
     stop: "إيقاف",
@@ -297,19 +295,17 @@ const UI = {
     speaking: "أتحدث",
     you: "أنت",
     agent: "المستشار",
-    noVoice: "الصوت غير مدعوم في هذا المتصفح. جرّب Chrome أو Safari أو استخدم المستشار الكتابي.",
-    denied: "تعذّر الوصول إلى الميكروفون — إمّا أن المتصفح منعه أو أن هذه الصفحة لم تسمح به. انتقلت إلى المحادثة؛ اكتب أدناه وسأجيبك بالمثل.",
-    deniedEmbedded: "هذه الصفحة لم تمنحني إذن الميكروفون، لذا لا يمكن بدء الصوت هنا. انتقلت إلى المحادثة — اكتب أدناه وسأجيبك بالمثل.",
+    noVoice: "الصوت غير مدعوم في هذا المتصفح. جرّب Chrome أو Safari — أو اكتب في الأسفل.",
+    denied: "تعذّر الوصول إلى الميكروفون — إمّا أن المتصفح منعه أو أن هذه الصفحة لم تسمح به. اكتب أدناه وسأجيبك بالمثل.",
+    deniedEmbedded: "هذه الصفحة لم تمنحني إذن الميكروفون، لذا لا يمكن بدء الصوت هنا. اكتب أدناه وسأجيبك بالمثل.",
     save: "حفظ",
     saved: "محفوظ",
     cart: "أضف الروتين إلى السلة",
     view: "عرض",
     sponsored: "مموَّل",
-    replay: "اضغط عندما تكون جاهزاً",
-    fallback: "افتح المستشار الكامل",
-    error: "حدث خطأ. اضغط الميكروفون للمحاولة مرة أخرى.",
-    micTrouble: "لا يصلني صوت من الميكروفون. اضغط الكرة للمحاولة مجدداً — أو انتقل إلى «محادثة» واكتب، فهذا يعمل دائماً.",
-    micIdle: "ما زلت معك — اضغط الكرة متى أردت المتابعة.",
+    error: "حدث خطأ — حاول مرة أخرى.",
+    micTrouble: "لا يصلني صوت من الميكروفون. اضغط زر الميكروفون للمحاولة مجدداً — أو اكتب في الأسفل، فهذا يعمل دائماً.",
+    micIdle: "ما زلت معك — اضغط الميكروفون متى أردت المتابعة.",
     youSpeaking: "أنت تتحدث — أنا أُصغي ←",
     advisorSpeaking: "مستشارك يتحدث ←",
     hearAgain: "أعِد السماع",
@@ -438,13 +434,18 @@ export function VoiceAgent({
   }, []);
 
 
-  const [promptIndex, setPromptIndex] = useState(0);
-
   const [camera, setCamera] = useState<"off" | "consent" | "live" | "reviewing">("off");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const slotsRef = useRef<Record<string, unknown>>({});
+  /**
+   * Where in the conversation the routine was produced — the number of turns
+   * on screen when it landed. The thread renders it there, like a message,
+   * instead of in a side panel: later answers arrive BELOW the routine, the
+   * way a conversation reads, rather than above or beside it.
+   */
+  const routinePosRef = useRef<number | null>(null);
   const modeRef = useRef<Mode>("voice");
   // The language actually spoken (may be neither English nor Arabic); the UI
   // chrome stays EN/AR while speech + recognition follow the shopper.
@@ -453,10 +454,22 @@ export function VoiceAgent({
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const orbRef = useRef<OrbAudio | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const micRef = useRef<HTMLButtonElement | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const routineRef = useRef<HTMLElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const continueRef = useRef(false);
+  /**
+   * Which call we are on — bumped by every hang-up.
+   *
+   * A reply is a network round trip and a spoken answer is a chain of lines,
+   * and either can outlive the call that asked for it: the shopper taps stop
+   * while the advisor is thinking, types instead of talking, or the storefront
+   * closes the drawer. Everything spoken or replied on behalf of a call checks
+   * this first, so a reply that lands after the hang-up appears as text and is
+   * never said out loud — least of all behind a closed panel on somebody
+   * else's page.
+   */
+  const callGenRef = useRef(0);
   // How many times recognition has restarted without hearing anything. A
   // shopper who walked away shouldn't keep the microphone open forever.
   const silentRestartsRef = useRef(0);
@@ -603,32 +616,6 @@ export function VoiceAgent({
   );
 
   /**
-   * Bring the routine to the shopper on a phone.
-   *
-   * Stacked, the columns run orb, routine, transcript — so the answer somebody
-   * has just spent four questions waiting for renders below the fold, and the
-   * screen looks like nothing happened. On desktop the routine is already in
-   * view beside the orb, so this only fires where the layout stacks.
-   *
-   * Keyed on which products are showing, not how many: an adjusted routine of
-   * the same length is still a new answer worth being shown.
-   */
-  const routineKey = products.map((product) => product.id).join(",");
-  useEffect(() => {
-    if (!routineKey) return;
-    const node = routineRef.current;
-    if (!node || typeof window.matchMedia !== "function") return;
-    if (!window.matchMedia("(max-width: 1080px)").matches) return;
-
-    const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // A frame late, so the panel has been laid out and lands where we scroll to.
-    const id = window.requestAnimationFrame(() => {
-      node.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [routineKey]);
-
-  /**
    * Attach the camera stream once the <video> is really in the DOM.
    *
    * This used to run inside a requestAnimationFrame fired straight after
@@ -668,7 +655,17 @@ export function VoiceAgent({
    */
   const pulsing = phase === "listening" || phase === "speaking";
   useEffect(() => {
-    const still = () => stageRef.current?.style.setProperty("--level", "0");
+    /*
+     * Written onto the two elements that react to it — the avatar and the
+     * hang-up button's ring — rather than the panel root. A custom property set
+     * on the root is inherited by every bubble and card in the thread, and
+     * changing it every frame restyles all of them.
+     */
+    const set = (value: string) => {
+      stageRef.current?.style.setProperty("--level", value);
+      micRef.current?.style.setProperty("--level", value);
+    };
+    const still = () => set("0");
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     if (!pulsing || reduced) {
       still();
@@ -680,12 +677,11 @@ export function VoiceAgent({
     let last = -1;
     const tick = () => {
       const orb = orbRef.current;
-      const stage = stageRef.current;
-      if (orb && stage) {
+      if (orb) {
         const level = Math.round(orb.level() * 100) / 100;
         if (level !== last) {
           last = level;
-          stage.style.setProperty("--level", level.toFixed(2));
+          set(level.toFixed(2));
         }
       }
       rafRef.current = requestAnimationFrame(tick);
@@ -697,19 +693,42 @@ export function VoiceAgent({
     };
   }, [pulsing]);
 
-  // Keep the newest turn in view inside the panel. A no-op on a phone, where
-  // the panel is no longer a scroller and the page carries the transcript.
+  // Keep the newest message in view. The thread is the panel's one scroller —
+  // the dock with the composer never moves — so following the bottom is what
+  // makes a reply feel like it ARRIVED rather than like the page grew
+  // somewhere below the fold.
+  const pinnedRef = useRef(true);
   useEffect(() => {
     const panel = transcriptRef.current;
-    if (panel && panel.scrollHeight > panel.clientHeight) panel.scrollTop = panel.scrollHeight;
-  }, [turns, interim]);
+    if (panel) panel.scrollTop = panel.scrollHeight;
+    pinnedRef.current = true;
+  }, [turns, interim, products, phase, focus]);
 
-  // Rotate the example prompts while the shopper hasn't started.
+  /*
+   * And keep it there when the thread changes SIZE rather than content.
+   *
+   * Opening the camera, a notice, or the call bar grows the dock, which
+   * shrinks the thread from below — clipping exactly the message the shopper
+   * was reading, with nothing above having changed. Only while they were
+   * already at the bottom: somebody who scrolled up to reread something is
+   * left where they are.
+   */
   useEffect(() => {
-    if (started) return;
-    const id = window.setInterval(() => setPromptIndex((i) => (i + 1) % PROMPTS.en.length), 3200);
-    return () => window.clearInterval(id);
-  }, [started]);
+    const panel = transcriptRef.current;
+    if (!panel || typeof ResizeObserver === "undefined") return;
+    const onScroll = () => {
+      pinnedRef.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 32;
+    };
+    const observer = new ResizeObserver(() => {
+      if (pinnedRef.current) panel.scrollTop = panel.scrollHeight;
+    });
+    observer.observe(panel);
+    panel.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      observer.disconnect();
+      panel.removeEventListener("scroll", onScroll);
+    };
+  }, []);
 
   // Hang up when the storefront closes the launcher, or when the page goes
   // away. Embedded in a merchant's shop this component is inside an iframe the
@@ -720,6 +739,7 @@ export function VoiceAgent({
   // microphone and the voice stop.
   useEffect(() => {
     const hangUp = () => {
+      callGenRef.current += 1;
       continueRef.current = false;
       if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
       recognitionRef.current?.abort();
@@ -875,6 +895,9 @@ export function VoiceAgent({
         onDone();
         return;
       }
+      // The call this line belongs to. Loading a line takes a round trip, and
+      // the shopper can hang up inside it.
+      const gen = callGenRef.current;
       window.speechSynthesis?.cancel();
       audioElRef.current?.pause();
       // Never talk over an open microphone. A silent-restart timer queued just
@@ -939,6 +962,9 @@ export function VoiceAgent({
         run();
       };
       const finish = () => once(onDone);
+      // The robotic browser voice is a fallback for a line that failed, not
+      // for a call that ended — so it, too, only speaks for the live call.
+      const fallBack = () => once(() => (gen === callGenRef.current ? speakWithBrowser(text, onDone) : undefined));
 
       try {
         if (preloadedUrl) {
@@ -970,7 +996,7 @@ export function VoiceAgent({
         audio.onended = finish;
         audio.onerror = () => {
           logClient("playback-error", { chars: text.length, preloaded: Boolean(preloadedUrl), ios: IOS });
-          once(() => speakWithBrowser(text, onDone));
+          fallBack();
         };
         // iOS ducks media output while speech recognition holds the audio
         // session, and lifts it a beat AFTER recognition ends. Playback that
@@ -982,13 +1008,20 @@ export function VoiceAgent({
           const settle = 450 - (Date.now() - lastMicActivityRef.current);
           if (settle > 0 && !exited) await new Promise((resolve) => setTimeout(resolve, settle));
         }
+        // Hung up while the line loaded or settled: say nothing, and end the
+        // chain here — onDone would carry on to the next line or reopen the
+        // microphone for a call that is over.
+        if (gen !== callGenRef.current) {
+          once(() => {});
+          return;
+        }
         if (!exited) {
           await audio.play();
           logClient("line-played", { chars: text.length, preloaded: Boolean(preloadedUrl), ios: IOS });
         }
       } catch {
         logClient("speech-unavailable", { chars: text.length, scripted: isScriptedLine(text), ios: IOS });
-        once(() => speakWithBrowser(text, onDone));
+        fallBack();
       }
     },
     [lang, speakWithBrowser, cancelRecordedTurn],
@@ -1033,7 +1066,12 @@ export function VoiceAgent({
           .then((blob) => (blob ? URL.createObjectURL(blob) : null))
           .catch(() => null);
       });
+      // A hang-up between two lines ends the reply: stop() pauses the line that
+      // is playing, but the next one may still be loading, and the browser
+      // voice reports a cancelled line as finished.
+      const gen = callGenRef.current;
       const step = (index: number) => {
+        if (gen !== callGenRef.current) return;
         if (index >= queue.length) {
           onDone();
           return;
@@ -1116,11 +1154,21 @@ export function VoiceAgent({
       if (Array.isArray(payload.suggestions)) setSuggestions(payload.suggestions);
 
       const reply: string = payload.reply ?? "";
-      setTurns((current) => [...current, { role: "agent", text: reply }]);
+      const gotRoutine = Array.isArray(payload.products) && payload.products.length > 0;
+      setTurns((current) => {
+        const next: Turn[] = [...current, { role: "agent", text: reply }];
+        // After this reply — the one that produced it — not at the end of
+        // whatever the conversation grows into. Writing a ref from an updater
+        // is safe here: re-runs land on the same value.
+        if (gotRoutine) routinePosRef.current = next.length;
+        return next;
+      });
 
-      // Chat mode stays silent and never grabs the microphone.
+      // Chat mode stays silent and never grabs the microphone. Only "thinking"
+      // is this turn's to end: a shopper who tapped the mic while a typed
+      // answer was on its way is listening now, and that call is not ours.
       if (options?.silent || modeRef.current === "chat") {
-        setPhase("idle");
+        setPhase((current) => (current === "thinking" ? "idle" : current));
         return;
       }
       // Keep the microphone open unless safety triage ended the session — the
@@ -1131,7 +1179,10 @@ export function VoiceAgent({
         payload.phase !== "referral" && payload.phase !== "farewell" && continueRef.current;
       const parts: string[] = Array.isArray(payload.speech) && payload.speech.length ? payload.speech : [reply];
       speakSequence(parts, () => {
-        if (keepGoing) {
+        // Re-read, not just captured: the shopper may have chosen the keyboard
+        // while this was being said, and listen() would reopen a microphone
+        // the panel no longer shows as live.
+        if (keepGoing && continueRef.current && modeRef.current === "voice") {
           listen();
           return;
         }
@@ -1140,21 +1191,31 @@ export function VoiceAgent({
         setPhase("idle");
       });
     },
-    // eslint-disable-next-line
     [speakSequence],
   );
 
   const send = useCallback(
     async (utterance: string, ask?: Suggestion["ask"]) => {
+      /*
+       * How this was asked, and on which call — read now, not when the reply
+       * lands seconds later. By then the shopper may have hung up, or tapped
+       * the mic straight after typing; reading the mode at landing time spoke
+       * a typed answer over them and threw away what they had started to say.
+       * A typed question gets a typed answer; a call that has ended gets its
+       * answer on screen and nothing out loud.
+       */
+      const gen = callGenRef.current;
+      const typed = modeRef.current === "chat";
       setPhase("thinking");
       setInterim("");
       if (utterance) setTurns((current) => [...current, { role: "user", text: utterance }]);
 
       try {
-        handleTurn(await requestTurn(utterance, ask));
+        const payload = await requestTurn(utterance, ask);
+        handleTurn(payload, { silent: typed || gen !== callGenRef.current });
       } catch {
         setNotice(t.error);
-        setPhase("idle");
+        setPhase((current) => (current === "thinking" ? "idle" : current));
       }
     },
     [requestTurn, handleTurn, t.error],
@@ -1294,7 +1355,6 @@ export function VoiceAgent({
     // Deliberately not depending on send/requestTurn/handleTurn: they are
     // rebuilt as state changes, and this must fire once on arrival, not again
     // every time the conversation moves.
-    // eslint-disable-next-line
   }, [focusProduct, initialQuestion]);
 
   /**
@@ -1927,10 +1987,13 @@ export function VoiceAgent({
     }
   }
 
-  /** Chat send, and the "Try saying" chips. Works with no microphone at all. */
+  /** Typed send, and the starter chips. Works with no microphone at all. */
   function submitText(text: string) {
     const clean = text.trim();
     if (!clean) return;
+    // Typing during a live call is the shopper choosing text over voice —
+    // put the microphone down and stop talking before answering in kind.
+    if (modeRef.current === "voice") stop();
     modeRef.current = "chat";
     setMode("chat");
     markStarted();
@@ -1961,24 +2024,30 @@ export function VoiceAgent({
     }
   }
 
-  function switchMode(next: Mode) {
-    modeRef.current = next;
-    setMode(next);
-    if (next === "chat") {
-      // Leaving voice: release the mic and silence playback.
-      continueRef.current = false;
-      recognitionRef.current?.abort();
-      releaseCall();
-      window.speechSynthesis?.cancel();
-      audioElRef.current?.pause();
-      orbRef.current?.detachMic();
-      orbRef.current?.stopHum();
-      setInterim("");
-      setPhase("idle");
+  /**
+   * The microphone button on the composer. There is no Voice/Chat decision to
+   * make any more — typing answers in text, tapping this talks — so the one
+   * button carries the whole of voice: start the call, stop the call.
+   */
+  function toggleVoice() {
+    if (modeRef.current === "voice" && phase !== "idle") {
+      stop();
+      return;
     }
+    modeRef.current = "voice";
+    setMode("voice");
+    setNotice(null);
+    if (started) {
+      continueRef.current = true;
+      silentRestartsRef.current = 0;
+      listen();
+      return;
+    }
+    begin();
   }
 
   function stop() {
+    callGenRef.current += 1;
     continueRef.current = false;
     if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
     recognitionRef.current?.abort();
@@ -2007,6 +2076,7 @@ export function VoiceAgent({
   function resetRoutine() {
     setProducts([]);
     setDisclosure(null);
+    routinePosRef.current = null;
     slotsRef.current = {};
   }
 
@@ -2018,286 +2088,64 @@ export function VoiceAgent({
   }
 
   const busy = phase === "thinking";
-  const active = phase !== "idle";
-  const statusLabel =
-    phase === "listening" ? t.listening : phase === "thinking" ? t.thinking : phase === "speaking" ? t.speaking : started ? t.replay : t.start;
+  const voiceLive = mode === "voice" && phase !== "idle";
+  const presence = busy ? t.thinking : voiceLive ? (phase === "listening" ? t.listening : t.speaking) : t.online;
 
-  return (
-    <div className={`va va-${phase}${lang === "ar" ? " va-rtl" : ""}`} dir={lang === "ar" ? "rtl" : "ltr"}>
-     {/* The call bar follows the shopper wherever they scroll: who is talking
-         and what is being said, without climbing back up to the orb. */}
-     {started && mode === "voice" && active ? (
-       <div className={`va-callbar va-callbar-${phase}`} aria-live="polite">
-         <span className="va-callbar-who">
-           {phase === "listening" ? t.youSpeaking : phase === "speaking" ? t.advisorSpeaking : t.thinking}
-         </span>
-         <span className="va-callbar-text">
-           {phase === "listening" ? interim || "…" : phase === "speaking" ? speakingLine : "…"}
-         </span>
-         {phase === "listening" && replayRef.current.length ? (
-           <button
-             type="button"
-             className="va-callbar-replay"
-             onClick={() => speakSequence(replayRef.current, () => listen())}
-           >
-             <RotateCcw size={12} aria-hidden="true" />
-             {t.hearAgain}
-           </button>
-         ) : null}
-       </div>
-     ) : null}
-     <div className="va-grid">
-      <aside className={turns.length ? "va-side va-side-live" : "va-side"}>
-        {turns.length ? (
-          <>
-            <p className="va-side-title">
-              <span className="va-live-dot" />
-              {t.liveTranscript}
-            </p>
-            <div className="va-transcript" ref={transcriptRef}>
-              {turns.map((turn, index) => (
-                <p key={`${turn.role}-${index}-${turn.text.slice(0, 12)}`} className={`va-turn va-turn-${turn.role}`}>
-                  <span>{turn.role === "user" ? t.you : t.agent}</span>
-                  {turn.text}
-                </p>
-              ))}
-            </div>
-          </>
-        ) : null}
-      </aside>
+  /*
+   * The greeting the shopper sees before the server has said anything.
+   *
+   * It costs nothing and it is the whole difference between a panel that says
+   * hello and a panel that sits there: the opening turn takes a second or two
+   * of LLM round trip, and a conversation opened by typing never gets one at
+   * all. On a product page the opening turn lands as the real first message
+   * and this one steps aside; a conversation that began with the shopper's own
+   * words keeps it on top, which is where a greeting goes.
+   */
+  const showGreeting = turns.length === 0 || turns[0].role === "user";
 
-      <div className="va-centre">
-      <div className="va-stage" ref={stageRef}>
-        <div className="va-bloom" aria-hidden="true" />
-        <div className="va-halo" aria-hidden="true" />
-        <div className="va-field" aria-hidden="true" />
-        <div className="va-field va-field-2" aria-hidden="true" />
-        <div className="va-ring" aria-hidden="true" />
-        <div className="va-ring va-ring-2" aria-hidden="true" />
-        <div className="va-ripple" aria-hidden="true" />
-        <button
-          type="button"
-          className="va-mic"
-          onClick={() => (active ? stop() : started ? listen() : begin())}
-          aria-label={active ? t.stop : t.start}
-        >
-          {busy ? <Loader2 className="va-spin-icon" size={30} /> : active ? <Square size={26} /> : <Mic size={30} />}
-        </button>
-      </div>
+  /*
+   * Where the routine sits in the conversation: after the reply that produced
+   * it, with later answers arriving BELOW — a message in the thread, not a
+   * side panel the thread competes with.
+   */
+  const routinePos = products.length ? Math.min(routinePosRef.current ?? turns.length, turns.length) : -1;
 
-      <p className="va-status" aria-live="polite">{mode === "voice" ? statusLabel : busy ? t.thinking : ""}</p>
-      <p className="va-interim">{interim ? <span>{interim}</span> : null}</p>
+  const bubble = (turn: Turn, index: number) => (
+    <p key={`${turn.role}-${index}-${turn.text.slice(0, 12)}`} className={`va-turn va-turn-${turn.role}`}>
+      <span className="va-sr">{turn.role === "user" ? t.you : t.agent}</span>
+      {turn.text}
+    </p>
+  );
 
-      {!started ? (
-        <div className="va-try">
-          <span>{t.trySaying}</span>
-          <button type="button" className="va-try-chip" onClick={() => submitText(PROMPTS[lang][promptIndex])}>
-            &ldquo;{PROMPTS[lang][promptIndex]}&rdquo;
-          </button>
-        </div>
-      ) : null}
+  const routineEl = products.length ? (
+    <div className="va-routine-msg" key="routine">
+      <p className="va-side-title">
+        <Sparkles size={13} />
+        {t.yourRoutine}
+        <span className="va-panel-count">{t.steps(products.length)}</span>
+      </p>
 
-      {/* One row, so a phone can lay language and input mode side by side
-          instead of stacking two pill bars of different widths down the
-          middle of the panel. On a wide screen this is a no-op column. */}
-      <div className="va-controls-row">
-      <div className="va-langs" role="group" aria-label="Language">
-        <button
-          type="button"
-          className={lang === "en" ? "va-lang va-lang-on" : "va-lang"}
-          aria-pressed={lang === "en"}
-          onClick={() => switchLang("en")}
-        >
-          EN
-        </button>
-        <button
-          type="button"
-          className={lang === "ar" ? "va-lang va-lang-on" : "va-lang"}
-          aria-pressed={lang === "ar"}
-          onClick={() => switchLang("ar")}
-          lang="ar"
-        >
-          عربي
-        </button>
-      </div>
-
-      <div className="va-modes" role="tablist" aria-label="Input mode">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === "voice"}
-          className={mode === "voice" ? "va-mode va-mode-on" : "va-mode"}
-          onClick={() => switchMode("voice")}
-        >
-          <Mic size={14} />
-          {t.voiceMode}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === "chat"}
-          className={mode === "chat" ? "va-mode va-mode-on" : "va-mode"}
-          onClick={() => switchMode("chat")}
-        >
-          <MessageSquare size={14} />
-          {t.chatMode}
-        </button>
-      </div>
-      </div>
-
-      <button type="button" className="va-skin-btn" onClick={() => setCamera("consent")}>
-        <Camera size={15} />
-        {t.showSkin}
-      </button>
-
-      {camera === "consent" ? (
-        <div className="va-consent" role="dialog" aria-label={t.cameraTitle}>
-          <strong>{t.cameraTitle}</strong>
-          <p>{t.cameraBody}</p>
-          <div className="va-consent-actions">
-            <button type="button" className="va-consent-yes" onClick={openCamera}>
-              <Camera size={15} />
-              {t.cameraAllow}
-            </button>
-            <button type="button" className="va-consent-no" onClick={() => setCamera("off")}>
-              {t.cameraCancel}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {camera === "live" || camera === "reviewing" ? (
-        <div className="va-camera">
-          <video ref={videoRef} playsInline muted autoPlay />
-          <div className="va-camera-actions">
-            <button type="button" className="va-consent-yes" onClick={captureAndReview} disabled={camera === "reviewing"}>
-              {camera === "reviewing" ? <Loader2 className="va-spin-icon" size={15} /> : <Camera size={15} />}
-              {t.cameraCapture}
-            </button>
-            <button type="button" className="va-consent-no" onClick={stopCamera}>
-              {t.cameraCancel}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      </div>
-
-      {/* The right column is contextual: common concerns until the advisor has
-          something to show, then the routine itself — so results never push the
-          orb or the transcript off the screen. */}
-      <aside
-        ref={routineRef}
-        className={products.length ? "va-side va-side-picks va-side-routine" : "va-side va-side-picks"}
-      >
-        {products.length ? (
-          <div className="va-panel" key="routine">
-            <p className="va-side-title">
-              <Sparkles size={13} />
-              {t.yourRoutine}
-              <span className="va-panel-count">{t.steps(products.length)}</span>
-            </p>
-
-            <div className="va-routine">
-              {groupRoutine(products).map((group) => (
-                <section className="va-routine-group" key={group.bucket}>
-                  <p className="va-routine-head">{t.routine[group.bucket]}</p>
-                  {group.items.map((product) => (
-                    <article className="va-rx" key={product.id}>
-                      {product.imageUrl ? (
-                        <img
-                          src={product.imageUrl}
-                          alt={`${product.brand ? `${product.brand} ` : ""}${product.name}`}
-                          loading="lazy"
-                          // Shopify's CDN and several merchant hosts refuse a
-                          // request that carries a referrer from another domain,
-                          // which is exactly what the widget is. Sending none
-                          // gets the image rather than a 403.
-                          referrerPolicy="no-referrer"
-                          // Merchant catalogues carry dead image URLs; show the
-                          // neutral tile rather than a broken-image glyph. The
-                          // alt text goes too — a src-less img paints its alt
-                          // inside the tile, and the product name is already
-                          // spelled out beside it.
-                          onError={(event) => {
-                            event.currentTarget.classList.add("va-rx-noimg");
-                            event.currentTarget.removeAttribute("src");
-                            event.currentTarget.alt = "";
-                          }}
-                        />
-                      ) : (
-                        <div className="va-rx-noimg" />
-                      )}
-                      <div className="va-rx-body">
-                        <span className="va-rx-slot">
-                          {product.slot}
-                          {product.sponsored ? <em className="va-sponsored">{t.sponsored}</em> : null}
-                        </span>
-                        <strong>{product.name}</strong>
-                        <p className="va-rx-reason">{product.reason}</p>
-                        {product.expectedResults ? (
-                          <p className="va-rx-timing">
-                            <Clock size={12} aria-hidden />
-                            <span>{product.expectedResults}</span>
-                          </p>
-                        ) : null}
-                        {product.cautions?.length ? <p className="va-rx-caution">{product.cautions[0]}</p> : null}
-                        <div className="va-rx-foot">
-                          <span className="va-price">
-                            {product.currency} {product.price}
-                          </span>
-                          <button
-                            type="button"
-                            className={wishlist.includes(product.id) ? "va-icon-btn va-saved" : "va-icon-btn"}
-                            onClick={() => toggleWishlist(product.id)}
-                            aria-label={wishlist.includes(product.id) ? t.saved : t.save}
-                            title={wishlist.includes(product.id) ? t.saved : t.save}
-                          >
-                            <Heart size={14} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
-                          </button>
-                          <a
-                            className="va-icon-btn"
-                            href={product.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            aria-label={t.view}
-                            title={t.view}
-                          >
-                            <ExternalLink size={13} />
-                          </a>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-                </section>
-              ))}
-            </div>
-
-            <a className="va-cart-all" href={cartUrl(products)} target="_blank" rel="noreferrer">
-              <ShoppingCart size={15} />
-              {t.cart}
-            </a>
-            {disclosure ? <p className="va-disclosure">{disclosure}</p> : null}
-            <button type="button" className="va-restart" onClick={resetRoutine}>
-              {t.startOver}
-            </button>
-          </div>
-        ) : (
-          <div className="va-panel" key="picks">
-            {/*
-              The product the shopper is standing in front of, above the things
-              we can say about it — the shape of the panel they already know
-              from every other advisor on a product page.
-            */}
-            {focus ? (
-              <article className="va-focus">
-                {focus.imageUrl ? (
+      <div className="va-routine">
+        {groupRoutine(products).map((group) => (
+          <section className="va-routine-group" key={group.bucket}>
+            <p className="va-routine-head">{t.routine[group.bucket]}</p>
+            {group.items.map((product) => (
+              <article className="va-rx" key={product.id}>
+                {product.imageUrl ? (
                   <img
-                    src={focus.imageUrl}
-                    alt={`${focus.brand ? `${focus.brand} ` : ""}${focus.name}`}
-                    // Shopify's CDN refuses a request carrying a referrer from
-                    // another domain, which is exactly what an embedded panel is.
+                    src={product.imageUrl}
+                    alt={`${product.brand ? `${product.brand} ` : ""}${product.name}`}
+                    loading="lazy"
+                    // Shopify's CDN and several merchant hosts refuse a
+                    // request that carries a referrer from another domain,
+                    // which is exactly what the widget is. Sending none
+                    // gets the image rather than a 403.
                     referrerPolicy="no-referrer"
+                    // Merchant catalogues carry dead image URLs; show the
+                    // neutral tile rather than a broken-image glyph. The
+                    // alt text goes too — a src-less img paints its alt
+                    // inside the tile, and the product name is already
+                    // spelled out beside it.
                     onError={(event) => {
                       event.currentTarget.classList.add("va-rx-noimg");
                       event.currentTarget.removeAttribute("src");
@@ -2307,72 +2155,305 @@ export function VoiceAgent({
                 ) : (
                   <div className="va-rx-noimg" />
                 )}
-                <div className="va-focus-body">
-                  {focus.brand ? <span className="va-focus-brand">{focus.brand}</span> : null}
-                  <strong>{focus.name}</strong>
-                  <span className="va-price">
-                    {focus.currency} {focus.price}
+                <div className="va-rx-body">
+                  <span className="va-rx-slot">
+                    {product.slot}
+                    {product.sponsored ? <em className="va-sponsored">{t.sponsored}</em> : null}
                   </span>
-                  <div className="va-focus-actions">
-                    <button type="button" className="va-focus-add" onClick={() => addToParentCart(focus)}>
-                      <ShoppingCart size={14} />
-                      {t.addToBag}
+                  <strong>{product.name}</strong>
+                  <p className="va-rx-reason">{product.reason}</p>
+                  {product.expectedResults ? (
+                    <p className="va-rx-timing">
+                      <Clock size={12} aria-hidden />
+                      <span>{product.expectedResults}</span>
+                    </p>
+                  ) : null}
+                  {product.cautions?.length ? <p className="va-rx-caution">{product.cautions[0]}</p> : null}
+                  <div className="va-rx-foot">
+                    <span className="va-price">
+                      {product.currency} {product.price}
+                    </span>
+                    <button
+                      type="button"
+                      className={wishlist.includes(product.id) ? "va-icon-btn va-saved" : "va-icon-btn"}
+                      onClick={() => toggleWishlist(product.id)}
+                      aria-label={wishlist.includes(product.id) ? t.saved : t.save}
+                      title={wishlist.includes(product.id) ? t.saved : t.save}
+                    >
+                      <Heart size={14} fill={wishlist.includes(product.id) ? "currentColor" : "none"} />
                     </button>
-                    <a className="va-focus-view" href={focus.url} target="_blank" rel="noreferrer">
+                    <a
+                      className="va-icon-btn"
+                      href={product.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={t.view}
+                      title={t.view}
+                    >
                       <ExternalLink size={13} />
-                      <span className="va-sr">{t.view}</span>
                     </a>
                   </div>
                 </div>
               </article>
-            ) : null}
-            {/*
-              What the server offered for this product, when it offered
-              anything. Those chips are computed from the fields we actually
-              hold for it, so they are worth tapping; the generic prompts are
-              the fallback for a conversation that is not about one product.
-            */}
-            <p className="va-side-title">{suggestions.length ? t.aboutThis : t.quickPicks}</p>
-            <div className="va-picks">
-              {suggestions.length
-                ? suggestions.map((chip) => (
-                    <button
-                      key={chip.ask}
-                      type="button"
-                      className="va-pick"
-                      onClick={() => {
-                        // The label is what the shopper said; the intent is
-                        // what the server acts on. Sending only the words
-                        // would put a button we drew through the classifier.
-                        modeRef.current = "chat";
-                        setMode("chat");
-                        markStarted();
-                        setNotice(null);
-                        void send(chip.label, chip.ask);
-                      }}
-                    >
-                      {chip.label}
-                    </button>
-                  ))
-                : PROMPTS[lang].slice(0, 4).map((prompt) => (
-                    <button key={prompt} type="button" className="va-pick" onClick={() => submitText(prompt)}>
-                      {prompt}
-                    </button>
-                  ))}
-            </div>
-          </div>
-        )}
-      </aside>
-     </div>
+            ))}
+          </section>
+        ))}
+      </div>
 
-      {mode === "chat" ? (
+      <a className="va-cart-all" href={cartUrl(products)} target="_blank" rel="noreferrer">
+        <ShoppingCart size={15} />
+        {t.cart}
+      </a>
+      {disclosure ? <p className="va-disclosure">{disclosure}</p> : null}
+      <button type="button" className="va-restart" onClick={resetRoutine}>
+        {t.startOver}
+      </button>
+    </div>
+  ) : null;
+
+  /*
+   * The thread as ONE keyed list, with the routine spliced in where it was
+   * produced. Split into before/after arrays around it, every bubble that
+   * crossed the split — on "Start a new routine", or when a second routine
+   * landed later — unmounted and remounted under an identical key and replayed
+   * its entrance, so the whole transcript visibly jumped.
+   */
+  const threadItems = turns.map((turn, index) => bubble(turn, index));
+  if (routineEl) threadItems.splice(routinePos, 0, routineEl);
+
+  return (
+    <div className={`va va-${phase}${lang === "ar" ? " va-rtl" : ""}`} dir={lang === "ar" ? "rtl" : "ltr"}>
+      {/* Who the shopper is talking to, and whether it is listening right now.
+          The orb lives here at the size of an avatar — identity and liveness,
+          not furniture. */}
+      <header className="va-head">
+        <div className="va-avatar" ref={stageRef} aria-hidden="true">
+          <div className="va-bloom" />
+          <div className="va-halo" />
+          <div className="va-ring" />
+          <div className="va-ripple" />
+        </div>
+        <div className="va-id">
+          <strong>{t.advisorName}</strong>
+          <span className="va-presence" aria-live="polite">
+            {presence}
+          </span>
+        </div>
+        <div className="va-langs" role="group" aria-label="Language">
+          <button
+            type="button"
+            className={lang === "en" ? "va-lang va-lang-on" : "va-lang"}
+            aria-pressed={lang === "en"}
+            onClick={() => switchLang("en")}
+          >
+            EN
+          </button>
+          <button
+            type="button"
+            className={lang === "ar" ? "va-lang va-lang-on" : "va-lang"}
+            aria-pressed={lang === "ar"}
+            onClick={() => switchLang("ar")}
+            lang="ar"
+          >
+            عربي
+          </button>
+        </div>
+      </header>
+
+      {/* The conversation, oldest to newest, and the panel's ONE scroller.
+          Everything that happens — greeting, the product on the page, answers,
+          the routine itself — happens here, in order, above a composer that
+          never moves. */}
+      <div className="va-thread" ref={transcriptRef} aria-label={t.liveTranscript}>
+        {showGreeting ? (
+          <p className="va-turn va-turn-agent">
+            <span className="va-sr">{t.agent}</span>
+            {GREETING[lang]}
+          </p>
+        ) : null}
+
+        {/* The product the shopper is standing in front of — a fact about the
+            page, so it sits at the top of the thread rather than scrolling
+            away with the conversation. */}
+        {focus ? (
+          <article className="va-focus">
+            {focus.imageUrl ? (
+              <img
+                src={focus.imageUrl}
+                alt={`${focus.brand ? `${focus.brand} ` : ""}${focus.name}`}
+                // Shopify's CDN refuses a request carrying a referrer from
+                // another domain, which is exactly what an embedded panel is.
+                referrerPolicy="no-referrer"
+                onError={(event) => {
+                  event.currentTarget.classList.add("va-rx-noimg");
+                  event.currentTarget.removeAttribute("src");
+                  event.currentTarget.alt = "";
+                }}
+              />
+            ) : (
+              <div className="va-rx-noimg" />
+            )}
+            <div className="va-focus-body">
+              {focus.brand ? <span className="va-focus-brand">{focus.brand}</span> : null}
+              <strong>{focus.name}</strong>
+              <span className="va-price">
+                {focus.currency} {focus.price}
+              </span>
+              <div className="va-focus-actions">
+                <button type="button" className="va-focus-add" onClick={() => addToParentCart(focus)}>
+                  <ShoppingCart size={14} />
+                  {t.addToBag}
+                </button>
+                <a className="va-focus-view" href={focus.url} target="_blank" rel="noreferrer">
+                  <ExternalLink size={13} />
+                  <span className="va-sr">{t.view}</span>
+                </a>
+              </div>
+            </div>
+          </article>
+        ) : null}
+
+        {threadItems}
+
+        {/* Thinking is a message being composed, so it looks like one. */}
+        {busy ? (
+          <p className="va-turn va-turn-agent va-typing" aria-label={t.thinking}>
+            <i />
+            <i />
+            <i />
+          </p>
+        ) : null}
+
+        {/* The shopper's words, live, where their message is about to land. */}
+        {phase === "listening" && interim ? (
+          <p className="va-turn va-turn-user va-turn-interim">
+            <span className="va-sr">{t.you}</span>
+            {interim}
+          </p>
+        ) : null}
+      </div>
+
+      {/* The dock: call status, notices, quick replies and the composer. It
+          never scrolls, so nothing in it can ever be off-screen when it
+          matters — which is what the old fixed-position alert existed to
+          solve, one overlay at a time. */}
+      <div className="va-dock">
+        {/* Everything that comes and goes. It may scroll when a camera
+            preview, a notice and the call bar all want the same few hundred
+            pixels of a phone drawer — the composer below it never does. */}
+        <div className="va-dock-extras">
+          {voiceLive ? (
+            <div className={`va-callbar va-callbar-${phase}`} aria-live="polite">
+              <span className="va-callbar-who">
+                {phase === "listening" ? t.youSpeaking : phase === "speaking" ? t.advisorSpeaking : t.thinking}
+              </span>
+              <span className="va-callbar-text">
+                {phase === "listening" ? interim || "…" : phase === "speaking" ? speakingLine : "…"}
+              </span>
+              {phase === "listening" && replayRef.current.length ? (
+                <button
+                  type="button"
+                  className="va-callbar-replay"
+                  onClick={() => speakSequence(replayRef.current, () => listen())}
+                >
+                  <RotateCcw size={12} aria-hidden="true" />
+                  {t.hearAgain}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {notice ? (
+            <div className="va-alert" role="status">
+              <span>{notice}</span>
+              <button type="button" className="va-alert-x" onClick={() => setNotice(null)} aria-label={t.dismiss}>
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+          ) : null}
+
+          {camera === "consent" ? (
+            <div className="va-consent" role="dialog" aria-label={t.cameraTitle}>
+              <strong>{t.cameraTitle}</strong>
+              <p>{t.cameraBody}</p>
+              <div className="va-consent-actions">
+                <button type="button" className="va-consent-yes" onClick={openCamera}>
+                  <Camera size={15} />
+                  {t.cameraAllow}
+                </button>
+                <button type="button" className="va-consent-no" onClick={() => setCamera("off")}>
+                  {t.cameraCancel}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {camera === "live" || camera === "reviewing" ? (
+            <div className="va-camera">
+              <video ref={videoRef} playsInline muted autoPlay />
+              <div className="va-camera-actions">
+                <button type="button" className="va-consent-yes" onClick={captureAndReview} disabled={camera === "reviewing"}>
+                  {camera === "reviewing" ? <Loader2 className="va-spin-icon" size={15} /> : <Camera size={15} />}
+                  {t.cameraCapture}
+                </button>
+                <button type="button" className="va-consent-no" onClick={stopCamera}>
+                  {t.cameraCancel}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Quick replies: what the server offered for this product when it
+              offered anything, or the starter concerns while nothing has been
+              said. Once a conversation is under way with nothing offered, the
+              row simply is not there. */}
+          {suggestions.length ? (
+            <div className="va-picks" aria-label={t.aboutThis}>
+              {suggestions.map((chip) => (
+                <button
+                  key={chip.ask}
+                  type="button"
+                  className="va-pick"
+                  onClick={() => {
+                    // The label is what the shopper said; the intent is what
+                    // the server acts on. Sending only the words would put a
+                    // button we drew through the classifier.
+                    if (modeRef.current === "voice") stop();
+                    modeRef.current = "chat";
+                    setMode("chat");
+                    markStarted();
+                    setNotice(null);
+                    void send(chip.label, chip.ask);
+                  }}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          ) : !started && turns.length === 0 ? (
+            <div className="va-picks" aria-label={t.quickPicks}>
+              {PROMPTS[lang].slice(0, 4).map((prompt) => (
+                <button key={prompt} type="button" className="va-pick" onClick={() => submitText(prompt)}>
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Always on screen, in both modes. Typing answers in text; the mic
+            button starts — and stops — the call. There is no mode to choose
+            before saying anything, which is the seam this closes. */}
         <form
           className="va-composer"
           onSubmit={(event) => {
             event.preventDefault();
-            submitText(draft);
+            if (!busy) submitText(draft);
           }}
         >
+          <button type="button" className="va-tool" onClick={() => setCamera("consent")} aria-label={t.showSkin} title={t.showSkin}>
+            <Camera size={18} />
+          </button>
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -2380,34 +2461,21 @@ export function VoiceAgent({
             aria-label={t.typeHere}
             autoComplete="off"
           />
-          <button type="submit" disabled={busy || !draft.trim()}>
+          <button
+            ref={micRef}
+            type="button"
+            className={voiceLive ? "va-mic va-mic-live" : "va-mic"}
+            onClick={toggleVoice}
+            aria-label={voiceLive ? t.stop : t.start}
+            title={voiceLive ? t.stop : t.start}
+          >
+            {voiceLive ? <Square size={16} /> : <Mic size={19} />}
+          </button>
+          <button type="submit" className="va-send" disabled={busy || !draft.trim()} aria-label={t.send} title={t.send}>
             {busy ? <Loader2 className="va-spin-icon" size={16} /> : <Send size={16} />}
-            {t.send}
           </button>
         </form>
-      ) : null}
-
-      {/*
-        Pinned, like the call bar, and for the same reason it is: the shopper
-        scrolls down to read the transcript, so anything in the flow of the
-        panel is off-screen exactly when it matters.
-
-        Putting it under the orb was the previous attempt at this, and this
-        screenshot is what that looks like once a conversation has a few turns
-        in it — the escape-hatch link visible at the bottom of the page, and
-        the sentence explaining why the advisor had gone quiet scrolled out of
-        sight above. It never competes with the call bar: that one renders only
-        while a call is active, and a notice means it is not.
-      */}
-      {notice ? (
-        <div className="va-alert" role="status">
-          <span>{notice}</span>
-          <a href="/live-consultation-1" target="_blank" rel="noreferrer">
-            {t.fallback}
-          </a>
-        </div>
-      ) : null}
-
+      </div>
     </div>
   );
 }
