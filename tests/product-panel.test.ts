@@ -91,29 +91,27 @@ describe("the shopper getting there first", () => {
  * mode offering an orb that would fail again on the next tap.
  */
 describe("when the microphone cannot be had", () => {
-  it("pins the reason so scrolling cannot hide it", () => {
-    // Under the orb was the previous attempt, and it failed the moment a
-    // conversation had a few turns in it: the shopper scrolls down to read the
-    // transcript and the sentence scrolls off the top. Anything in the flow of
-    // this panel is off-screen exactly when it matters.
+  it("pins the reason in the dock, which never scrolls", () => {
+    // Two earlier attempts at this: under the orb (scrolled off the top the
+    // moment a conversation had turns in it) and then a fixed overlay (always
+    // visible, but floating over whatever it happened to cover). The dock is
+    // the structural answer — the one band of the panel that cannot scroll
+    // away, because the composer lives there too.
     expect(advisor).toMatch(/className="va-alert" role="status"/);
-    const alert = css.slice(css.indexOf(".va-alert {"), css.indexOf(".va-alert a"));
-    expect(alert).toContain("position: fixed");
-    expect(alert).toContain("z-index");
+    expect(advisor).toMatch(/className="va-dock"[\s\S]*?className="va-alert"/);
+    const thread = css.slice(css.indexOf(".va-thread {"), css.indexOf(".va-thread::"));
+    expect(thread, "the thread is the panel's one scroller").toContain("overflow-y: auto");
+    const dock = css.slice(css.indexOf(".va-dock {"), css.indexOf("}", css.indexOf(".va-dock {")));
+    expect(dock, "the dock must never scroll").not.toContain("overflow");
   });
 
-  it("keeps the escape hatch with the message rather than at the far end of the page", () => {
-    expect(advisor).toMatch(/<span>\{notice\}<\/span>\s*<a[\s\S]{0,120}\{t\.fallback\}/);
-  });
-
-  it("sizes itself instead of letting the link decide", () => {
-    // A fixed flex box shrink-wraps its content, so the nowrap link set the
-    // width and the sentence was squeezed into a six-character column with the
-    // link hanging off the screen edge.
-    const alert = css.slice(css.indexOf(".va-alert {"), css.indexOf(".va-alert a"));
-    expect(alert, "width, not max-width").toMatch(/\n  width: min\(92vw/);
-    expect(alert).toContain("box-sizing: border-box");
-    expect(alert, "the link must be able to wrap below the message").toContain("flex-wrap: wrap");
+  it("never sends the shopper out of the store they are standing in", () => {
+    // The old escape hatch linked to /live-consultation-1 — our own marketing
+    // page — from inside a merchant's storefront. The escape hatch now IS the
+    // composer sitting right below the message, so the notice only needs a
+    // dismiss.
+    expect(advisor).not.toContain("live-consultation-1");
+    expect(advisor).toMatch(/<span>\{notice\}<\/span>\s*<button[\s\S]{0,120}setNotice\(null\)/);
   });
 
   it("moves the shopper to chat instead of leaving a dead orb", () => {
@@ -327,20 +325,6 @@ describe("the spoken greeting on a product page", () => {
 
   it("still falls back when the turn has not landed by the tap", () => {
     expect(advisor).toMatch(/\|\| GREETING\[lang\]/);
-  });
-});
-
-/**
- * Two things that only go wrong inside somebody else's page.
- */
-describe("the alert, centred without a transform", () => {
-  it("does not rely on translateX, which the animation wipes", () => {
-    // va-rise ends on `transform: none` and runs with fill-mode `both`, so the
-    // animation's final keyframe outranks the rule and keeps outranking it.
-    // The alert sat at the midpoint and ran off the right edge of the screen.
-    const alert = css.slice(css.indexOf(".va-alert {"), css.indexOf(".va-alert a"));
-    expect(alert).toContain("margin-inline: auto");
-    expect(alert, "left:50% + translateX is what broke").not.toMatch(/transform: translateX/);
   });
 });
 

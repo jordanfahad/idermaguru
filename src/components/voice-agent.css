@@ -1,6 +1,13 @@
-/* Voice concierge — audio-reactive orb, scoped so it inherits the page around it.
+/* The advisor as a conversation.
+
+   One column, three bands: an identity header with the orb at avatar size, the
+   thread — the panel's ONE scroller, where everything that happens happens in
+   order — and a dock holding the call bar, notices, quick replies and a
+   composer that never moves. The storefront embeds this in a 384×624 drawer,
+   so the layout is designed for that and merely breathes wider elsewhere.
+
    The component sets --level (0..1) every animation frame from real audio, and
-   every reactive property below is driven by it. */
+   the orb's reactive properties below are driven by it. */
 .va {
   --va-ink: #1b1a17;
   --va-soft: #6f6a61;
@@ -10,27 +17,50 @@
   --level: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
   width: 100%;
+  /* A definite height, because the thread scrolls INSIDE the panel. Pages
+     that give the advisor a screen of its own override this to fill it —
+     see advisor-embed.css. */
+  height: clamp(480px, 72dvh, 680px);
+  min-height: 0;
   font-family: var(--sans, ui-sans-serif, system-ui, sans-serif);
   color: var(--va-ink);
+  text-align: start;
 }
 .va-rtl { font-family: var(--arabic, var(--sans, sans-serif)); }
 
-/* ---------- stage ---------- */
-.va-stage {
+/* ---------- header: identity and liveness ---------- */
+.va-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--va-line);
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.va-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.va-id strong { font-size: 14.5px; font-weight: 700; line-height: 1.2; }
+.va-presence { font-size: 12px; color: var(--va-soft); line-height: 1.3; }
+.va-listening .va-presence { color: rgb(var(--va-live)); font-weight: 600; }
+.va-speaking .va-presence { color: #8a7b5f; font-weight: 600; }
+
+/* ---------- the orb, at the size of an avatar ----------
+   Same layers as the old stage — bloom, halo, ring, ripple — scaled by the
+   container, since every inset is a percentage. It still swells with --level
+   while the call is live; it just stopped being furniture. */
+.va-avatar {
   position: relative;
-  width: min(320px, 76vw);
-  height: min(320px, 76vw);
-  display: grid;
-  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
   isolation: isolate;
 }
-
-/* outer bloom — swells with amplitude */
 .va-bloom {
   position: absolute;
-  inset: -16%;
+  inset: -22%;
   border-radius: 50%;
   background: radial-gradient(
     circle,
@@ -40,7 +70,7 @@
   );
   transform: scale(calc(0.94 + var(--level) * 0.28));
   transition: background 240ms ease;
-  filter: blur(10px);
+  filter: blur(3px);
   will-change: transform;
 }
 .va-listening .va-bloom {
@@ -59,320 +89,189 @@
     rgba(var(--va-glow), 0) 70%
   );
 }
-
-/* the sphere itself — a solid, visible body rather than a faint wash */
 .va-halo {
   position: absolute;
   inset: 6%;
   border-radius: 50%;
   background:
     radial-gradient(circle at 38% 30%, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.5) 26%, rgba(255, 255, 255, 0) 52%),
-    radial-gradient(circle at 50% 50%, rgba(var(--va-live), 0.22) 0%, rgba(var(--va-live), 0.1) 55%, rgba(var(--va-live), 0.03) 78%);
+    radial-gradient(circle at 50% 50%, rgba(var(--va-live), 0.3) 0%, rgba(var(--va-live), 0.14) 55%, rgba(var(--va-live), 0.05) 78%);
   box-shadow:
-    inset 0 0 60px rgba(var(--va-live), 0.18),
-    0 20px 60px rgba(27, 26, 23, 0.10);
+    inset 0 0 10px rgba(var(--va-live), 0.22),
+    0 3px 10px rgba(27, 26, 23, 0.10);
   animation: va-breathe 6.5s ease-in-out infinite;
 }
-
-/* rotating speckle field */
-.va-field {
-  position: absolute;
-  inset: 3%;
-  border-radius: 50%;
-  background-image: radial-gradient(rgba(var(--va-live), 0.95) 1.5px, transparent 1.6px);
-  background-size: 12px 12px;
-  -webkit-mask: radial-gradient(circle, #000 40%, rgba(0, 0, 0, 0.5) 62%, transparent 74%);
-  mask: radial-gradient(circle, #000 40%, rgba(0, 0, 0, 0.5) 62%, transparent 74%);
-  opacity: calc(0.68 + var(--level) * 0.32);
-  transform: rotate(0deg) scale(calc(1 + var(--level) * 0.05));
-  animation: va-spin 34s linear infinite;
-  will-change: transform;
-}
-.va-field-2 {
-  inset: 14%;
-  background-image: radial-gradient(rgba(var(--va-glow), 0.8) 1.3px, transparent 1.4px);
-  background-size: 9px 9px;
-  animation-duration: 52s;
-  animation-direction: reverse;
-  opacity: calc(0.5 + var(--level) * 0.4);
-}
-.va-listening .va-field { animation-duration: 12s; }
-.va-thinking .va-field { animation-duration: 5s; }
-.va-thinking .va-field-2 { animation-duration: 8s; }
-
-/* reactive rings */
 .va-ring {
   position: absolute;
   border-radius: 50%;
-  border: 1px solid rgba(var(--va-live), calc(0.32 + var(--level) * 0.45));
-  inset: 8%;
+  border: 1px solid rgba(var(--va-live), calc(0.4 + var(--level) * 0.45));
+  inset: 0;
   transform: scale(calc(1 + var(--level) * 0.14));
   will-change: transform;
 }
-.va-ring-2 {
-  inset: 22%;
-  border-color: rgba(var(--va-live), calc(0.2 + var(--level) * 0.4));
-  transform: scale(calc(1 + var(--level) * 0.24));
-}
-.va-listening .va-ring { border-color: rgba(var(--va-live), calc(0.2 + var(--level) * 0.5)); }
-.va-listening .va-ring-2 { border-color: rgba(var(--va-live), calc(0.12 + var(--level) * 0.4)); }
-
-/* ripple on state change */
 .va-ripple {
   position: absolute;
-  inset: 12%;
+  inset: 4%;
   border-radius: 50%;
   border: 1px solid rgba(var(--va-live), 0.5);
   opacity: 0;
   pointer-events: none;
 }
 .va-listening .va-ripple { animation: va-ripple 2.4s ease-out infinite; }
+/* Nothing is talking, so nothing needs to breathe — an idle animation on a
+   blurred layer costs paint on every frame of every scroll. */
+.va-idle .va-halo, .va-idle .va-bloom { animation-play-state: paused; }
 
-/* core button */
-.va-mic {
-  position: relative;
-  z-index: 3;
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  color: var(--va-ink);
-  background: radial-gradient(circle at 50% 38%, #ffffff 0%, #f6f3ec 74%);
-  box-shadow:
-    0 0 calc(18px + var(--level) * 60px) rgba(var(--va-glow), calc(0.25 + var(--level) * 0.5)),
-    0 18px 44px rgba(27, 26, 23, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  transform: scale(calc(1 + var(--level) * 0.07));
-  transition: color 200ms ease;
-  will-change: transform;
-}
-.va-mic:hover { color: #000; }
-.va-mic:focus-visible { outline: 2px solid rgba(var(--va-live), 0.9); outline-offset: 4px; }
-.va-listening .va-mic {
-  color: #1f6f66;
-  box-shadow:
-    0 0 calc(22px + var(--level) * 74px) rgba(var(--va-live), calc(0.3 + var(--level) * 0.55)),
-    0 18px 44px rgba(27, 26, 23, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-.va-speaking .va-mic { color: #8a7b5f; }
-.va-spin-icon { animation: va-rotate 1s linear infinite; }
-
-@keyframes va-spin { to { transform: rotate(360deg); } }
-@keyframes va-rotate { to { transform: rotate(360deg); } }
 @keyframes va-breathe {
   0%, 100% { opacity: 0.5; transform: scale(1); }
   50% { opacity: 0.85; transform: scale(1.04); }
 }
 @keyframes va-ripple {
   0% { opacity: 0.55; transform: scale(0.9); }
-  100% { opacity: 0; transform: scale(1.5); }
+  100% { opacity: 0; transform: scale(1.6); }
 }
+@keyframes va-rotate { to { transform: rotate(360deg); } }
+.va-spin-icon { animation: va-rotate 1s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .va-field, .va-halo, .va-ripple { animation: none; }
-  .va-bloom, .va-mic, .va-ring, .va-ring-2 { transform: none; }
+  .va-halo, .va-ripple { animation: none; }
+  .va-bloom, .va-ring { transform: none; }
 }
 
-/* ---------- status + live transcript ---------- */
-.va-status {
-  margin: 18px 0 0;
-  font-size: 13px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  font-weight: 600;
-  color: var(--va-soft);
-  min-height: 18px;
-}
-.va-interim {
-  margin: 10px 0 0;
-  font-size: 20px;
-  line-height: 1.4;
-  font-weight: 500;
-  text-align: center;
-  max-width: 560px;
-  min-height: 28px;
-  color: var(--va-ink);
-}
-.va-interim span { opacity: 0.45; }
-/* try-saying prompt */
-.va-try {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 6px;
-}
-.va-try > span {
-  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600; color: var(--va-soft);
-}
-.va-try-chip {
-  border: 1px solid var(--va-line); background: rgba(255, 255, 255, 0.8); border-radius: 999px;
-  padding: 9px 18px; font-size: 16px; font-weight: 500; cursor: pointer; color: var(--va-ink);
-  transition: all 160ms ease; animation: va-rise 320ms ease both;
-}
-.va-try-chip:hover { border-color: rgba(var(--va-live), 0.6); transform: translateY(-1px); }
-
-/* voice | chat toggle */
-.va-modes {
-  display: inline-flex; gap: 4px; margin-top: 18px; padding: 4px;
+/* ---------- language toggle, at the size of a setting ---------- */
+.va-langs {
+  display: inline-flex; gap: 3px; padding: 3px; flex: none;
   background: rgba(255, 255, 255, 0.75); border: 1px solid var(--va-line); border-radius: 999px;
 }
-.va-mode {
-  display: inline-flex; align-items: center; gap: 7px; border: none; background: transparent;
-  padding: 11px 20px; min-height: 44px; border-radius: 999px; font-size: 14px; font-weight: 600;
-  cursor: pointer; color: var(--va-soft); transition: all 160ms ease;
+.va-lang {
+  border: none; background: transparent; cursor: pointer;
+  padding: 6px 11px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; color: var(--va-soft); transition: all 160ms ease;
 }
-.va-mode:hover { color: var(--va-ink); }
-.va-mode-on { background: var(--va-ink); color: #fff; }
-.va-mode-on:hover { color: #fff; }
+.va-lang:hover { color: var(--va-ink); }
+.va-lang-on { background: var(--va-ink); color: #fff; }
+.va-lang:focus-visible { outline: 2px solid rgba(var(--va-live), 0.9); outline-offset: 2px; }
 
-/* chat composer */
-.va-composer {
-  display: flex; gap: 8px; margin-top: 14px; width: 100%; max-width: 560px;
-  background: #fff; border: 1px solid var(--va-line); border-radius: 16px; padding: 7px 7px 7px 16px;
-  box-shadow: 0 10px 30px rgba(27, 26, 23, 0.06);
-}
-.va-composer input {
-  flex: 1; border: none; outline: none; font: inherit; font-size: 15px; background: transparent;
-  min-width: 0; color: inherit;
-}
-.va-composer button {
-  display: inline-flex; align-items: center; gap: 7px; border: none; background: var(--va-ink);
-  color: #fff; border-radius: 12px; padding: 11px 18px; font-weight: 600; font-size: 14px;
-  cursor: pointer; white-space: nowrap;
-}
-.va-composer button:disabled { opacity: 0.45; cursor: default; }
-
-/* show-your-skin */
-.va-skin-btn {
-  display: inline-flex; align-items: center; gap: 8px; margin-top: 12px;
-  background: transparent; border: 1px dashed rgba(27, 26, 23, 0.22); border-radius: 999px;
-  padding: 12px 18px; min-height: 44px; font-size: 13.5px; font-weight: 600; color: var(--va-soft);
-  cursor: pointer; transition: all 160ms ease;
-}
-.va-skin-btn:hover { color: var(--va-ink); border-color: rgba(var(--va-live), 0.7); }
-
-.va-consent {
-  margin-top: 14px; width: 100%; max-width: 520px; text-align: start;
-  background: #fff; border: 1px solid var(--va-line); border-radius: 18px; padding: 20px;
-  box-shadow: 0 18px 44px rgba(27, 26, 23, 0.1); animation: va-rise 260ms ease both;
-}
-.va-consent strong { display: block; font-size: 16px; margin-bottom: 8px; }
-.va-consent p { margin: 0 0 16px; font-size: 13.5px; line-height: 1.55; color: var(--va-soft); }
-.va-consent-actions, .va-camera-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-.va-consent-yes {
-  display: inline-flex; align-items: center; gap: 8px; border: none; background: var(--va-ink);
-  color: #fff; border-radius: 999px; padding: 11px 20px; font-weight: 600; font-size: 14px; cursor: pointer;
-}
-.va-consent-yes:disabled { opacity: 0.5; cursor: default; }
-.va-consent-no {
-  border: 1px solid var(--va-line); background: #fff; color: var(--va-soft);
-  border-radius: 999px; padding: 11px 20px; font-weight: 600; font-size: 14px; cursor: pointer;
-}
-
-.va-camera {
-  margin-top: 14px; width: 100%; max-width: 520px; display: flex; flex-direction: column;
-  align-items: center; gap: 12px; animation: va-rise 260ms ease both;
-}
-.va-camera video {
-  width: 100%; border-radius: 18px; background: #111; aspect-ratio: 4 / 3; object-fit: cover;
-  box-shadow: 0 18px 44px rgba(27, 26, 23, 0.16); transform: scaleX(-1); /* mirror, like a selfie */
-}
-
-.va-notice { margin: 10px 0 0; font-size: 13px; color: #a3421f; text-align: center; max-width: 460px; }
-.va-notice a { color: inherit; text-decoration: underline; }
-
-/* Three columns on desktop: transcript, orb, quick picks. The transcript
-   scrolls INSIDE its panel so a long conversation never grows the page and
-   never makes the shopper hunt for the mic. */
-.va-grid {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 26px;
-}
-.va-centre { display: flex; flex-direction: column; align-items: center; }
-.va-side { min-width: 0; }
-.va-side-title {
-  display: flex; align-items: center; gap: 8px; margin: 0 0 10px; text-align: start;
-  font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
-  font-weight: 700; color: var(--va-soft);
-}
-.va-live-dot {
-  width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--va-live));
-  animation: va-breathe 2s ease-in-out infinite;
-}
-.va-side-picks { justify-self: end; width: 100%; max-width: 260px; }
-/* Wider once it carries the routine, so a product card can breathe. */
-.va-side-routine { max-width: 320px; }
-.va-panel { animation: va-swap 340ms ease both; }
-.va-panel-count {
-  margin-inline-start: auto; letter-spacing: 0.04em; text-transform: none;
-  font-size: 11px; font-weight: 600; color: var(--va-soft);
-}
-.va-picks { display: flex; flex-direction: column; gap: 9px; }
-.va-pick {
-  text-align: start; border: 1px solid var(--va-line); background: rgba(255, 255, 255, 0.8);
-  border-radius: 13px; padding: 11px 15px; font-size: 13.5px; font-weight: 500;
-  color: var(--va-ink); cursor: pointer; transition: all 150ms ease;
-}
-.va-pick:hover { border-color: rgba(var(--va-live), 0.6); transform: translateY(-1px); }
-
-.va-transcript {
-  width: 100%;
-  max-height: 330px;
-  /* host pages centre their hero text; a transcript has to read left-to-right */
-  text-align: start;
+/* ---------- the thread ---------- */
+.va-thread {
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-inline-end: 6px;
-  /* fade the top edge so clipped history reads as scrollable */
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
+  gap: 10px;
+  padding: 16px 14px 12px;
+  overscroll-behavior: contain;
 }
-.va-transcript::-webkit-scrollbar { width: 5px; }
-.va-transcript::-webkit-scrollbar-thumb { background: rgba(27, 26, 23, 0.18); border-radius: 4px; }
+.va-thread::-webkit-scrollbar { width: 5px; }
+.va-thread::-webkit-scrollbar-thumb { background: rgba(27, 26, 23, 0.18); border-radius: 4px; }
+
 .va-turn {
   margin: 0;
-  font-size: 15px;
+  max-width: 88%;
+  font-size: 14.5px;
   line-height: 1.5;
-  padding: 11px 15px;
-  border-radius: 15px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid var(--va-line);
+  padding: 10px 14px;
+  border-radius: 16px;
   animation: va-rise 320ms ease both;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
-.va-turn span {
-  display: block;
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--va-soft);
-  margin-bottom: 3px;
+.va-turn-agent {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid var(--va-line);
+  border-start-start-radius: 6px;
 }
-.va-turn-user { background: rgba(var(--va-glow), 0.1); }
-@keyframes va-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.va-turn-user {
+  align-self: flex-end;
+  background: var(--va-ink);
+  color: #fdfcfa;
+  border-end-end-radius: 6px;
+}
+/* Live words, not yet a message. */
+.va-turn-interim { opacity: 0.65; }
 
-/* ---------- routine panel ----------
-   Lives in the right column and scrolls inside itself, exactly like the
-   transcript, so a six-step routine never lengthens the page. */
-.va-routine {
-  max-height: 330px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-inline-end: 6px;
-  /* fade the bottom edge so a clipped step reads as scrollable */
-  -webkit-mask-image: linear-gradient(to top, transparent 0, #000 18px);
-  mask-image: linear-gradient(to top, transparent 0, #000 18px);
+/* The advisor composing — three dots, like every chat the shopper knows. */
+.va-typing { display: inline-flex; gap: 5px; padding: 15px 16px; }
+.va-typing i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--va-soft); opacity: 0.5;
+  animation: va-dot 1.1s infinite ease-in-out;
 }
-.va-routine::-webkit-scrollbar { width: 5px; }
-.va-routine::-webkit-scrollbar-thumb { background: rgba(27, 26, 23, 0.18); border-radius: 4px; }
+.va-typing i:nth-child(2) { animation-delay: 0.15s; }
+.va-typing i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes va-dot {
+  0%, 100% { transform: translateY(0); opacity: 0.35; }
+  40% { transform: translateY(-4px); opacity: 0.9; }
+}
+
+@keyframes va-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes va-swap { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* The product the shopper is standing in front of.
+   A fact about the page, pinned at the top of the thread. Logical properties
+   throughout — cicabelle.com/ar is live and this panel flips. */
+.va-focus {
+  display: flex;
+  gap: 13px;
+  padding: 12px;
+  margin-block-end: 2px;
+  border: 1px solid var(--va-line);
+  border-radius: 15px;
+  background: #fff;
+  text-align: start;
+  animation: va-rise 380ms ease both;
+  align-self: stretch;
+}
+.va-focus img, .va-focus .va-rx-noimg {
+  width: 68px; height: 68px; border-radius: 12px; object-fit: cover; flex: none; background: #f1efe9;
+}
+.va-focus-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.va-focus-brand {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--va-soft);
+}
+.va-focus-body strong { font-size: 13.5px; line-height: 1.35; }
+.va-focus-actions { display: flex; align-items: center; gap: 8px; margin-block-start: 6px; }
+.va-focus-add {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 0; border-radius: 999px; padding: 8px 15px; min-height: 36px;
+  background: var(--va-ink); color: #fff;
+  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+.va-focus-add:hover { opacity: 0.88; transform: translateY(-1px); }
+.va-focus-view {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none;
+  border-radius: 50%; border: 1px solid var(--va-line); background: #fff;
+  color: var(--va-soft); text-decoration: none; transition: all 150ms ease;
+}
+.va-focus-view:hover { border-color: rgba(var(--va-live), 0.6); color: var(--va-ink); }
+/* Visible to a screen reader, not on screen: icon buttons and bubbles need names. */
+.va-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ---------- the routine, as a message in the thread ---------- */
+.va-routine-msg {
+  align-self: stretch;
+  border: 1px solid var(--va-line);
+  border-radius: 16px;
+  background: #fff;
+  padding: 13px;
+  animation: va-swap 340ms ease both;
+}
+.va-side-title {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 10px; text-align: start;
+  font-size: 12px; letter-spacing: 0.02em;
+  font-weight: 650; color: var(--va-soft);
+}
+.va-panel-count {
+  margin-inline-start: auto; letter-spacing: 0.04em;
+  font-size: 11px; font-weight: 600; color: var(--va-soft);
+}
+.va-routine { display: flex; flex-direction: column; gap: 12px; }
 .va-routine-group { display: flex; flex-direction: column; gap: 8px; }
 .va-routine-head {
   margin: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.16em;
@@ -413,6 +312,22 @@
   margin: 4px 0 0; font-size: 11px; line-height: 1.35; color: #8a4a1f;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+/* When a step tends to show. A routine of four products and no sense of what
+   any of them does, or when, is the question a shopper is actually asking. */
+.va-rx-timing {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.34rem;
+  margin: 0.3rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--va-muted, #6b7280);
+}
+.va-rx-timing svg {
+  flex: none;
+  margin-top: 0.14rem;
+  opacity: 0.75;
+}
 .va-rx-foot { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
 .va-price { font-size: 13px; font-weight: 700; margin-inline-end: auto; }
 /* The pill stays 28px because the card is dense, but the tap target underneath
@@ -441,138 +356,39 @@
 .va .va-cart-all:hover { background: #000; color: #fff; }
 .va-disclosure { margin: 9px 0 0; font-size: 10.5px; line-height: 1.45; color: var(--va-soft); text-align: start; }
 .va-restart {
-  margin-top: 8px; border: none; background: transparent; padding: 12px 0; cursor: pointer;
-  min-height: 44px;
+  margin-top: 4px; border: none; background: transparent; padding: 10px 0; cursor: pointer;
+  min-height: 40px;
   font-size: 12px; font-weight: 600; color: var(--va-soft); text-decoration: underline;
 }
 .va-restart:hover { color: var(--va-ink); }
 
-@keyframes va-swap { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-
-/* Below the three-column breakpoint everything stacks, and the transcript keeps
-   its own scroll so the page still does not grow. */
-@media (max-width: 1080px) {
-  .va-grid { grid-template-columns: 1fr; gap: 18px; }
-  .va-centre { order: -2; }
-  .va-side-picks { order: -1; justify-self: center; max-width: 100%; }
-  .va-picks { flex-direction: row; flex-wrap: wrap; justify-content: center; }
-  .va-side-live { width: 100%; max-width: 560px; margin: 0 auto; }
-
-  /* ONE SCROLLER ON A PHONE: THE PAGE.
-     Stacked, the transcript and the routine were both boxes with their own
-     max-height and their own overflow — so a 390px screen had three nested
-     scrollers, and the routine sat at the top filling most of it. Almost any
-     swipe landed on an inner box and moved that instead of the page, which is
-     what made it so hard to scroll. It also clipped the last product card
-     behind the cart button.
-
-     Inner scrolling is right on a desktop, where the panels sit side by side in
-     a fixed viewport and must not lengthen the page. On a phone the page IS the
-     panel. */
-  .va-transcript,
-  .va-routine {
-    max-height: none;
-    overflow: visible;
-  }
-  /* The fade exists to say "there is more below the clip". With nothing
-     clipped it just dims real content. */
-  .va-routine {
-    -webkit-mask-image: none;
-    mask-image: none;
-  }
-  /* The routine is the answer, so stacked it goes directly under the orb —
-     ahead of the transcript, which is history the shopper has already read.
-     It used to sit last, below both, which is how a shopper on a phone got a
-     screen that looked unchanged and had to go hunting for their routine. */
-  .va-side-routine { order: -1; width: 100%; max-width: 560px; margin: 0 auto; }
-  /* Room above it when it is scrolled into view, so it does not sit flush
-     against the top of the screen. */
-  .va-side-routine { scroll-margin-top: 14px; }
-}
-
-@media (max-width: 620px) {
-  .va-interim { font-size: 17px; }
-}
-
-/* When a step tends to show. A routine of four products and no sense of what
-   any of them does, or when, is the question a shopper is actually asking. */
-.va-rx-timing {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.34rem;
-  margin: 0.3rem 0 0;
-  font-size: 0.72rem;
-  line-height: 1.35;
-  color: var(--va-muted, #6b7280);
-}
-.va-rx-timing svg {
+/* ---------- the dock ----------
+   Call status, notices, quick replies, composer. It never scrolls, so nothing
+   here can be off-screen when it matters — the property the old fixed-position
+   overlays were simulating one element at a time. */
+.va-dock {
   flex: none;
-  margin-top: 0.14rem;
-  opacity: 0.75;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--va-line);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
-/* ---------------------------------------------------------------------------
-   The orb stops breathing while nobody is talking to it.
-
-   Killing the per-frame JavaScript that drove --level was only half of it: the
-   CSS kept going regardless. `.va-field` is a blurred layer whose opacity and
-   scale animate forever, and a blurred layer that changes has to be re-blurred;
-   `.va-halo` is a masked layer rotating forever. Both cost paint on every frame
-   of every scroll, for the whole life of the page.
-
-   Paused only while idle, and only where it hurts. Idle is exactly when the
-   shopper is reading their routine and dragging a thumb down the screen; while
-   the advisor is listening or speaking the orb is the thing they are looking at
-   and nobody is scrolling.
---------------------------------------------------------------------------- */
-@media (max-width: 1080px) {
-  .va-idle .va-field,
-  .va-idle .va-halo,
-  .va-idle .va-bloom,
-  .va-thinking .va-field,
-  .va-thinking .va-halo {
-    animation-play-state: paused;
-  }
-}
-
-/* ---------- language toggle ---------- */
-/* Present on the widget itself, because the embedded /advisor has no page
-   chrome around it — and speaking Arabic only works if the recogniser was told
-   to listen for Arabic before the first word. */
-.va-langs {
-  display: inline-flex; gap: 4px; margin-top: 14px; padding: 3px;
-  background: rgba(255, 255, 255, 0.75); border: 1px solid var(--va-line); border-radius: 999px;
-}
-.va-lang {
-  border: none; background: transparent; cursor: pointer;
-  padding: 8px 16px; min-height: 38px; border-radius: 999px;
-  font-size: 13px; font-weight: 600; color: var(--va-soft); transition: all 160ms ease;
-}
-.va-lang:hover { color: var(--va-ink); }
-.va-lang-on { background: var(--va-ink); color: #fff; }
-.va-lang:focus-visible { outline: 2px solid rgba(var(--va-live), 0.9); outline-offset: 2px; }
-
-/* ---------------------------------------------------------------------------
- * The call bar: who is speaking, and what is being said, pinned to the bottom
- * of the screen so a shopper reading the routine never loses the thread of
- * the conversation happening above it.
- * ------------------------------------------------------------------------- */
+/* The call bar: who is speaking and what is being said, while the call is live. */
 .va-callbar {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-  z-index: 60;
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: min(92vw, 560px);
-  padding: 10px 18px;
-  border-radius: 999px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 14px;
+  border-radius: 14px;
   background: rgba(30, 27, 24, 0.94);
   color: #faf7f2;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
-  pointer-events: none;
 }
 .va-callbar-who {
   font-size: 11px;
@@ -584,14 +400,14 @@
   opacity: 0.9;
 }
 .va-callbar-text {
-  font-size: 14px;
+  font-size: 13.5px;
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .va-callbar-replay {
-  pointer-events: auto;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -607,210 +423,129 @@
   white-space: nowrap;
   cursor: pointer;
 }
-.va-callbar-replay:active {
-  background: rgba(250, 247, 242, 0.24);
-}
+.va-callbar-replay:active { background: rgba(250, 247, 242, 0.24); }
 .va-callbar-listening .va-callbar-who { color: #93d8c9; }
 .va-callbar-speaking .va-callbar-who { color: #f3c78f; }
 .va-callbar-thinking .va-callbar-who { color: #cfc8bf; }
 @media (prefers-reduced-motion: no-preference) {
-  .va-callbar { animation: va-callbar-in 160ms ease-out; }
-  @keyframes va-callbar-in {
-    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-    to { opacity: 1; transform: translateX(-50%) translateY(0); }
-  }
+  .va-callbar { animation: va-rise 160ms ease-out both; }
 }
 
-/* The product the shopper is standing in front of.
-   Bigger than a routine card and above the chips, because on a product page it
-   is the subject of the conversation rather than one of its results. Logical
-   properties throughout — cicabelle.com/ar is live and this panel flips. */
-.va-focus {
-  display: flex;
-  gap: 13px;
-  padding: 12px;
-  margin-block-end: 14px;
-  border: 1px solid var(--va-line);
-  border-radius: 15px;
-  background: #fff;
-  text-align: start;
-  animation: va-rise 380ms ease both;
-}
-.va-focus img, .va-focus .va-rx-noimg {
-  width: 68px; height: 68px; border-radius: 12px; object-fit: cover; flex: none; background: #f1efe9;
-}
-.va-focus-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
-.va-focus-brand {
-  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--va-soft);
-}
-.va-focus-body strong { font-size: 13.5px; line-height: 1.35; }
-.va-focus-actions { display: flex; align-items: center; gap: 8px; margin-block-start: 6px; }
-.va-focus-add {
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 0; border-radius: 999px; padding: 8px 15px; min-height: 36px;
-  background: var(--va-ink); color: #fff;
-  font-size: 12.5px; font-weight: 600; cursor: pointer;
-  transition: opacity 150ms ease, transform 150ms ease;
-}
-.va-focus-add:hover { opacity: 0.88; transform: translateY(-1px); }
-.va-focus-view {
-  display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none;
-  border-radius: 50%; border: 1px solid var(--va-line); background: #fff;
-  color: var(--va-soft); text-decoration: none; transition: all 150ms ease;
-}
-.va-focus-view:hover { border-color: rgba(var(--va-live), 0.6); color: var(--va-ink); }
-/* Visible to a screen reader, not on screen: the icon button needs a name. */
-.va-sr {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
-}
-
-/* The failure message, pinned like the call bar and for the same reason:
-   the shopper scrolls down to read the transcript, so anything in the flow of
-   the panel is off-screen exactly when it matters. It never competes with the
-   call bar — that renders only while a call is active, and a notice means it
-   is not. */
+/* A notice, in the dock: always on screen, dismissible, and it never sends the
+   shopper out of the store they are standing in. */
 .va-alert {
-  position: fixed;
-  /* Centred by margin, NOT by translateX(-50%).
-     va-rise ends on `transform: none` and runs with fill-mode `both`, so the
-     animation's final keyframe outranks the rule and keeps outranking it — the
-     centring transform was wiped the moment the animation finished and the
-     alert sat at the midpoint, running off the right edge of the screen. The
-     call bar looks right because it never animates transform. */
-  left: 0;
-  right: 0;
-  margin-inline: auto;
-  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-  z-index: 60;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  /* WIDTH, not max-width. A fixed flex box shrink-wraps its content, and the
-     nowrap link inside then set the width — so the message was squeezed into a
-     six-character column with the link hanging off the edge. */
-  width: min(92vw, 560px);
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
   box-sizing: border-box;
-  flex-wrap: wrap;
-  padding: 11px 18px;
-  border-radius: 18px;
+  padding: 10px 12px 10px 14px;
+  border-radius: 14px;
   background: rgba(30, 27, 24, 0.94);
   color: #fdfcfa;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.45;
   text-align: start;
-  box-shadow: 0 14px 34px rgba(27, 26, 23, 0.28);
   animation: va-rise 300ms ease both;
 }
-/* The message needs room before the link is allowed to sit beside it; below
-   that the link wraps onto its own line rather than crushing the sentence. */
-.va-alert > span {
-  flex: 1 1 240px;
-  min-width: 0;
-}
-.va-alert a {
-  color: #fdfcfa;
-  white-space: nowrap;
-  text-decoration: underline;
+.va-alert > span { flex: 1; min-width: 0; }
+.va-alert-x {
   flex: none;
-  margin-inline-start: auto;
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px;
+  margin: -3px -3px 0 0;
+  border: none; border-radius: 50%;
+  background: transparent; color: #fdfcfa;
+  cursor: pointer; opacity: 0.75;
+}
+.va-alert-x:hover { opacity: 1; background: rgba(250, 247, 242, 0.12); }
+
+/* ---------- camera, from the composer's camera button ---------- */
+.va-consent {
+  width: 100%; box-sizing: border-box; text-align: start;
+  background: #fff; border: 1px solid var(--va-line); border-radius: 16px; padding: 16px;
+  box-shadow: 0 18px 44px rgba(27, 26, 23, 0.1); animation: va-rise 260ms ease both;
+}
+.va-consent strong { display: block; font-size: 15px; margin-bottom: 7px; }
+.va-consent p { margin: 0 0 14px; font-size: 13px; line-height: 1.55; color: var(--va-soft); }
+.va-consent-actions, .va-camera-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.va-consent-yes {
+  display: inline-flex; align-items: center; gap: 8px; border: none; background: var(--va-ink);
+  color: #fff; border-radius: 999px; padding: 11px 20px; font-weight: 600; font-size: 14px; cursor: pointer;
+}
+.va-consent-yes:disabled { opacity: 0.5; cursor: default; }
+.va-consent-no {
+  border: 1px solid var(--va-line); background: #fff; color: var(--va-soft);
+  border-radius: 999px; padding: 11px 20px; font-weight: 600; font-size: 14px; cursor: pointer;
+}
+.va-camera {
+  width: 100%; display: flex; flex-direction: column;
+  align-items: center; gap: 12px; animation: va-rise 260ms ease both;
+}
+.va-camera video {
+  width: 100%; border-radius: 16px; background: #111; aspect-ratio: 4 / 3; object-fit: cover;
+  box-shadow: 0 18px 44px rgba(27, 26, 23, 0.16); transform: scaleX(-1); /* mirror, like a selfie */
 }
 
-/* ---------------------------------------------------------------
-   The embedded panel on a phone.
+/* ---------- quick replies ---------- */
+.va-picks { display: flex; flex-wrap: wrap; gap: 8px; }
+.va-pick {
+  text-align: start; border: 1px solid var(--va-line); background: #fff;
+  border-radius: 999px; padding: 9px 14px; font-size: 13.5px; font-weight: 500;
+  color: var(--va-ink); cursor: pointer; transition: all 150ms ease;
+  animation: va-rise 320ms ease both;
+}
+.va-pick:hover { border-color: rgba(var(--va-live), 0.6); transform: translateY(-1px); }
 
-   Everything above is tuned for the advisor on our own page, where it
-   has a screen to itself and the orb is the product. Inside a merchant's
-   slide-over it is a different brief, and the defaults read badly there:
-   a 320px dot field before any content, every line centred, three
-   uppercase letterspaced labels on one screen, and three rounded control
-   bars stacked under each other at three different widths.
+/* ---------- the composer ---------- */
+.va-composer {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; box-sizing: border-box;
+  background: #fff; border: 1px solid var(--va-line); border-radius: 999px;
+  padding: 5px 5px 5px 6px;
+  box-shadow: 0 10px 30px rgba(27, 26, 23, 0.06);
+}
+.va-composer input {
+  flex: 1; border: none; outline: none; font: inherit;
+  /* 16px exactly: anything smaller and iOS zooms the whole panel on focus. */
+  font-size: 16px;
+  background: transparent; min-width: 0; color: inherit;
+  padding: 9px 4px;
+}
+.va-composer input::placeholder { color: var(--va-soft); opacity: 0.8; }
+.va-tool {
+  flex: none; display: inline-grid; place-items: center;
+  width: 40px; height: 40px; border: none; border-radius: 50%;
+  background: transparent; color: var(--va-soft); cursor: pointer;
+  transition: all 150ms ease;
+}
+.va-tool:hover { color: var(--va-ink); background: rgba(27, 26, 23, 0.05); }
+.va-mic {
+  flex: none; display: inline-grid; place-items: center;
+  width: 42px; height: 42px; border: none; border-radius: 50%;
+  background: rgba(var(--va-live), 0.14); color: #1f6f66; cursor: pointer;
+  transition: all 150ms ease;
+}
+.va-mic:hover { background: rgba(var(--va-live), 0.22); }
+.va-mic:focus-visible { outline: 2px solid rgba(var(--va-live), 0.9); outline-offset: 2px; }
+/* Live call: the button is the hang-up, and it says so. */
+.va-mic-live {
+  background: rgb(var(--va-live)); color: #fff;
+  box-shadow: 0 0 0 calc(2px + var(--level) * 7px) rgba(var(--va-live), 0.25);
+}
+.va-mic-live:hover { background: rgb(var(--va-live)); }
+.va-send {
+  flex: none; display: inline-grid; place-items: center;
+  width: 42px; height: 42px; border: none; border-radius: 50%;
+  background: var(--va-ink); color: #fff; cursor: pointer;
+  transition: opacity 150ms ease;
+}
+.va-send:disabled { opacity: 0.35; cursor: default; }
 
-   So on a phone the orb becomes a control rather than a hero, the column
-   reads left like the rest of a storefront, and the shouting stops.
-   --------------------------------------------------------------- */
-.va-controls-row { display: contents; }
-
-@media (max-width: 620px) {
-  .va {
-    align-items: stretch;
-    text-align: start;
-  }
-
-  /* A control, not a centrepiece. It still breathes and still animates;
-     it just stops taking the first two thirds of the panel. */
-  .va-stage {
-    width: min(184px, 44vw);
-    height: min(184px, 44vw);
-    margin-inline: auto;
-  }
-  .va-mic { width: 68px; height: 68px; }
-  .va-mic svg { width: 22px; height: 22px; }
-
-  /* One label, in a normal voice. "TAP TO SPEAK" in letterspaced caps
-     over a giant orb is the shout; the orb has already said it. */
-  .va-status {
-    margin-top: 12px;
-    font-size: 13px;
-    letter-spacing: 0;
-    text-transform: none;
-    font-weight: 500;
-    text-align: center;
-    color: var(--va-soft);
-  }
-
-  /* The prompt reads as something the advisor offered, not as a form
-     field with a caption above it. */
-  /* Block, not flex: a flex child shrinks to its content, so `width: 100%`
-     on the chip was quietly ignored and it sat centred at 60% of the panel. */
-  .va-try { display: block; width: 100%; align-self: stretch; margin-top: 14px; }
-  .va-try > span { display: none; }
-  .va-try-chip {
-    width: 100%;
-    display: block;
-    text-align: start;
-    font-size: 14.5px;
-    padding: 12px 16px;
-    border-radius: 14px;
-  }
-
-  /* Language and input mode on ONE line, at the size of a setting rather
-     than of a decision. Three stacked pill bars of three different widths
-     is the single biggest reason this read as cheap. */
-  .va-controls-row {
-    display: flex;
-    width: 100%;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-top: 16px;
-  }
-  .va-langs, .va-modes { margin-top: 0; }
-  .va-mode { padding: 7px 13px; font-size: 12.5px; }
-  .va-lang { padding: 7px 12px; font-size: 12px; }
-
-  .va-skin-btn {
-    width: 100%;
-    margin-top: 10px;
-    justify-content: center;
-    font-size: 13px;
-  }
-
-  /* Sentence case, and only where a heading earns its place. */
-  .va-side-title {
-    font-size: 12px;
-    letter-spacing: 0.02em;
-    text-transform: none;
-    font-weight: 600;
-    color: var(--va-soft);
-  }
-
-  /* Full width and left-read, so four suggestions are a list rather than
-     four differently-sized lozenges down the middle of the screen. */
-  .va-pick {
-    width: 100%;
-    font-size: 14px;
-    padding: 13px 16px;
-    border-radius: 14px;
-  }
+/* ---------- wider than the drawer ---------- */
+@media (min-width: 720px) {
+  .va-turn { max-width: 72%; font-size: 15px; }
+  .va-thread { padding: 20px 20px 14px; gap: 12px; }
+  .va-dock { padding-inline: 20px; }
+  .va-head { padding: 12px 20px; }
 }
