@@ -49,7 +49,6 @@ describe("one column, one scroller", () => {
   it("scrolls the thread, not the page", () => {
     const thread = css.slice(css.indexOf(".va-thread {"), css.indexOf(".va-thread::"));
     expect(thread).toContain("overflow-y: auto");
-    expect(thread).toContain("min-height: 0");
     // The grid that put the conversation in a sidebar is gone with the layout
     // that needed it.
     expect(css).not.toContain(".va-grid");
@@ -58,8 +57,24 @@ describe("one column, one scroller", () => {
 
   it("follows the newest message", () => {
     // A reply that lands below the fold looks like nothing happened — the
-    // original complaint, in four words.
-    expect(advisor).toMatch(/panel\.scrollTop = panel\.scrollHeight;\s*\}, \[turns, interim, products, phase\]\)/);
+    // original complaint, in four words. `focus` too: the product card lands
+    // at the TOP of the thread and pushes everything below it down.
+    expect(advisor).toMatch(/panel\.scrollTop = panel\.scrollHeight;\s*pinnedRef\.current = true;\s*\}, \[turns, interim, products, phase, focus\]\)/);
+  });
+
+  it("stays at the bottom when the thread shrinks rather than grows", () => {
+    // Opening the camera or a notice grows the dock and clips the thread from
+    // below, with no content change for an effect to see.
+    expect(advisor).toMatch(/new ResizeObserver\(\(\) => \{\s*if \(pinnedRef\.current\) panel\.scrollTop = panel\.scrollHeight;/);
+    // But only for a shopper who was already there.
+    expect(advisor).toMatch(/pinnedRef\.current = panel\.scrollHeight - panel\.scrollTop - panel\.clientHeight < 32/);
+  });
+
+  it("keeps a height on engines without dvh", () => {
+    // An unknown unit invalidates the whole clamp(), and with no height the
+    // thread (flex-basis 0) renders at exactly 0px.
+    const root = css.slice(css.indexOf(".va {"), css.indexOf(".va-rtl"));
+    expect(root).toMatch(/height: clamp\(480px, 72vh, 680px\);\s*height: clamp\(480px, 72dvh, 680px\);/);
   });
 
   it("fills the storefront's drawer exactly", () => {
@@ -117,10 +132,17 @@ describe("the conversation reads like one", () => {
     // After the reply that produced it, with later answers arriving BELOW —
     // a message, not a side panel the thread competes with.
     expect(advisor).toMatch(/routinePosRef\.current = next\.length;/);
-    expect(advisor).toMatch(/turns\.slice\(0, routinePos\)/);
-    expect(advisor).toMatch(/className="va-routine-msg"/);
+    expect(advisor).toMatch(/className="va-routine-msg" key="routine"/);
     // And clearing the routine clears its place in the conversation.
     expect(advisor).toMatch(/routinePosRef\.current = null;/);
+  });
+
+  it("keeps the thread one keyed list, so moving the routine remounts nothing", () => {
+    // Split into before/after arrays, every bubble that crossed the split on
+    // "Start a new routine" unmounted, remounted and replayed its entrance.
+    expect(advisor).toMatch(/const threadItems = turns\.map\(\(turn, index\) => bubble\(turn, index\)\);/);
+    expect(advisor).toMatch(/if \(routineEl\) threadItems\.splice\(routinePos, 0, routineEl\);/);
+    expect(advisor).not.toMatch(/turnsBeforeRoutine|turnsAfterRoutine/);
   });
 
   it("names the speaker for a screen reader even though the bubble no longer labels it", () => {
@@ -148,7 +170,105 @@ describe("the orb survives as the advisor's face", () => {
     expect(css).toMatch(/\.va-bloom[\s\S]{0,400}var\(--level\)/);
   });
 
+  it("drives the hang-up button's ring too, which lives outside the avatar", () => {
+    // The live mic's ring reads --level, but the button sits in the dock and
+    // only ever inherited the static 0 from the root — frozen for the call.
+    expect(css).toMatch(/\.va-mic-live \{[\s\S]{0,200}var\(--level\)/);
+    expect(advisor).toMatch(/micRef\.current\?\.style\.setProperty\("--level", value\)/);
+    expect(advisor).toMatch(/<button\s+ref=\{micRef\}/);
+  });
+
   it("says who is talking in the header, politely", () => {
     expect(advisor).toMatch(/className="va-presence" aria-live="polite"/);
+  });
+});
+
+/**
+ * A reply, or a line of speech, outliving the call that asked for it.
+ *
+ * A turn is a network round trip and a spoken answer is a chain of lines, and
+ * either can still be running when the shopper hangs up — by tapping stop
+ * while the advisor thinks, by typing instead, or because the storefront
+ * closed the drawer. Nothing recorded which call a reply belonged to, so it
+ * was read out regardless: after the hang-up, over the shopper's next
+ * sentence, or behind a closed panel on the merchant's page.
+ */
+describe("speech never outlives its call", () => {
+  it("counts hang-ups — stop, and the storefront closing the drawer", () => {
+    expect(advisor).toMatch(/const callGenRef = useRef\(0\);/);
+    expect(advisor).toMatch(/function stop\(\) \{\s*callGenRef\.current \+= 1;/);
+    expect(advisor).toMatch(/const hangUp = \(\) => \{\s*callGenRef\.current \+= 1;/);
+  });
+
+  it("decides at SEND time whether a reply may be spoken", () => {
+    // Read at landing time, a typed question answered after the shopper
+    // tapped the mic was spoken over them — and speak() aborting recognition
+    // discarded the sentence they had started.
+    const send = advisor.slice(advisor.indexOf("const send = useCallback("));
+    expect(send.slice(0, 1600)).toMatch(/const gen = callGenRef\.current;\s*const typed = modeRef\.current === "chat";/);
+    expect(send.slice(0, 1600)).toMatch(/handleTurn\(payload, \{ silent: typed \|\| gen !== callGenRef\.current \}\)/);
+  });
+
+  it("does not knock a live call back to idle when a silent reply lands", () => {
+    expect(advisor).toMatch(/if \(options\?\.silent \|\| modeRef\.current === "chat"\) \{\s*setPhase\(\(current\) => \(current === "thinking" \? "idle" : current\)\);/);
+  });
+
+  it("ends a multi-line answer at the hang-up, not after it", () => {
+    // stop() pauses the playing line, but the next may still be loading, and
+    // the browser voice reports a cancelled line as finished.
+    const sequence = advisor.slice(advisor.indexOf("const speakSequence = useCallback("));
+    expect(sequence.slice(0, 2600)).toMatch(/const step = \(index: number\) => \{\s*if \(gen !== callGenRef\.current\) return;/);
+  });
+
+  it("does not start a line that finished loading after the hang-up", () => {
+    const speak = advisor.slice(advisor.indexOf("const speak = useCallback("));
+    expect(speak).toMatch(/if \(gen !== callGenRef\.current\) \{\s*once\(\(\) => \{\}\);\s*return;\s*\}\s*if \(!exited\) \{\s*await audio\.play\(\);/);
+    // Nor fall back to the browser voice for an ended call.
+    expect(speak).toMatch(/const fallBack = \(\) => once\(\(\) => \(gen === callGenRef\.current \? speakWithBrowser\(text, onDone\) : undefined\)\);/);
+  });
+
+  it("re-checks the call before reopening the microphone after an answer", () => {
+    expect(advisor).toMatch(/if \(keepGoing && continueRef\.current && modeRef\.current === "voice"\) \{\s*listen\(\);/);
+  });
+});
+
+describe("the dock in a 624px drawer", () => {
+  it("lets the transient extras scroll and keeps the composer out of it", () => {
+    // Camera preview + notice + call bar + chips could want more than the
+    // panel had; with the dock rigid the thread hit 0px and the composer was
+    // pushed off the bottom of the frame.
+    expect(advisor).toMatch(/className="va-dock-extras"/);
+    const extras = css.slice(css.indexOf(".va-dock-extras {"), css.indexOf("}", css.indexOf(".va-dock-extras {")));
+    expect(extras).toContain("overflow-y: auto");
+    expect(extras).toContain("min-height: 0");
+    expect(css).toMatch(/\.va-composer \{ flex: none; \}/);
+    // The composer is outside the scrolling part.
+    const extrasOpen = advisor.indexOf('className="va-dock-extras"');
+    const composer = advisor.indexOf('className="va-composer"');
+    const extrasClose = advisor.lastIndexOf("</div>", composer);
+    expect(composer).toBeGreaterThan(extrasClose);
+    expect(extrasClose).toBeGreaterThan(extrasOpen);
+  });
+
+  it("gives the thread a floor it cannot be squeezed below", () => {
+    const thread = css.slice(css.indexOf(".va-thread {"), css.indexOf(".va-thread::"));
+    expect(thread).toMatch(/min-height: 96px/);
+  });
+
+  it("caps the camera preview so it cannot take the panel", () => {
+    expect(css).toMatch(/\.va-camera video \{[\s\S]{0,300}max-height: 220px/);
+  });
+});
+
+describe("Arabic gets the same spacing, mirrored", () => {
+  it("uses logical properties on the alert and composer", () => {
+    // cicabelle.com/ar is live; physical padding put the tight edge and the
+    // dismiss button's corner tuck on the wrong sides.
+    const alert = css.slice(css.indexOf(".va-alert {"), css.indexOf(".va-alert > span"));
+    expect(alert).toMatch(/padding-inline: 14px 12px/);
+    expect(alert).not.toMatch(/padding: \d+px \d+px \d+px \d+px/);
+    expect(css).toMatch(/\.va-alert-x \{[\s\S]{0,200}margin-inline-end: -3px/);
+    const composer = css.slice(css.indexOf(".va-composer {\n"), css.indexOf(".va-composer input {"));
+    expect(composer).toMatch(/padding-inline-start: 6px/);
   });
 });

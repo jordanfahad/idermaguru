@@ -20,7 +20,10 @@
   width: 100%;
   /* A definite height, because the thread scrolls INSIDE the panel. Pages
      that give the advisor a screen of its own override this to fill it —
-     see advisor-embed.css. */
+     see advisor-embed.css.
+     vh first: an engine without dvh drops the whole clamp() as invalid, and
+     with no height at all the thread — flex-basis 0 — collapses to nothing. */
+  height: clamp(480px, 72vh, 680px);
   height: clamp(480px, 72dvh, 680px);
   min-height: 0;
   font-family: var(--sans, ui-sans-serif, system-ui, sans-serif);
@@ -154,7 +157,9 @@
 /* ---------- the thread ---------- */
 .va-thread {
   flex: 1 1 0;
-  min-height: 0;
+  /* Never squeezed to nothing: whatever the dock is holding, the latest
+     message keeps a couple of lines of the panel. */
+  min-height: 96px;
   overflow-y: auto;
   scrollbar-width: thin;
   display: flex;
@@ -367,7 +372,12 @@
    here can be off-screen when it matters — the property the old fixed-position
    overlays were simulating one element at a time. */
 .va-dock {
-  flex: none;
+  /* Shrinkable, down to the composer. In a 624px drawer a camera preview, a
+     notice, the call bar and a row of chips can together want more than the
+     panel has; the extras give way and scroll, the composer and the thread's
+     floor above do not. */
+  flex: 0 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -377,6 +387,20 @@
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
+
+.va-dock-extras {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+/* Nothing to show: no box, and no gap above the composer. */
+.va-dock-extras:empty { display: none; }
+.va-composer { flex: none; }
 
 /* The call bar: who is speaking and what is being said, while the call is live. */
 .va-callbar {
@@ -439,7 +463,10 @@
   gap: 10px;
   width: 100%;
   box-sizing: border-box;
-  padding: 10px 12px 10px 14px;
+  /* Logical, so the tighter edge follows the dismiss button to the left in
+     Arabic. */
+  padding-block: 10px;
+  padding-inline: 14px 12px;
   border-radius: 14px;
   background: rgba(30, 27, 24, 0.94);
   color: #fdfcfa;
@@ -453,7 +480,9 @@
   flex: none;
   display: inline-grid; place-items: center;
   width: 28px; height: 28px;
-  margin: -3px -3px 0 0;
+  /* Tucked into the corner it sits in — the top-left one in Arabic. */
+  margin-block-start: -3px;
+  margin-inline-end: -3px;
   border: none; border-radius: 50%;
   background: transparent; color: #fdfcfa;
   cursor: pointer; opacity: 0.75;
@@ -483,7 +512,9 @@
   align-items: center; gap: 12px; animation: va-rise 260ms ease both;
 }
 .va-camera video {
-  width: 100%; border-radius: 16px; background: #111; aspect-ratio: 4 / 3; object-fit: cover;
+  /* Capped: at a drawer's width a 4:3 preview alone is ~270px — most of
+     the panel. Cropped to fit, a face still fills it. */
+  width: 100%; max-height: 220px; border-radius: 16px; background: #111; aspect-ratio: 4 / 3; object-fit: cover;
   box-shadow: 0 18px 44px rgba(27, 26, 23, 0.16); transform: scaleX(-1); /* mirror, like a selfie */
 }
 
@@ -502,7 +533,8 @@
   display: flex; align-items: center; gap: 6px;
   width: 100%; box-sizing: border-box;
   background: #fff; border: 1px solid var(--va-line); border-radius: 999px;
-  padding: 5px 5px 5px 6px;
+  padding: 5px;
+  padding-inline-start: 6px;
   box-shadow: 0 10px 30px rgba(27, 26, 23, 0.06);
 }
 .va-composer input {
