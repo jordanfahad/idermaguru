@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
  */
 
 const advisor = readFileSync(new URL("../src/components/voice-agent.tsx", import.meta.url), "utf8");
-const css = readFileSync(new URL("../src/components/voice-agent.css", import.meta.url), "utf8");
+const css = readFileSync(new URL("../src/components/voice-agent.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const embed = readFileSync(new URL("../src/app/advisor/advisor-embed.css", import.meta.url), "utf8");
 
 describe("the greeting is instant", () => {
@@ -96,12 +96,19 @@ describe("the composer never moves and never hides", () => {
     expect(advisor).not.toMatch(/role="tablist"/);
   });
 
-  it("carries voice as a button, not a mode decision", () => {
+  it("makes voice the primary action while keeping typing available", () => {
     // Typing answers in text; the mic starts — and stops — the call. Nothing
     // to choose before saying anything.
     expect(advisor).toMatch(/function toggleVoice\(\)/);
     expect(advisor).toMatch(/onClick=\{toggleVoice\}/);
-    expect(advisor).toMatch(/\{voiceLive \? <Square size=\{16\} \/> : <Mic size=\{19\} \/>\}/);
+    expect(advisor).toMatch(/\{voiceLive \? <Square size=\{20\} \/> : <Mic size=\{28\} \/>\}/);
+    expect(advisor).toMatch(/<span>\{voiceLive \? t\.stop : t\.start\}<\/span>/);
+    expect(advisor).toMatch(/aria-pressed=\{voiceLive\}/);
+    const voice = advisor.indexOf('className="va-voice-action"');
+    const composer = advisor.indexOf('className="va-composer"');
+    expect(voice).toBeGreaterThan(advisor.indexOf('className="va-dock-extras"'));
+    expect(composer).toBeGreaterThan(voice);
+    expect(advisor.slice(composer)).not.toContain("onClick={toggleVoice}");
   });
 
   it("puts the microphone down when the shopper types instead", () => {

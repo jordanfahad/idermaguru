@@ -401,6 +401,13 @@
 /* Nothing to show: no box, and no gap above the composer. */
 .va-dock-extras:empty { display: none; }
 .va-composer { flex: none; }
+.va-voice-action {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  /* Keep the primary action above a host bubble's 76px corner footprint. */
+  padding-bottom: 8px;
+}
 
 /* The call bar: who is speaking and what is being said, while the call is live. */
 .va-callbar {
@@ -553,12 +560,14 @@
 }
 .va-tool:hover { color: var(--va-ink); background: rgba(27, 26, 23, 0.05); }
 .va-mic {
-  flex: none; display: inline-grid; place-items: center;
-  width: 42px; height: 42px; border: none; border-radius: 50%;
-  background: rgba(var(--va-live), 0.14); color: #1f6f66; cursor: pointer;
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  gap: 10px; min-width: 180px; max-width: 100%; height: 64px;
+  padding: 0 22px; border: none; border-radius: 999px;
+  font-size: 16px; font-weight: 650;
+  background: #1f6f66; color: #fff; cursor: pointer;
   transition: all 150ms ease;
 }
-.va-mic:hover { background: rgba(var(--va-live), 0.22); }
+.va-mic:hover { background: #185b54; }
 .va-mic:focus-visible { outline: 2px solid rgba(var(--va-live), 0.9); outline-offset: 2px; }
 /* Live call: the button is the hang-up, and it says so. */
 .va-mic-live {

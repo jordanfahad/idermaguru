@@ -29,6 +29,12 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Advisor drawer regression
+        run: npm run test:browser
+
       - name: Build
         run: npm run build
         env:
