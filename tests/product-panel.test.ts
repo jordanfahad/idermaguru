@@ -16,6 +16,16 @@ import { describe, expect, it } from "vitest";
 const advisor = readFileSync(new URL("../src/components/voice-agent.tsx", import.meta.url), "utf8");
 const page = readFileSync(new URL("../src/app/advisor/page.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../src/components/voice-agent.css", import.meta.url), "utf8");
+const embed = readFileSync(new URL("../src/app/advisor/advisor-embed.css", import.meta.url), "utf8");
+
+describe("the store's floating chat button", () => {
+  it("reserves the embedded composer's trailing corner in either language", () => {
+    const rule = embed.match(/\.advisor-embed \.va-composer\s*\{([^}]+)\}/)?.[1] ?? "";
+    expect(rule).toMatch(/margin-inline-end:\s*76px/);
+    expect(rule).toMatch(/width:\s*auto/);
+    expect(rule).not.toMatch(/margin-(left|right)/);
+  });
+});
 
 describe("opening about the product on the page", () => {
   it("asks the server for an opening turn when there is a product", () => {

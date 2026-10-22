@@ -2441,9 +2441,22 @@ export function VoiceAgent({
           ) : null}
         </div>
 
-        {/* Always on screen, in both modes. Typing answers in text; the mic
-            button starts — and stops — the call. There is no mode to choose
-            before saying anything, which is the seam this closes. */}
+        {/* Voice is the primary action. Both controls stay outside the
+            scrolling extras, so typing is always available too. */}
+        <div className="va-voice-action">
+          <button
+            ref={micRef}
+            type="button"
+            className={voiceLive ? "va-mic va-mic-live" : "va-mic"}
+            onClick={toggleVoice}
+            aria-label={voiceLive ? t.stop : t.start}
+            aria-pressed={voiceLive}
+            title={voiceLive ? t.stop : t.start}
+          >
+            {voiceLive ? <Square size={20} /> : <Mic size={28} />}
+            <span>{voiceLive ? t.stop : t.start}</span>
+          </button>
+        </div>
         <form
           className="va-composer"
           onSubmit={(event) => {
@@ -2461,16 +2474,6 @@ export function VoiceAgent({
             aria-label={t.typeHere}
             autoComplete="off"
           />
-          <button
-            ref={micRef}
-            type="button"
-            className={voiceLive ? "va-mic va-mic-live" : "va-mic"}
-            onClick={toggleVoice}
-            aria-label={voiceLive ? t.stop : t.start}
-            title={voiceLive ? t.stop : t.start}
-          >
-            {voiceLive ? <Square size={16} /> : <Mic size={19} />}
-          </button>
           <button type="submit" className="va-send" disabled={busy || !draft.trim()} aria-label={t.send} title={t.send}>
             {busy ? <Loader2 className="va-spin-icon" size={16} /> : <Send size={16} />}
           </button>

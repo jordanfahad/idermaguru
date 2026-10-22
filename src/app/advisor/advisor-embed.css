@@ -28,3 +28,11 @@
 .advisor-embed .va {
   height: 100%;
 }
+
+/* The store can place its own 56px chat bubble 20px from the screen edge.
+   Leave that corner free inside our frame too. The inset follows the
+   composer's direction, including a language change while the panel is open. */
+.advisor-embed .va-composer {
+  width: auto;
+  margin-inline-end: 76px;
+}

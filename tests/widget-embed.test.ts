@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
  * Each is asserted against the shipped files rather than a copy, because the
  * bug in every case was drift between what we document and what we serve.
  */
-const widget = readFileSync(new URL("../public/dermaguru-widget.js", import.meta.url), "utf8");
+const widget = readFileSync(new URL("../public/dermaguru-widget.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const dashboard = readFileSync(new URL("../src/app/dashboard/page.tsx", import.meta.url), "utf8");
 const advisor = readFileSync(new URL("../src/components/voice-agent.tsx", import.meta.url), "utf8");
 const embedDoc = readFileSync(new URL("../docs/EMBED.md", import.meta.url), "utf8");
