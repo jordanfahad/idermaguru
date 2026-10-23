@@ -44,6 +44,20 @@ function logClient(event: string, detail: Record<string, string | number | boole
 const MAX_SILENT_RESTARTS = 4;
 
 /**
+ * How long the shopper must be quiet before a recorded turn (the iPhone path)
+ * counts as finished.
+ *
+ * This is dead air added to every single turn — the advisor cannot start
+ * thinking until it is sure they have stopped — so each 100ms here is felt
+ * 100ms on every reply. It was 900ms. The floor is the natural pause between
+ * clauses in a sentence, which runs well under half a second; 650ms clears
+ * that with room, where much lower starts answering people mid-breath.
+ * Browsers that recognise speech themselves decide this on their own and are
+ * not affected.
+ */
+const END_OF_SPEECH_MS = 650;
+
+/**
  * iPhone and iPad, including iPadOS pretending to be a Mac.
  *
  * On iOS Safari, a page that HOLDS a getUserMedia audio stream and runs
@@ -1569,7 +1583,7 @@ export function VoiceAgent({
           // turn regardless, and the transcriber is the judge of whether
           // anything was said. A deaf meter costs a slower cadence, never
           // a lost turn.
-          if (voiceAt && now - lastVoiceAt > 900) return finishTurn();
+          if (voiceAt && now - lastVoiceAt > END_OF_SPEECH_MS) return finishTurn();
           if (!voiceAt && now - startedAt > 5000) return finishTurn();
           if (now - startedAt > 15000) return finishTurn();
           vadFrameRef.current = window.requestAnimationFrame(tick);
