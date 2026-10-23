@@ -279,3 +279,19 @@ describe("Arabic gets the same spacing, mirrored", () => {
     expect(composer).toMatch(/padding-inline-start: 6px/);
   });
 });
+
+describe("the pause after the shopper stops talking", () => {
+  it("is a named constant, shorter than the 900ms it was", () => {
+    // Dead air on every turn of the iPhone path: the advisor cannot start
+    // thinking until it is sure they have stopped.
+    const match = advisor.match(/const END_OF_SPEECH_MS = (\d+);/);
+    expect(match, "the pause must be a named constant").toBeTruthy();
+    const ms = Number(match![1]);
+    expect(ms).toBeLessThan(900);
+    // But not below the natural pause between clauses, or it answers people
+    // mid-breath.
+    expect(ms).toBeGreaterThanOrEqual(500);
+    expect(advisor).toMatch(/now - lastVoiceAt > END_OF_SPEECH_MS/);
+    expect(advisor).not.toMatch(/now - lastVoiceAt > 900/);
+  });
+});
