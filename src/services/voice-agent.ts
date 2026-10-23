@@ -1574,3 +1574,64 @@ export function slotsToProfile(slots: AgentSlots, sessionId?: string): IntakePro
     symptoms: [],
   };
 }
+
+/**
+ * Cuts a long spoken line into sentence-sized pieces, so the first can start
+ * playing while the rest are still being synthesised.
+ *
+ * Speech synthesis takes time in proportion to the text, and the player waits
+ * for a whole piece before it makes a sound — so a four-sentence answer was
+ * four sentences of silence, then the lot. Every piece is requested at once, so
+ * the join between them costs nothing; only the first has to be ready.
+ *
+ * A boundary is sentence punctuation FOLLOWED BY WHITESPACE, which is what
+ * keeps "2.5%" and "AED 89." together and "Use it. Then" apart. Written with a
+ * lookahead rather than a lookbehind because older iPhones cannot parse the
+ * latter, and a regex that fails to parse takes the whole bundle down with it.
+ *
+ * Short pieces are folded into the next one: a two-word "Great news," is not
+ * worth a request of its own, and speaks worse alone than inside its sentence.
+ */
+export function speechChunks(text: string, options: { min?: number; max?: number } = {}): string[] {
+  const min = options.min ?? 40;
+  const max = options.max ?? 4;
+  const clean = text.trim();
+  // Already short: one request is as fast as any, and one voice reads it whole.
+  if (clean.length <= 90) return clean ? [clean] : [];
+
+  const sentences: string[] = [];
+  const boundary = /[\s\S]*?[.!?؟…]+["')\]]*(?=\s|$)\s*/g;
+  let used = 0;
+  for (let match = boundary.exec(clean); match; match = boundary.exec(clean)) {
+    if (!match[0]) {
+      boundary.lastIndex += 1;
+      continue;
+    }
+    sentences.push(match[0].trim());
+    used = boundary.lastIndex;
+  }
+  const rest = clean.slice(used).trim();
+  if (rest) sentences.push(rest);
+
+  const pieces: string[] = [];
+  let carry = "";
+  for (const sentence of sentences) {
+    carry = carry ? `${carry} ${sentence}` : sentence;
+    if (carry.length >= min) {
+      pieces.push(carry);
+      carry = "";
+    }
+  }
+  if (carry) {
+    if (pieces.length) pieces[pieces.length - 1] = `${pieces[pieces.length - 1]} ${carry}`;
+    else pieces.push(carry);
+  }
+
+  // Past the cap, the tail travels together: more requests than this costs more
+  // in overhead than it saves in waiting.
+  while (pieces.length > max) {
+    const tail = pieces.pop() as string;
+    pieces[pieces.length - 1] = `${pieces[pieces.length - 1]} ${tail}`;
+  }
+  return pieces;
+}

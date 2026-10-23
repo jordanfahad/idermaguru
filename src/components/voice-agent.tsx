@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, Clock, ExternalLink, Heart, Loader2, Mic, RotateCcw, Send, ShoppingCart, Sparkles, Square, X } from "lucide-react";
 import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
 import { speechLocale } from "@/services/language";
-import { acknowledgements, describePhoto, fixedLines, scriptedLines } from "@/services/voice-agent";
+import { acknowledgements, describePhoto, fixedLines, scriptedLines, speechChunks } from "@/services/voice-agent";
 import "./voice-agent.css";
 
 /**
@@ -1034,7 +1034,13 @@ export function VoiceAgent({
    */
   const speakSequence = useCallback(
     (parts: string[], onDone: () => void) => {
-      const queue = parts.map((part) => part.trim()).filter(Boolean);
+      // Fixed lines are already cached recordings and play whole; anything
+      // written for this shopper is cut into sentences so the first can start
+      // while the rest are still being synthesised — see speechChunks.
+      const queue = parts
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .flatMap((part) => (isScriptedLine(part) ? [part] : speechChunks(part)));
       if (!queue.length) {
         onDone();
         return;
@@ -1298,6 +1304,8 @@ export function VoiceAgent({
    * scripted lines are, which is what makes it play on the tap itself.
    */
   const openingReplyRef = useRef<string | null>(null);
+  /** That line's audio, ready to play on the first tap. Used once. */
+  const openingAudioRef = useRef<{ line: string; url: string } | null>(null);
   useEffect(() => {
     if (!focusProduct || openedRef.current) return;
     openedRef.current = true;
@@ -1335,11 +1343,26 @@ export function VoiceAgent({
         const line = typeof payload.reply === "string" ? payload.reply.trim() : "";
         if (line && payload.focus) {
           openingReplyRef.current = line;
-          void fetch(speechUrl(line, spokenLangRef.current === "ar" ? "ar" : "en"), { cache: "force-cache" }).catch(
-            () => {
+          /*
+           * Fetched as audio and HELD, not just warmed. The scripted lines are
+           * warmed over GET, but that door only serves fixed lines — this one
+           * names the product, so it was refused, and the first tap paid the
+           * whole synthesis while the shopper looked at a button that had
+           * already been pressed. POST is the door that speaks it; keeping the
+           * result means the tap plays with no request at all.
+           */
+          void fetch("/api/voice-agent/speech", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text: line, language: spokenLangRef.current === "ar" ? "ar" : "en" }),
+          })
+            .then((response) => (response.ok ? response.blob() : null))
+            .then((blob) => {
+              if (blob) openingAudioRef.current = { line, url: URL.createObjectURL(blob) };
+            })
+            .catch(() => {
               // Prewarming is an optimisation; speak() still works without it.
-            },
-          );
+            });
         }
 
         if (startedRef.current) {
@@ -1805,7 +1828,10 @@ export function VoiceAgent({
     setTurns([{ role: "agent", text: greeting }]);
     replayRef.current = [greeting];
     setPhase("speaking");
-    void speak(greeting, () => listen());
+    // Only if it is the same line: the audio was made for exactly that text.
+    const held = openingAudioRef.current;
+    openingAudioRef.current = null;
+    void speak(greeting, () => listen(), held && held.line === greeting ? held.url : undefined);
   }
 
   function stopCamera() {

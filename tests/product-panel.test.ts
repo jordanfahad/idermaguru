@@ -322,7 +322,7 @@ describe("the spoken greeting on a product page", () => {
   });
 
   it("prewarms that line the moment it lands, like the scripted ones", () => {
-    expect(advisor).toMatch(/openingReplyRef\.current = line;[\s\S]{0,120}speechUrl\(line/);
+    expect(advisor).toMatch(/openingReplyRef\.current = line;[\s\S]{0,900}openingAudioRef\.current = \{ line, url:/);
     expect(advisor).toMatch(/cache: "force-cache"/);
   });
 
