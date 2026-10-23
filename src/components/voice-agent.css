@@ -405,6 +405,8 @@
   flex: none;
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 12px;
   /* Keep the primary action above a host bubble's 76px corner footprint. */
   padding-bottom: 8px;
 }
@@ -554,11 +556,12 @@
 .va-composer input::placeholder { color: var(--va-soft); opacity: 0.8; }
 .va-tool {
   flex: none; display: inline-grid; place-items: center;
-  width: 40px; height: 40px; border: none; border-radius: 50%;
-  background: transparent; color: var(--va-soft); cursor: pointer;
+  width: 48px; height: 48px; border: 1px solid var(--va-line); border-radius: 50%;
+  background: #fff; color: var(--va-soft); cursor: pointer;
   transition: all 150ms ease;
 }
-.va-tool:hover { color: var(--va-ink); background: rgba(27, 26, 23, 0.05); }
+.va-tool:hover { color: var(--va-ink); border-color: rgba(var(--va-live), 0.6); }
+.va-tool:focus-visible { outline: 2px solid rgba(var(--va-live), 0.9); outline-offset: 2px; }
 .va-mic {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
   gap: 10px; min-width: 180px; max-width: 100%; height: 64px;

@@ -229,7 +229,7 @@ const UI = {
     advisorName: "DermaGuru",
     online: "Online — ask me anything",
     dismiss: "Dismiss",
-    typeHere: "Ask about your skin or hair…",
+    typeHere: "Ask me anything…",
     send: "Send",
     start: "Tap to speak",
     stop: "Stop",
@@ -286,7 +286,7 @@ const UI = {
     advisorName: "ديرما جورو",
     online: "متصل — اسألني أي شيء",
     dismiss: "إغلاق",
-    typeHere: "اسأل عن بشرتك أو شعرك…",
+    typeHere: "اسألني أي شيء…",
     send: "إرسال",
     start: "اضغط للتحدث",
     stop: "إيقاف",
@@ -2470,6 +2470,11 @@ export function VoiceAgent({
         {/* Voice is the primary action. Both controls stay outside the
             scrolling extras, so typing is always available too. */}
         <div className="va-voice-action">
+          {/* Beside the mic, where there is room. It sat in the text box's row,
+              which at phone width left the box ~117px with its hint cut off. */}
+          <button type="button" className="va-tool" onClick={() => setCamera("consent")} aria-label={t.showSkin} title={t.showSkin}>
+            <Camera size={20} />
+          </button>
           <button
             ref={micRef}
             type="button"
@@ -2490,9 +2495,6 @@ export function VoiceAgent({
             if (!busy) submitText(draft);
           }}
         >
-          <button type="button" className="va-tool" onClick={() => setCamera("consent")} aria-label={t.showSkin} title={t.showSkin}>
-            <Camera size={18} />
-          </button>
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
