@@ -139,3 +139,18 @@
     animation: none;
   }
 }
+
+/* AI data consent (App Store 5.1.2(i)): shown in place of the advisor until the shopper agrees. */
+.cc-consent {
+  position: relative; z-index: 2; margin: 26px auto 0; max-width: 520px; text-align: start;
+  background: #fff; border: 1px solid var(--cc-line); border-radius: 18px; padding: 22px 22px 18px;
+  box-shadow: 0 14px 34px rgba(27, 26, 23, 0.08);
+}
+.cc-consent h2 { margin: 0 0 8px; font-size: 17px; font-weight: 700; color: var(--cc-ink); }
+.cc-consent p { margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: var(--cc-soft); }
+.cc-consent-yes {
+  display: block; width: 100%; border: 0; border-radius: 999px; padding: 14px 20px;
+  background: var(--cc-ink); color: #fff; font-size: 15px; font-weight: 700; cursor: pointer;
+}
+.cc-consent-yes:hover { opacity: 0.92; }
+.cc-consent-more { display: block; margin-top: 12px; text-align: center; font-size: 13px; color: var(--cc-soft); text-decoration: underline !important; }

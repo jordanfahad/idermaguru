@@ -10,6 +10,14 @@ const privacySections = [
       "يستخدم AI Derma Guru جلسات مجهولة، وإجابات الاستبيان، وسجلات الموافقة، وتفاعلات المنتجات، وأحداث التحويل اللازمة لتقديم التوصيات وقياس الأداء. رفع الصورة اختياري ويتطلب موافقة صريحة.",
   },
   {
+    title: "AI processing by OpenAI",
+    body:
+      "The skin advisor is powered by OpenAI. Before you start, we ask for your permission to send what you type, what you say (your voice is transcribed into text) and any skin photo you choose to add to OpenAI, which processes it to generate your guidance. Under OpenAI's API terms this data is not used to train their models. Nothing is sent until you agree, and you can keep using the store without the advisor.",
+    arTitle: "المعالجة بالذكاء الاصطناعي عبر OpenAI",
+    arBody:
+      "يعمل مستشار البشرة بتقنية OpenAI. قبل البدء نطلب إذنك لإرسال ما تكتبه وما تقوله (يُحوَّل صوتك إلى نص) وأي صورة لبشرتك تختار إضافتها إلى OpenAI لمعالجتها وتقديم الإرشاد لك. وفق شروط واجهة OpenAI البرمجية لا تُستخدم هذه البيانات لتدريب نماذجها. لا يُرسل أي شيء قبل موافقتك، ويمكنك متابعة التسوق دون استخدام المستشار.",
+  },
+  {
     title: "How photos are handled",
     body:
       "Photos are not used for diagnosis and are not used to train AI models. The MVP is designed for short retention, deletion support, and limited admin visibility.",
