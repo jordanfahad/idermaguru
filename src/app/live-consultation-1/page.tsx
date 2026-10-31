@@ -10,11 +10,24 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default async function LiveConsultationOnePage() {
+export default async function LiveConsultationOnePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ src?: string; lang?: string }>;
+}) {
+  const params = await searchParams;
   const config = await getLiveConsultationConfig("live-consultation-1");
   const curatedProducts = config.products.map((product) => ({
     ...product,
     trust: "Selected from an approved retail catalog after suitability checks.",
   }));
-  return <ConciergeConsultation curatedProducts={curatedProducts} vendorShares={config.vendors} />;
+  // Known on the server so the app's first paint already has the right header and language.
+  return (
+    <ConciergeConsultation
+      curatedProducts={curatedProducts}
+      vendorShares={config.vendors}
+      inApp={params.src === "cicabelle-app"}
+      initialLang={params.lang === "ar" ? "ar" : "en"}
+    />
+  );
 }

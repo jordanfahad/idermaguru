@@ -18,9 +18,13 @@ const AI_CONSENT_KEY = "dg_ai_consent_v1";
 export function ConciergeConsultation({
   curatedProducts,
   vendorShares,
+  inApp = false,
+  initialLang = "en",
 }: {
   curatedProducts: LiveConsultationProduct[];
   vendorShares: LiveConsultationVendor[];
+  inApp?: boolean;
+  initialLang?: "en" | "ar";
 }) {
   const [showForm, setShowForm] = useState(false);
   /*
@@ -43,7 +47,7 @@ export function ConciergeConsultation({
    * also matters for App Review, where a link to buy our subscription from
    * inside someone's iPhone app reads as an outside purchase (guideline 3.1.1).
    */
-  const [framed, setFramed] = useState(false);
+  const [framed, setFramed] = useState(inApp);
   useEffect(() => {
     try {
       setFramed(window.self !== window.top);
@@ -51,13 +55,11 @@ export function ConciergeConsultation({
       setFramed(true);
     }
   }, []);
-  const [lang, setLang] = useState<"en" | "ar">("en");
+  const [lang, setLang] = useState<"en" | "ar">(initialLang);
   // Runs after the frame check above, so the app flag always wins.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("lang") === "ar") setLang("ar");
-    if (params.get("src") === "cicabelle-app") setFramed(true);
-  }, []);
+    if (inApp) setFramed(true);
+  }, [inApp]);
   const isAr = lang === "ar";
   const tr = (en: string, ar: string) => (isAr ? ar : en);
   /*
