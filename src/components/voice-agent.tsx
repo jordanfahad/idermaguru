@@ -6,6 +6,7 @@ import { createOrbAudio, type OrbAudio } from "./voice-orb-audio";
 import { speechLocale } from "@/services/language";
 import { acknowledgements, describePhoto, fixedLines, scriptedLines, speechChunks } from "@/services/voice-agent";
 import "./voice-agent.css";
+import { blockedInMarket, fetchMarketPrices, formatMarketPrice, isAbroad, localProductUrl, type CicabelleMarket, type MarketPrice } from "@/lib/cicabelle-market";
 
 /**
  * GET endpoint for a fixed line, so <audio> streams it from the browser cache.
@@ -221,6 +222,28 @@ const GREETING = {
   ar: scriptedLines("ar")[0],
 };
 
+/** Saudi/Kuwait: the same suggestions without the UAE budget in dirhams. */
+const PROMPTS_ABROAD = {
+  en: [
+    "I have dark spots and dull skin",
+    "acne-safe sunscreen and moisturiser",
+    "a simple, affordable glow routine",
+    "barrier repair for sensitive skin",
+    "dandruff and an itchy scalp",
+  ],
+  ar: [
+    "عندي بقع داكنة وبشرة باهتة",
+    "واقي شمس مناسب لحب الشباب",
+    "روتين إشراق بسيط وبسعر مناسب",
+    "إصلاح حاجز البشرة الحساسة",
+    "قشرة وحكة في فروة الرأس",
+  ],
+};
+
+function handleOf(url: string): string {
+  return url.split("#")[0].split("?")[0].split("/").filter(Boolean).pop()?.toLowerCase() ?? "";
+}
+
 const PROMPTS = {
   en: [
     "I have dark spots and dull skin",
@@ -374,6 +397,7 @@ export function VoiceAgent({
   tenantSlug,
   focusProduct,
   initialQuestion,
+  market = "AE",
 }: {
   initialLang?: Lang;
   /** "full" is the shopper product; "compact" is the homepage demo. */
@@ -403,6 +427,12 @@ export function VoiceAgent({
    * nobody has tapped anything a browser will let us speak through yet.
    */
   initialQuestion?: string;
+  /**
+   * Cicabelle's Saudi or Kuwait store. Products that cannot be sold there are never
+   * shown, prices are that market's (SAR, or KWD for Kuwait), and links and the cart
+   * open that market's store. Never an AED price outside the UAE.
+   */
+  market?: CicabelleMarket;
 }) {
   const [lang, setLang] = useState<Lang>(initialLang);
   const [mode, setMode] = useState<Mode>("voice");
@@ -426,6 +456,32 @@ export function VoiceAgent({
    * the point of showing it.
    */
   const [focus, setFocus] = useState<AgentProduct | null>(null);
+  const abroad = isAbroad(market);
+  const urlLang: "en" | "ar" = lang === "ar" ? "ar" : "en";
+  /*
+   * Abroad, a card's price comes from that market's catalogue, fetched per routine.
+   * Missing (still loading, or the lookup failed) shows no price at all; null means
+   * the product is not sold there, so the card is not shown.
+   */
+  const [marketPrices, setMarketPrices] = useState<Map<string, MarketPrice>>(new Map());
+  useEffect(() => {
+    if (!abroad) return;
+    const handles = [...products, ...(focus ? [focus] : [])].map((p) => handleOf(p.url)).filter(Boolean);
+    if (!handles.length) return;
+    let live = true;
+    fetchMarketPrices(handles, market, urlLang)
+      .then((prices) => { if (live) setMarketPrices(prices); })
+      .catch(() => { /* no price is better than a wrong one */ });
+    return () => { live = false; };
+  }, [abroad, market, urlLang, products, focus]);
+  const soldHere = (p: AgentProduct) => !abroad || (!blockedInMarket(market, p.url) && marketPrices.get(handleOf(p.url)) !== null);
+  const shown = abroad ? products.filter(soldHere) : products;
+  const priceLabel = (p: AgentProduct) => {
+    if (!abroad) return `${p.currency} ${p.price}`;
+    const local = marketPrices.get(handleOf(p.url));
+    return local ? formatMarketPrice(local.amount, local.currency, market, urlLang) : "";
+  };
+  const productHref = (p: AgentProduct) => localProductUrl(p.url, market, urlLang);
   /** The follow-ups this turn offered, if any — see suggestionsFor on the server. */
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [disclosure, setDisclosure] = useState<string | null>(null);
@@ -1124,6 +1180,8 @@ export function VoiceAgent({
           // Which chip was tapped, when one was. Absent for anything typed or
           // spoken, which goes through the ordinary dialogue as it always has.
           ...(ask ? { ask } : {}),
+          // So the server never picks or names a product this market cannot be sold.
+          ...(market !== "AE" ? { market } : {}),
         }),
       });
       const payload = await response.json();
@@ -2124,7 +2182,8 @@ export function VoiceAgent({
     // Ids, not URLs: the cart endpoint resolves the store from its own
     // catalogue rather than trusting a link handed to it in a query string.
     const payload = items.map((p) => ({ id: p.id, url: p.url }));
-    return `/api/cart/cicabelle?items=${encodeURIComponent(JSON.stringify(payload))}`;
+    const where = abroad ? `&market=${market}&lang=${urlLang}` : "";
+    return `/api/cart/cicabelle?items=${encodeURIComponent(JSON.stringify(payload))}${where}`;
   }
 
   const busy = phase === "thinking";
@@ -2148,7 +2207,7 @@ export function VoiceAgent({
    * it, with later answers arriving BELOW — a message in the thread, not a
    * side panel the thread competes with.
    */
-  const routinePos = products.length ? Math.min(routinePosRef.current ?? turns.length, turns.length) : -1;
+  const routinePos = shown.length ? Math.min(routinePosRef.current ?? turns.length, turns.length) : -1;
 
   const bubble = (turn: Turn, index: number) => (
     <p key={`${turn.role}-${index}-${turn.text.slice(0, 12)}`} className={`va-turn va-turn-${turn.role}`}>
@@ -2157,16 +2216,16 @@ export function VoiceAgent({
     </p>
   );
 
-  const routineEl = products.length ? (
+  const routineEl = shown.length ? (
     <div className="va-routine-msg" key="routine">
       <p className="va-side-title">
         <Sparkles size={13} />
         {t.yourRoutine}
-        <span className="va-panel-count">{t.steps(products.length)}</span>
+        <span className="va-panel-count">{t.steps(shown.length)}</span>
       </p>
 
       <div className="va-routine">
-        {groupRoutine(products).map((group) => (
+        {groupRoutine(shown).map((group) => (
           <section className="va-routine-group" key={group.bucket}>
             <p className="va-routine-head">{t.routine[group.bucket]}</p>
             {group.items.map((product) => (
@@ -2210,9 +2269,7 @@ export function VoiceAgent({
                   ) : null}
                   {product.cautions?.length ? <p className="va-rx-caution">{product.cautions[0]}</p> : null}
                   <div className="va-rx-foot">
-                    <span className="va-price">
-                      {product.currency} {product.price}
-                    </span>
+                    <span className="va-price">{priceLabel(product)}</span>
                     <button
                       type="button"
                       className={wishlist.includes(product.id) ? "va-icon-btn va-saved" : "va-icon-btn"}
@@ -2224,7 +2281,7 @@ export function VoiceAgent({
                     </button>
                     <a
                       className="va-icon-btn"
-                      href={product.url}
+                      href={productHref(product)}
                       target="_blank"
                       rel="noreferrer"
                       aria-label={t.view}
@@ -2240,7 +2297,7 @@ export function VoiceAgent({
         ))}
       </div>
 
-      <a className="va-cart-all" href={cartUrl(products)} target="_blank" rel="noreferrer">
+      <a className="va-cart-all" href={cartUrl(shown)} target="_blank" rel="noreferrer">
         <ShoppingCart size={15} />
         {t.cart}
       </a>
@@ -2336,15 +2393,13 @@ export function VoiceAgent({
             <div className="va-focus-body">
               {focus.brand ? <span className="va-focus-brand">{focus.brand}</span> : null}
               <strong>{focus.name}</strong>
-              <span className="va-price">
-                {focus.currency} {focus.price}
-              </span>
+              <span className="va-price">{priceLabel(focus)}</span>
               <div className="va-focus-actions">
                 <button type="button" className="va-focus-add" onClick={() => addToParentCart(focus)}>
                   <ShoppingCart size={14} />
                   {t.addToBag}
                 </button>
-                <a className="va-focus-view" href={focus.url} target="_blank" rel="noreferrer">
+                <a className="va-focus-view" href={productHref(focus)} target="_blank" rel="noreferrer">
                   <ExternalLink size={13} />
                   <span className="va-sr">{t.view}</span>
                 </a>
@@ -2472,7 +2527,7 @@ export function VoiceAgent({
             </div>
           ) : !started && turns.length === 0 ? (
             <div className="va-picks" aria-label={t.quickPicks}>
-              {PROMPTS[lang].slice(0, 4).map((prompt) => (
+              {(abroad ? PROMPTS_ABROAD : PROMPTS)[lang].slice(0, 4).map((prompt) => (
                 <button key={prompt} type="button" className="va-pick" onClick={() => submitText(prompt)}>
                   {prompt}
                 </button>

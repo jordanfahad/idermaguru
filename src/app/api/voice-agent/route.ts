@@ -4,6 +4,7 @@ import { seedTenant } from "@/data/seed-catalog";
 import { tenantSlugForRequestHost } from "@/services/merchant-domains";
 import { ESCALATION_MESSAGE, escalationMessage, type IntakeProfileInput, type ProductCatalogItem, type SafetyTriage } from "@/domain/skincare";
 import { getTenantBySlug, listTenantProducts, productForReference } from "@/services/catalog";
+import { blockedInMarket, type CicabelleMarket } from "@/lib/cicabelle-market";
 import { getLLMProvider, UNREADABLE_ANSWER } from "@/services/llm/provider";
 import { buildRecommendations, passesHardFilters } from "@/services/recommendation-engine";
 import { runSafetyTriage, validateAssistantTextForSafety } from "@/services/safety-triage";
@@ -111,7 +112,21 @@ const AgentSchema = z.object({
   // the shopper would be told skin and hair are all we cover. A button we drew
   // ourselves should not have to be understood.
   ask: z.enum(["about", "actives", "suits"]).optional(),
+  // Cicabelle's Saudi and Kuwait stores: products that cannot be sold or shipped
+  // there are never picked, named or shown. Absent means the UAE, as before.
+  market: z.enum(["AE", "SA", "KW"]).optional(),
 });
+
+/** The same product lookup, minus anything this market cannot be sold. */
+async function focusInMarket(market: CicabelleMarket | undefined, reference: string, tenantSlug: string) {
+  const product = await productForReference(reference, tenantSlug);
+  return product && !blockedInMarket(market ?? "AE", product.url) ? product : null;
+}
+
+async function catalogueForMarket(tenantSlug: string, market: CicabelleMarket | undefined) {
+  const products = await listTenantProducts(tenantSlug);
+  return market && market !== "AE" ? products.filter((product) => !blockedInMarket(market, product.url)) : products;
+}
 
 /**
  * One turn of the voice concierge.
@@ -162,7 +177,7 @@ export async function POST(request: Request) {
      * dialogue follows from there exactly as it always has.
      */
     if (input.ask && input.ask !== "suits") {
-      const focus = input.product ? await productForReference(input.product, input.tenantSlug) : null;
+      const focus = input.product ? await focusInMarket(input.market, input.product, input.tenantSlug) : null;
       if (focus) {
         const line =
           input.ask === "about"
@@ -219,7 +234,7 @@ export async function POST(request: Request) {
       // greeting — being told nothing and being told something we cannot find
       // are the same thing to the shopper, and both are better than a wrong
       // product name.
-      const focus = input.product ? await productForReference(input.product, input.tenantSlug) : null;
+      const focus = input.product ? await focusInMarket(input.market, input.product, input.tenantSlug) : null;
       const opening = focus ? copy.greetingAboutProduct(focus.name) : copy.greeting;
       return NextResponse.json({
         reply: await say(opening),
@@ -362,7 +377,7 @@ export async function POST(request: Request) {
      */
     const askedAboutProduct = input.product && readsProductQuestion(input.utterance);
     if (askedAboutProduct) {
-      const focus = await productForReference(input.product!, input.tenantSlug);
+      const focus = await focusInMarket(input.market, input.product!, input.tenantSlug);
       if (focus) {
         const line = aboutLine(focus, copy, lang);
         return NextResponse.json({
@@ -561,7 +576,7 @@ export async function POST(request: Request) {
       if (tenantF) {
         const profileF = slotsToProfile(before, input.sessionId);
         const safetyF = runSafetyTriage(profileF);
-        const productsF = await listTenantProducts(input.tenantSlug);
+        const productsF = await catalogueForMarket(input.tenantSlug, input.market);
         const disliked = new Set(before.dislikedIds ?? []);
         // The routine being argued with must be rebuilt by the SAME builder
         // that produced it. This always used the face builder, so a hair
@@ -1109,7 +1124,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const products = await listTenantProducts(input.tenantSlug);
+    const products = await catalogueForMarket(input.tenantSlug, input.market);
     const where = areaRoute(slots.bodyArea);
 
     // An allergy named this turn is read back whichever routine follows. It was

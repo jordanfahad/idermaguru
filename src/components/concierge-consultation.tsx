@@ -6,6 +6,7 @@ import { ChevronDown, ShieldCheck, Sparkles, Star } from "lucide-react";
 import type { LiveConsultationProduct, LiveConsultationVendor } from "@/data/live-consultations";
 import { LiveConsultationSearch } from "./live-consultation-search";
 import { VoiceAgent } from "./voice-agent";
+import type { CicabelleMarket } from "@/lib/cicabelle-market";
 import "./concierge-consultation.css";
 
 const AI_CONSENT_KEY = "dg_ai_consent_v1";
@@ -20,11 +21,14 @@ export function ConciergeConsultation({
   vendorShares,
   inApp = false,
   initialLang = "en",
+  market = "AE",
 }: {
   curatedProducts: LiveConsultationProduct[];
   vendorShares: LiveConsultationVendor[];
   inApp?: boolean;
   initialLang?: "en" | "ar";
+  /** Cicabelle's Saudi/Kuwait store: local prices and links, nothing that cannot ship there. */
+  market?: CicabelleMarket;
 }) {
   const [showForm, setShowForm] = useState(false);
   /*
@@ -157,7 +161,7 @@ export function ConciergeConsultation({
         </p>
 
         {aiConsent ? (
-          <VoiceAgent key={lang} initialLang={lang} />
+          <VoiceAgent key={lang} initialLang={lang} market={market} />
         ) : (
           <section className="cc-consent" aria-labelledby="cc-consent-title">
             <h2 id="cc-consent-title">{tr("Before we start", "قبل أن نبدأ")}</h2>
@@ -184,7 +188,7 @@ export function ConciergeConsultation({
         </p>
       </main>
 
-      {aiConsent ? (
+      {aiConsent && market === "AE" ? (
         <section className="cc-alt">
           <button type="button" className="cc-alt-toggle" onClick={() => setShowForm((open) => !open)}>
             <ChevronDown size={16} className={showForm ? "cc-rot" : ""} />
@@ -195,7 +199,7 @@ export function ConciergeConsultation({
         </section>
       ) : null}
 
-      {aiConsent && showForm ? (
+      {aiConsent && market === "AE" && showForm ? (
         <div className="cc-form-host">
           <LiveConsultationSearch curatedProducts={curatedProducts} vendorShares={vendorShares} />
         </div>

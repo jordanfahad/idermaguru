@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { seedTenant } from "@/data/seed-catalog";
 import { listTenantProducts } from "@/services/catalog";
 import { productHandle } from "@/services/product-taxonomy";
+import { blockedInMarket, localProductUrl, marketStorePath, type CicabelleMarket } from "@/lib/cicabelle-market";
 
 /**
  * Hands a whole routine to the merchant's Shopify cart.
@@ -42,9 +43,16 @@ export async function GET(request: Request) {
   );
 
   type Matched = { stored: (typeof catalogue)[number]; variantId?: string };
+  // Saudi/Kuwait: the cart opens in that market's store (its prices, its checkout) and
+  // never carries a product that cannot be shipped there. Only exact values are
+  // accepted; anything else is the UAE store, as before.
+  const marketParam = requestUrl.searchParams.get("market")?.toUpperCase();
+  const market: CicabelleMarket = marketParam === "SA" || marketParam === "KW" ? marketParam : "AE";
+  const lang = requestUrl.searchParams.get("lang") === "ar" ? "ar" : "en";
+
   const matched = requested.flatMap<Matched>((item) => {
     const stored = (item.id ? byId.get(item.id) : undefined) ?? byHandle.get(productHandle(item.url ?? ""));
-    return stored ? [{ stored, variantId: item.variantId }] : [];
+    return stored && !blockedInMarket(market, stored.url) ? [{ stored, variantId: item.variantId }] : [];
   });
 
   const storeOrigin = originOf(matched[0]?.stored.url) ?? originOf(catalogue.find((p) => p.url)?.url);
@@ -54,7 +62,7 @@ export async function GET(request: Request) {
 
   if (variantIds.length > 0) {
     const cartPath = variantIds.map((variantId) => `${variantId}:1`).join(",");
-    const destination = new URL(`${storeOrigin}/cart/${cartPath}`);
+    const destination = new URL(`${storeOrigin}${market === "AE" ? "" : marketStorePath(market, lang)}/cart/${cartPath}`);
     destination.searchParams.set("utm_source", "ai-derma-guru");
     destination.searchParams.set("utm_medium", "add-to-cart");
     destination.searchParams.set("utm_campaign", "live-consultation");
@@ -63,7 +71,8 @@ export async function GET(request: Request) {
 
   // Nothing resolved to a variant: the product page is better than an empty cart.
   const first = matched[0]?.stored.url;
-  return NextResponse.redirect(first ?? `${storeOrigin}/cart`);
+  const storeHome = `${storeOrigin}${market === "AE" ? "" : marketStorePath(market, lang)}`;
+  return NextResponse.redirect(first ? localProductUrl(first, market, lang) : `${storeHome}/cart`);
 }
 
 function originOf(url?: string | null): string | null {
